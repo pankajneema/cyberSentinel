@@ -1,0 +1,24 @@
+{
+  "name": "cybersentinel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Unified Cyber Risk Orchestration Platform",
+  "scripts": {
+    "dev": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "start": "cd frontend && npm start",
+    "lint": "cd frontend && npm run lint",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f"
+  },
+  "keywords": [
+    "cybersecurity",
+    "asm",
+    "vulnerability-scanning",
+    "saas"
+  ],
+  "author": "CuriousDevs",
+  "license": "UNLICENSED"
+}
+
