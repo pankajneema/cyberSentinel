@@ -114,3 +114,39 @@ These workers are **intentionally skeleton‑only**:
 - No real scanning logic is implemented.
 - Safe to compile and run in development.
 - All real scanner integrations should be added incrementally, keeping the HTTP/API contracts stable.
+
+
+
+backend/
+└── workers/
+    ├── runners/
+    │   └── asm/
+    │       ├── main.go              # worker entry (queue, loop)
+    │       ├── discovery.go          # discovery orchestration
+    │       ├── profiles.go           # light / normal / deep logic
+    │       └── types.go              # shared job/result structs
+    │
+    ├── tools/
+    │   ├── subfinder/
+    │   │   ├── subfinder.go          # CLI wrapper
+    │   │   └── types.go
+    │   │
+    │   ├── amass/
+    │   │   ├── amass.go
+    │   │   └── types.go
+    │   │
+    │   ├── crtsh/
+    │   │   └── crtsh.go              # HTTP based
+    │   │
+    │   ├── dnsx/
+    │   │   └── dnsx.go
+    │   │
+    │   ├── httpx/
+    │   │   └── httpx.go
+    │   │
+    │   └── common/
+    │       ├── exec.go               # safe exec helpers
+    │       ├── timeout.go
+    │       └── normalize.go
+    │
+    └── README.md

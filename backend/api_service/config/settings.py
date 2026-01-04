@@ -66,12 +66,9 @@ class Settings:
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
 
     # -------------------- CORS ------------------------
-    CORS_ORIGINS: list[str] = [
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:8000",
-        "http://localhost:8081"
-    ]
+    CORS_ORIGINS: list[str] = os.getenv(
+        "CORS_ORIGINS_URL"
+    )
 
 
 # -------------------------------------------------------------------
