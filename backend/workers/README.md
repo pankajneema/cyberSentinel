@@ -1,152 +1,164 @@
-# Background Workers
+Overview
 
-Background services responsible for long‑running or heavy jobs. They are **separate from the API service**, but integrate with it via queues and HTTP.
+This repository contains the background workers system for CyberSential.
 
-There are currently two implementations:
+The workers are responsible for:
 
-- **Python workers** – original prototypes (`asm_worker.py`, `vs_worker.py`).
-- **Go workers** – new, structured skeletons under `go/` for ASM and VS flows.
+Consuming jobs from a queue
 
----
+Coordinating job execution
 
-## Python workers (legacy prototypes)
+Running security tools (ASM / VA / IA)
 
-Files:
+Streaming real-time job updates via WebSocket
 
-- `asm_worker.py`
-- `vs_worker.py`
+The system is designed to be:
 
-High‑level responsibilities:
+Asynchronous
 
-- Process ASM discovery / VS scan jobs from a queue.
-- Run actual scanners (DNS/ports/services, nmap, trivy, etc.).
-- Persist results into the database.
+Fault-tolerant
 
-These scripts are **standalone** and currently not wired to the new API contracts.
+Scalable
 
-Run manually:
+Rewrite-safe
 
-```bash
-cd backend/workers
-python3 asm_worker.py   # ASM discovery prototype
-python3 vs_worker.py    # Vulnerability scanning prototype
-```
+High-Level Architecture
+UI
+ ↓
+Queue (RabbitMQ)
+ ↓
+Consumer (Dispatcher)
+ ↓
+Gin Control-Plane (API)
+ ↓
+Orchestration (Job Brain)
+ ↓
+Executor (Background Goroutines)
+ ↓
+Security Tools
+ ↓
+Result
+ ↓
+Orchestration
+ ↓
+WebSocket → UI
 
----
+Project Setup
+1️⃣ Initialize Go Project
+mkdir workers
+cd workers
+go mod init workers
 
-## Go workers (current skeletons)
+2️⃣ Install Dependencies
+go get github.com/joho/godotenv
+go get go.uber.org/zap
 
-Located in `backend/workers/go`. They are structured as separate commands under `cmd/`:
+3️⃣ Environment Variables
 
-```text
-go/
-  go.mod
-  cmd/
-    asm_discovery/       # ASM discovery worker
-    asm_exposure/        # ASM exposure analysis worker
-    vs_scan_trigger/     # VS scan trigger worker
-    vs_result_fetcher/   # VS result fetcher worker
-    vs_normalization/    # VS normalization worker
-```
+Create a .env file (do NOT commit it):
 
-Each command is a **small, independent binary** with:
+cp .env.example .env
 
-- Environment‑driven configuration (API base URL, queue URLs).
-- Structured logging to stdout.
-- Placeholder loops and TODOs instead of real scanning logic.
-
-### Responsibilities (skeleton only)
-
-- **`asm_discovery`**
-  - Reads discovery jobs from a queue.
-  - Calls legacy ASM API `POST /api/v1/asm/discover`.
-  - Emits job status back to the platform.
-
-- **`asm_exposure`**
-  - Periodically reads assets from `/api/v1/asm/assets` and `/api/v1/assets`.
-  - Computes exposure signals (public/internal, tags).
-  - PATCHes `/api/v1/assets/{id}` with updated metadata.
-
-- **`vs_scan_trigger`**
-  - Dequeues scheduled/on‑demand VS scan jobs.
-  - Triggers scans via `POST /api/v1/scans`.
-
-- **`vs_result_fetcher`**
-  - Polls `GET /api/v1/scans/{id}` for scan status/results.
-  - Pushes raw findings to a normalization queue.
-
-- **`vs_normalization`**
-  - Consumes raw results from the normalization queue.
-  - Normalizes into the platform‑wide VS finding schema.
-  - Will call future `/api/v1/vs/findings` endpoints to persist.
-
-### Building and running Go workers
-
-From `backend/workers/go`:
-
-```bash
-# Build all commands
-go build ./cmd/...
-
-# Run a single worker (examples)
-API_BASE_URL=http://localhost:8000/api/v1 \
-QUEUE_URL=redis://localhost:6379/0 \
-go run ./cmd/asm_discovery
-
-API_BASE_URL=http://localhost:8000/api/v1 \
-go run ./cmd/asm_exposure
-
-API_BASE_URL=http://localhost:8000/api/v1 \
-QUEUE_URL=redis://localhost:6379/0 \
-go run ./cmd/vs_scan_trigger
-
-API_BASE_URL=http://localhost:8000/api/v1 \
-NORMALIZATION_QUEUE_URL=redis://localhost:6379/1 \
-go run ./cmd/vs_result_fetcher
-
-API_BASE_URL=http://localhost:8000/api/v1 \
-NORMALIZATION_QUEUE_URL=redis://localhost:6379/1 \
-go run ./cmd/vs_normalization
-```
-
-These workers are **intentionally skeleton‑only**:
-
-- No real scanning logic is implemented.
-- Safe to compile and run in development.
-- All real scanner integrations should be added incrementally, keeping the HTTP/API contracts stable.
+4️⃣ Run (later)
+go run control-plane/main.go
 
 
+(Consumer and executor will be run as separate processes later.)
 
-backend/
-└── workers/
-    ├── runners/
-    │   └── asm/
-    │       ├── main.go              # worker entry (queue, loop)
-    │       ├── discovery.go          # discovery orchestration
-    │       ├── profiles.go           # light / normal / deep logic
-    │       └── types.go              # shared job/result structs
-    │
-    ├── tools/
-    │   ├── subfinder/
-    │   │   ├── subfinder.go          # CLI wrapper
-    │   │   └── types.go
-    │   │
-    │   ├── amass/
-    │   │   ├── amass.go
-    │   │   └── types.go
-    │   │
-    │   ├── crtsh/
-    │   │   └── crtsh.go              # HTTP based
-    │   │
-    │   ├── dnsx/
-    │   │   └── dnsx.go
-    │   │
-    │   ├── httpx/
-    │   │   └── httpx.go
-    │   │
-    │   └── common/
-    │       ├── exec.go               # safe exec helpers
-    │       ├── timeout.go
-    │       └── normalize.go
-    │
-    └── README.md
+Folder Structure
+workers/
+├── config/             # Configuration & env loading
+├── utils/              # Shared utilities (logger, queue helpers)
+│
+├── consumer/           # Queue consumer & dispatcher
+│   ├── main.go         # Consumer bootstrap
+│   ├── dispatcher.go   # Decide whether to hit Gin
+│   └── handlers/
+│       └── job.go      # Calls Gin to start jobs
+│
+├── control-plane/      # Gin HTTP API + WebSocket
+│   ├── main.go         # Gin server entry point
+│   ├── api/            # HTTP layer
+│   └── websocket/      # Real-time job updates
+│
+├── orchestration/      # Job lifecycle & state management
+│   ├── job_manager.go  # Job start, next task, completion
+│   ├── job_state.go    # Job states (PENDING/RUNNING/etc.)
+│   ├── job_store.go    # Persistence abstraction
+│   └── job_registry.go # ASM / VA / IA definitions
+│
+├── executor/           # Background task execution
+│   ├── runner/         # Executes a single task
+│   ├── profiles/       # Scan profiles (ASM/VA/IA)
+│   └── tools/          # Security tools (subfinder, httpx, etc.)
+│
+├── .env.example        # Environment variable template
+├── go.mod
+├── go.sum
+└── README.md
+
+Responsibilities (Very Important)
+Consumer
+
+Reads messages from the queue
+
+Decides whether to trigger Gin
+
+Never executes tools
+
+Control-Plane (Gin)
+
+Exposes APIs
+
+Controls job lifecycle
+
+Emits WebSocket events
+
+Never runs heavy tasks
+
+Orchestration
+
+Brain of the system
+
+Breaks jobs into tasks
+
+Starts executor in background goroutines
+
+Executor
+
+Runs actual security tools
+
+Stateless and isolated
+
+Always executed asynchronously
+
+Non-Negotiable Rules
+
+Executor is never called directly from Gin handlers
+
+Executor always runs in a goroutine
+
+Consumer never runs tools
+
+Control-plane never blocks on execution
+
+All long-running work is asynchronous
+
+Why This Design?
+
+Prevents API timeouts
+
+Survives worker crashes
+
+Easy to scale horizontally
+
+Clean separation of concerns
+
+Future-proof (executor can be separated later)
+
+
+
+Maintainer
+
+CyberSential
+Built by CuriousDevs

@@ -83,3 +83,5 @@ if not settings.DATABASE_URL:
     raise RuntimeError(
         "DATABASE_URL is not set. Check your .env file loading."
     )
+
+
