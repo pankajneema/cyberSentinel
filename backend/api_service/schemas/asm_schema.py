@@ -26,7 +26,7 @@ class AsmDiscoveryUpdateRequest(BaseModel):
     intensity: Optional[Literal["LIGHT", "NORMAL", "DEEP"]] = None
     schedule_type: Optional[Literal["QUICK", "INTERVAL", "CRON"]] = None
     schedule_value: Optional[str] = None
-    status: Optional[Literal["ACTIVE", "PAUSED"]] = None
+    status: Optional[Literal["RUNNING", "PAUSED", "FAILED"]] = None
 
 
 # ---------------------------------------------------

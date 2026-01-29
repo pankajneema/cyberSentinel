@@ -13,7 +13,7 @@ import (
 func Start(cfg *config.Config) error {
 	utils.Logger.Infof("connecting to RabbitMQ")
 
-	queue, err := utils.Connect(cfg.RabbitURL, cfg.RabbitJobQueue)
+	queue, err := utils.Connect(cfg.RabbitURL, cfg.ASMRabbitJobQueue)
 	if err != nil {
 		return err
 	}
@@ -33,7 +33,7 @@ func Start(cfg *config.Config) error {
 	for {
 		select {
 		case msg := <-msgs:
-			utils.Logger.Debugf("message received")
+			utils.Logger.Debugf("message received: %s", string(msg.Body))
 
 			err := dispatch(msg.Body)
 			if err != nil {
@@ -50,4 +50,3 @@ func Start(cfg *config.Config) error {
 		}
 	}
 }
-

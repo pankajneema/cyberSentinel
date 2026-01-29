@@ -194,7 +194,7 @@ export function ScanManager() {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case "ACTIVE": return <CheckCircle2 className="w-4 h-4 text-success" />;
+      case "RUNNING": return <CheckCircle2 className="w-4 h-4 text-success" />;
       case "RUNNING": return <Loader2 className="w-4 h-4 text-primary animate-spin" />;
       case "PENDING": return <Clock className="w-4 h-4 text-warning" />;
       case "PAUSED": return <Pause className="w-4 h-4 text-muted-foreground" />;
@@ -205,7 +205,7 @@ export function ScanManager() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "ACTIVE": return "bg-success/10 text-success";
+      case "RUNNING": return "bg-success/10 text-success";
       case "RUNNING": return "bg-primary/10 text-primary";
       case "PENDING": return "bg-warning/10 text-warning";
       case "PAUSED": return "bg-muted text-muted-foreground";
@@ -365,10 +365,10 @@ export function ScanManager() {
           description: `${name} is now running`,
         });
         
-        // Change to ACTIVE after scan completes (5 seconds)
+        // Change to RUNNING after scan completes (5 seconds)
         setTimeout(() => {
           setDiscoveries(prev => prev.map(d => 
-            d.id === id ? { ...d, status: "ACTIVE" as any } : d
+            d.id === id ? { ...d, status: "RUNNING" as any } : d
           ));
           
           toast({
@@ -387,14 +387,14 @@ export function ScanManager() {
   };
 
   const handleToggleStatus = async (discovery: AsmDiscovery) => {
-    const newStatus = discovery.status === "ACTIVE" ? "PAUSED" : "ACTIVE";
+    const newStatus = discovery.status === "RUNNING" ? "PAUSED" : "RUNNING";
     
     try {
       const updated = await updateDiscovery(discovery.id, { status: newStatus as any });
       setDiscoveries(discoveries.map(d => d.id === updated.id ? updated : d));
       
       toast({
-        title: `Discovery ${newStatus === "ACTIVE" ? "Activated" : "Paused"}`,
+        title: `Discovery ${newStatus === "RUNNING" ? "Activated" : "Paused"}`,
         description: `${discovery.name} is now ${newStatus.toLowerCase()}`,
       });
     } catch (err: any) {
@@ -773,9 +773,9 @@ export function ScanManager() {
   };
 
   const renderDiscoveryCard = (discovery: AsmDiscovery, index: number) => {
-    const canEdit = discovery.status === "ACTIVE" || discovery.status === "PAUSED";
-    const canRunNow = discovery.status === "ACTIVE";
-    const canToggleStatus = discovery.status === "ACTIVE" || discovery.status === "PAUSED";
+    const canEdit = discovery.status === "RUNNING" || discovery.status === "PAUSED";
+    const canRunNow = discovery.status === "RUNNING";
+    const canToggleStatus = discovery.status === "RUNNING" || discovery.status === "PAUSED";
     const canStop = discovery.status === "PENDING";
     
     return (
@@ -839,7 +839,7 @@ export function ScanManager() {
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => handleToggleStatus(discovery)}>
-                      {discovery.status === "ACTIVE" ? (
+                      {discovery.status === "RUNNING" ? (
                         <>
                           <Pause className="w-4 h-4 mr-2" />Pause
                         </>
@@ -926,6 +926,7 @@ export function ScanManager() {
           <TabsTrigger value="running">Running</TabsTrigger>
           <TabsTrigger value="paused">Paused</TabsTrigger>
           <TabsTrigger value="pending">Pending</TabsTrigger>
+          <TabsTrigger value="failed">Failed</TabsTrigger>
         </TabsList>
 
         <TabsContent value="all" className="space-y-4 mt-4">
@@ -956,7 +957,7 @@ export function ScanManager() {
 
         <TabsContent value="active" className="mt-4">
           <div className="space-y-3">
-            {discoveries.filter(d => d.status === "ACTIVE").map((discovery, index) => (
+            {discoveries.filter(d => d.status === "RUNNING").map((discovery, index) => (
               <motion.div
                 key={discovery.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -1021,7 +1022,7 @@ export function ScanManager() {
                 </div>
               </motion.div>
             ))}
-            {discoveries.filter(d => d.status === "ACTIVE").length === 0 && (
+            {discoveries.filter(d => d.status === "RUNNING").length === 0 && (
               <EmptyState
                 icon={CheckCircle2}
                 title="No active discoveries"
@@ -1191,6 +1192,64 @@ export function ScanManager() {
                 icon={Clock}
                 title="No pending discoveries"
                 description="There are no discoveries in the queue."
+              />
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="failed" className="mt-4">
+          <div className="space-y-3">
+            {discoveries.filter(d => d.status === "FAILED").map((discovery, index) => (
+              <motion.div
+                key={discovery.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05 }}
+                className="bg-card rounded-2xl border border-border p-5"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    {getStatusIcon(discovery.status)}
+                    <div>
+                      <div className="font-medium text-foreground">{discovery.name}</div>
+                      <div className="text-sm text-muted-foreground capitalize">{discovery.asset_type} • {discovery.intensity}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs px-2.5 py-1 rounded-full capitalize ${getStatusColor(discovery.status)}`}>
+                      {discovery.status}
+                    </span>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => openViewDialog(discovery)}>
+                          <Eye className="w-4 h-4 mr-2" />View Details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEditDialog(discovery)}>
+                          <Edit className="w-4 h-4 mr-2" />Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem 
+                          onClick={() => handleDeleteDiscovery(discovery.id, discovery.name)}
+                          className="text-destructive"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+            {discoveries.filter(d => d.status === "FAILED").length === 0 && (
+              <EmptyState
+                icon={CheckCircle2}
+                title="No failed discoveries"
+                description="All discoveries are running successfully."
               />
             )}
           </div>
@@ -1405,7 +1464,7 @@ export function ScanManager() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ACTIVE">Active</SelectItem>
+                      <SelectItem value="RUNNING">Running</SelectItem>
                       <SelectItem value="PAUSED">Paused</SelectItem>
                     </SelectContent>
                   </Select>

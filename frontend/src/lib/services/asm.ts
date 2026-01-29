@@ -33,7 +33,7 @@ export interface UpdateDiscoveryPayload {
   intensity?: "LIGHT" | "NORMAL" | "DEEP";
   schedule_type?: "NONE" | "INTERVAL" | "CRON";
   schedule_value?: string | null;
-  status?: "ACTIVE" | "PAUSED";
+  status?: "RUNNING" | "PAUSED" | "FAILED";
 }
 
 export interface AsmDashboard {

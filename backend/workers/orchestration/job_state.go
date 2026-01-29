@@ -9,4 +9,3 @@ const (
 	JobDone    JobState = "DONE"
 	JobFailed  JobState = "FAILED"
 )
-

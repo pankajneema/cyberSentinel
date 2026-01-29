@@ -21,8 +21,16 @@ type Config struct {
 	GinPort string
 
 	// RabbitMQ
-	RabbitURL      string
-	RabbitJobQueue string
+	RabbitURL         string
+	ASMRabbitJobQueue string
+
+	//database
+	PostgreSql string
+
+	//redis
+	RedisAddr     string
+	RedisPassword string
+	RedisDB       int
 
 	// Orchestration
 	JobMaxConcurrency int
@@ -34,6 +42,9 @@ type Config struct {
 
 	// WebSocket
 	WSBufferSize int
+
+	// Mircoservice
+	AsmEndpoint string
 }
 
 // Load loads environment variables and returns Config
@@ -54,8 +65,9 @@ func Load() *Config {
 		GinPort: Get("GIN_PORT", "8090"),
 
 		// RabbitMQ (required)
-		RabbitURL:      MustGet("RABBITMQ_URL"),
-		RabbitJobQueue: Get("RABBITMQ_JOB_QUEUE", "cybersential.jobs"),
+		RabbitURL: MustGet("RABBITMQ_URL"),
+
+		ASMRabbitJobQueue: Get("ASM_RABBITMQ_JOB_QUEUE", "jobs.asm"),
 
 		// Orchestration
 		JobMaxConcurrency: mustInt("JOB_MAX_CONCURRENCY", 3),
@@ -67,6 +79,17 @@ func Load() *Config {
 
 		// WebSocket
 		WSBufferSize: mustInt("WS_BUFFER_SIZE", 1024),
+
+		// Microservices
+		AsmEndpoint: Get("ASM_SERVICE_ENDPOINTS", "http://localhost:9003/asm/"),
+
+		//database
+		PostgreSql: MustGet("POSTGRESQL_URL"),
+
+		//Redis
+		RedisAddr:     Get("REDISADDR", "localhost:6379"),
+		RedisPassword: Get("REDISPASS", ""),
+		RedisDB:       mustInt("REDISDB", 0),
 	}
 
 	log.Printf("config loaded (env=%s)", cfg.AppEnv)

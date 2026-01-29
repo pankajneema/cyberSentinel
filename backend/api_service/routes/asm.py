@@ -58,14 +58,15 @@ async def create_discovery(
 
     # PUSH TO QUEUE
     queue_message = {
+        "type":"asm",
         "user_id": current_user["user_id"],
-        "asm_discovery_id": discovery_data["id"],
+        "id": discovery_data["id"],
         "asset_type": payload.asset_type,
         "target_source": payload.target_source,
         "intensity": payload.intensity,
     }
 
-    queue_name = "asm.triggers"
+    queue_name = "jobs.asm"
 
     if not await publish_message(queue_name, queue_message):
         raise HTTPException(
@@ -195,7 +196,7 @@ async def asm_dashboard(
         select(AsmDiscoveryModel)
         .where(
             AsmDiscoveryModel.user_id == user_id,
-            AsmDiscoveryModel.status == "ACTIVE",
+            AsmDiscoveryModel.status == "RUNNING",
         )
         .subquery()
     )

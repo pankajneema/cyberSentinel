@@ -15,12 +15,12 @@ func main() {
 	utils.InitLogger(cfg.LogLevel)
 	defer utils.Sync()
 
-	utils.Logger.Infof("starting consumer service")
-
+	utils.Logger.Infof("starting ASM service Consumer ...")
+	utils.Logger.Infof("Consuming from queue: %s", cfg.ASMRabbitJobQueue)
+	utils.Logger.Infof("ASM Microservice hitting endpoits: %s", cfg.AsmEndpoint)
 	// Start consumer
 	err := consumer.Start(cfg)
 	if err != nil {
 		utils.Logger.Fatalf("consumer failed: %v", err)
 	}
 }
-

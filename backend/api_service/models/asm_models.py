@@ -39,7 +39,7 @@ class AsmDiscovery(Base):
     schedule_value = Column(String, nullable=True)
 
     status = Column(
-        Enum("ACTIVE","PENDING","PAUSED", "DELETED", name="asm_status"),
+        Enum("RUNNING","PENDING","PAUSED", "DELETED", "FAILED", name="asm_status"),
         default="PENDING",
     )
 

@@ -3,7 +3,7 @@ package consumer
 import (
 	"encoding/json"
 
-	"workers/consumer/handlers"
+	"workers/consumer/asm"
 	"workers/utils"
 )
 
@@ -19,12 +19,11 @@ func dispatch(body []byte) error {
 	}
 
 	switch msg.Type {
-	case "job":
-		return handlers.HandleJob(body)
+	case "asm":
+		return asm.HandleJob(body)
 	default:
 		utils.Logger.Warnf("unknown message type: %s", msg.Type)
 	}
 
 	return nil
 }
-
