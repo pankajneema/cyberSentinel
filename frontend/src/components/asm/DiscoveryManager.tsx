@@ -75,8 +75,10 @@ import {
   createDiscovery,
   updateDiscovery,
   deleteDiscovery,
+  fetchDiscoveryRuns,
   type ApiAsset,
   type AsmDiscovery,
+  type AsmDiscoveryRun,
   type CreateDiscoveryPayload,
   type UpdateDiscoveryPayload,
 } from "@/lib/api";
@@ -148,6 +150,8 @@ export function ScanManager() {
   const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [discoveryRuns, setDiscoveryRuns] = useState<AsmDiscoveryRun[]>([]);
+  const [isLoadingRuns, setIsLoadingRuns] = useState(false);
   
   const [newDiscovery, setNewDiscovery] = useState({ 
     name: "", 
@@ -452,9 +456,21 @@ export function ScanManager() {
     setIsEditOpen(true);
   };
 
-  const openViewDialog = (discovery: AsmDiscovery) => {
+  const openViewDialog = async (discovery: AsmDiscovery) => {
     setSelectedDiscovery(discovery);
     setIsViewOpen(true);
+    
+    // Load discovery runs
+    setIsLoadingRuns(true);
+    try {
+      const runsData = await fetchDiscoveryRuns(discovery.id);
+      setDiscoveryRuns(runsData.items);
+    } catch (err: any) {
+      console.error("Failed to load discovery runs:", err);
+      setDiscoveryRuns([]);
+    } finally {
+      setIsLoadingRuns(false);
+    }
   };
 
   const renderWizardStep = () => {
@@ -871,7 +887,15 @@ export function ScanManager() {
           </div>
           <div className="flex items-center gap-1.5">
             <Calendar className="w-4 h-4" />
-            <span>Last: {discovery.last_run_at || "Never"}</span>
+            <span>Last: {
+              discovery.schedule_type === "QUICK" 
+                ? (discovery.updated_at 
+                    ? new Date(discovery.updated_at).toLocaleString() 
+                    : "Never")
+                : (discovery.last_run_at 
+                    ? new Date(discovery.last_run_at).toLocaleString() 
+                    : "Never")
+            }</span>
           </div>
           {discovery.next_run_at && discovery.schedule_type !== "QUICK" && (
             <div className="flex items-center gap-1.5">
@@ -1235,7 +1259,7 @@ export function ScanManager() {
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem 
-                          onClick={() => handleDeleteDiscovery(discovery.id, discovery.name)}
+                          onClick={() => setDeleteConfirm({ id: discovery.id, name: discovery.name })}
                           className="text-destructive"
                         >
                           <Trash2 className="w-4 h-4 mr-2" />Delete
@@ -1293,7 +1317,7 @@ export function ScanManager() {
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem 
-                          onClick={() => handleDeleteDiscovery(discovery.id, discovery.name)}
+                          onClick={() => setDeleteConfirm({ id: discovery.id, name: discovery.name })}
                           className="text-destructive"
                         >
                           <Trash2 className="w-4 h-4 mr-2" />Delete
@@ -1430,36 +1454,114 @@ export function ScanManager() {
                 <div className="border-t border-border pt-4">
                   <div className="text-sm text-muted-foreground mb-2">Timeline</div>
                   <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Last Run:</span>
-                      <span className="font-medium">{selectedDiscovery.last_run_at || "Never"}</span>
-                    </div>
-                    {selectedDiscovery.next_run_at && (
+                    {selectedDiscovery.schedule_type === "QUICK" ? (
+                      // For QUICK type, show only RUN event with updated_at
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Next Run:</span>
-                        <span className="font-medium">{selectedDiscovery.next_run_at}</span>
+                        <span className="text-muted-foreground">RUN:</span>
+                        <span className="font-medium">
+                          {selectedDiscovery.updated_at 
+                            ? new Date(selectedDiscovery.updated_at).toLocaleString() 
+                            : "Never"}
+                        </span>
                       </div>
+                    ) : (
+                      // For scheduled, show last_run_at and next_run_at
+                      <>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Last Run:</span>
+                          <span className="font-medium">
+                            {selectedDiscovery.last_run_at 
+                              ? new Date(selectedDiscovery.last_run_at).toLocaleString() 
+                              : "Never"}
+                          </span>
+                        </div>
+                        {selectedDiscovery.next_run_at && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Next Run:</span>
+                            <span className="font-medium">
+                              {new Date(selectedDiscovery.next_run_at).toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
 
-                {selectedDiscovery.status === "RUNNING" && (
-                  <div className="border-t border-border pt-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Activity className="w-4 h-4 text-primary" />
-                      <div className="text-sm font-medium">Live Logs</div>
-                    </div>
-                    <div className="bg-muted/30 rounded-lg p-4 font-mono text-xs space-y-1 max-h-48 overflow-y-auto">
-                      <div className="text-success">[12:34:56] Starting discovery scan...</div>
-                      <div className="text-muted-foreground">[12:34:57] Initializing scan engine</div>
-                      <div className="text-muted-foreground">[12:34:58] Loading target list</div>
-                      <div className="text-primary">[12:35:02] Scanning 15 targets</div>
-                      <div className="text-muted-foreground">[12:35:05] Target 1/15 completed</div>
-                      <div className="text-muted-foreground">[12:35:08] Target 2/15 completed</div>
-                      <div className="text-primary animate-pulse">[12:35:11] Scan in progress...</div>
-                    </div>
+                {/* Discovery Runs */}
+                <div className="border-t border-border pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-sm font-medium">Discovery Runs</div>
+                    {isLoadingRuns && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
                   </div>
-                )}
+                  {isLoadingRuns ? (
+                    <div className="text-sm text-muted-foreground text-center py-4">Loading runs...</div>
+                  ) : discoveryRuns.length > 0 ? (
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {discoveryRuns.map((run) => (
+                        <div key={run.id} className="bg-muted/30 rounded-lg p-3 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              {run.status === "COMPLETED" && <CheckCircle2 className="w-4 h-4 text-success" />}
+                              {run.status === "RUNNING" && <Loader2 className="w-4 h-4 text-primary animate-spin" />}
+                              {run.status === "FAILED" && <XCircle className="w-4 h-4 text-destructive" />}
+                              {run.status === "PENDING" && <Clock className="w-4 h-4 text-warning" />}
+                              <span className="text-sm font-medium capitalize">{run.status}</span>
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {run.started_at ? new Date(run.started_at).toLocaleString() : "Not started"}
+                            </span>
+                          </div>
+                          
+                          {/* Summary in rows format */}
+                          {run.summary && (
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              {run.summary.found !== undefined && (
+                                <div className="flex items-center justify-between p-2 bg-background/50 rounded">
+                                  <span className="text-muted-foreground">Found:</span>
+                                  <span className="font-medium text-foreground">{run.summary.found}</span>
+                                </div>
+                              )}
+                              {run.summary.inserted !== undefined && (
+                                <div className="flex items-center justify-between p-2 bg-background/50 rounded">
+                                  <span className="text-muted-foreground">Inserted:</span>
+                                  <span className="font-medium text-foreground">{run.summary.inserted}</span>
+                                </div>
+                              )}
+                              {run.summary.skipped !== undefined && (
+                                <div className="flex items-center justify-between p-2 bg-background/50 rounded">
+                                  <span className="text-muted-foreground">Skipped:</span>
+                                  <span className="font-medium text-foreground">{run.summary.skipped}</span>
+                                </div>
+                              )}
+                              {run.summary.intensity && (
+                                <div className="flex items-center justify-between p-2 bg-background/50 rounded">
+                                  <span className="text-muted-foreground">Intensity:</span>
+                                  <span className="font-medium text-foreground capitalize">{run.summary.intensity}</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
+                          {run.error_message && (
+                            <div className="text-xs text-destructive bg-destructive/10 p-2 rounded">
+                              {run.error_message}
+                            </div>
+                          )}
+                          {run.completed_at && (
+                            <div className="text-xs text-muted-foreground">
+                              Completed: {new Date(run.completed_at).toLocaleString()}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground text-center py-4">
+                      No runs found for this discovery
+                    </div>
+                  )}
+                </div>
 
                 <div className="border-t border-border pt-4">
                   <div className="text-sm text-muted-foreground mb-2">Discovery Configuration</div>
@@ -1470,8 +1572,18 @@ export function ScanManager() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Created:</span>
-                      <span>{selectedDiscovery.created_at || "N/A"}</span>
+                      <span>
+                        {selectedDiscovery.created_at 
+                          ? new Date(selectedDiscovery.created_at).toLocaleString() 
+                          : "N/A"}
+                      </span>
                     </div>
+                    {selectedDiscovery.updated_at && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Updated:</span>
+                        <span>{new Date(selectedDiscovery.updated_at).toLocaleString()}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

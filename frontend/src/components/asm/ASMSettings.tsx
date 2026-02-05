@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { motion } from "framer-motion";
+import { motion } from "framer-motion"; 
 import { Textarea } from "@/components/ui/textarea";
 
 export function ASMSettings() {
@@ -184,11 +184,11 @@ export function ASMSettings() {
 
             <div className="space-y-4">
               {[
-                { label: "Critical findings", description: "Notify immediately for critical severity findings", enabled: true },
-                { label: "High findings", description: "Notify for high severity findings", enabled: true },
+                { label: "High exposure assets", description: "Notify immediately for high exposure assets", enabled: true },
+                { label: "Medium exposure assets", description: "Notify for medium exposure assets", enabled: true },
                 { label: "New assets discovered", description: "Alert when new assets are found", enabled: true },
-                { label: "Scan completed", description: "Notify when scans finish", enabled: false },
-                { label: "Daily summary", description: "Send daily digest of findings", enabled: true },
+                { label: "Discovery completed", description: "Notify when discovery runs finish", enabled: false },
+                { label: "Daily summary", description: "Send daily digest of discoveries", enabled: true },
                 { label: "Weekly report", description: "Send weekly executive summary", enabled: true },
               ].map((rule) => (
                 <div key={rule.label} className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
@@ -234,15 +234,15 @@ export function ASMSettings() {
           >
             <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
               <Zap className="w-5 h-5 text-primary" />
-              Auto-Remediation
+              Automation
             </h3>
 
             <div className="space-y-4">
               {[
-                { label: "Auto-create Jira tickets", description: "Automatically create tickets for critical findings", enabled: true },
-                { label: "Auto-assign findings", description: "Assign findings to asset owners automatically", enabled: true },
-                { label: "Auto-verify fixes", description: "Re-scan after fixes are marked complete", enabled: true },
-                { label: "Auto-close stale findings", description: "Close findings not seen in 30 days", enabled: false },
+                { label: "Auto-create Jira tickets", description: "Automatically create tickets for high exposure assets", enabled: true },
+                { label: "Auto-assign assets", description: "Assign assets to owners automatically", enabled: true },
+                { label: "Auto-verify exposure changes", description: "Re-discover after exposure changes are marked complete", enabled: true },
+                { label: "Auto-archive stale assets", description: "Archive assets not seen in 30 days", enabled: false },
               ].map((rule) => (
                 <div key={rule.label} className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
                   <div>

@@ -43,7 +43,7 @@ import { motion } from "framer-motion";
 
 const reports = [
   { id: 1, name: "Executive Summary - January", type: "executive", date: "2024-01-20", format: "PDF", size: "2.4 MB", status: "ready" },
-  { id: 2, name: "Technical Vulnerability Report", type: "technical", date: "2024-01-19", format: "PDF", size: "8.7 MB", status: "ready" },
+  { id: 2, name: "Technical Exposure Report", type: "technical", date: "2024-01-19", format: "PDF", size: "8.7 MB", status: "ready" },
   { id: 3, name: "SOC2 Compliance Mapping", type: "compliance", date: "2024-01-18", format: "PDF", size: "3.1 MB", status: "ready" },
   { id: 4, name: "ISO 27001 Gap Analysis", type: "compliance", date: "2024-01-15", format: "PDF", size: "4.5 MB", status: "ready" },
   { id: 5, name: "Weekly Asset Summary", type: "executive", date: "2024-01-14", format: "CSV", size: "1.2 MB", status: "ready" },
@@ -52,7 +52,7 @@ const reports = [
 const scheduledReports = [
   { id: 1, name: "Weekly Executive Summary", frequency: "Weekly", nextRun: "Monday 09:00", recipients: ["cto@company.com", "ciso@company.com"], enabled: true },
   { id: 2, name: "Monthly Compliance Report", frequency: "Monthly", nextRun: "Feb 1 08:00", recipients: ["compliance@company.com"], enabled: true },
-  { id: 3, name: "Daily Findings Alert", frequency: "Daily", nextRun: "Tomorrow 06:00", recipients: ["security-team@company.com"], enabled: false },
+  { id: 3, name: "Daily Discovery Alert", frequency: "Daily", nextRun: "Tomorrow 06:00", recipients: ["security-team@company.com"], enabled: false },
 ];
 
 export function ASMReports() {
@@ -295,7 +295,7 @@ export function ASMReports() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
               { name: "Executive Summary", description: "High-level overview for leadership", icon: PieChart },
-              { name: "Technical Deep Dive", description: "Detailed vulnerability analysis", icon: BarChart3 },
+              { name: "Technical Deep Dive", description: "Detailed exposure analysis", icon: BarChart3 },
               { name: "SOC2 Compliance", description: "SOC2 control mapping report", icon: Shield },
               { name: "ISO 27001", description: "ISO 27001 gap analysis", icon: Shield },
               { name: "Asset Inventory", description: "Complete asset listing", icon: FileText },

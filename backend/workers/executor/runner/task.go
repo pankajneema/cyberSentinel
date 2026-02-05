@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"workers/database"
 	"workers/executor"
 	"workers/executor/tools/subfinder"
 	"workers/utils"
@@ -29,6 +30,7 @@ type ToolResult struct {
 type EnhancedPipeline struct {
 	JobID     string       `json:"job_id"`
 	AssetType string       `json:"asset_type"`
+	AssetName string       `json:"asset_name,omitempty"` // Domain name for domain assets
 	Intensity string       `json:"intensity"`
 	Status    string       `json:"status"`
 	Process   string       `json:"process"`
@@ -81,6 +83,33 @@ func pushToReportQueue(ctx context.Context, pipeline *EnhancedPipeline) error {
 	return nil
 }
 
+// getAssetName fetches asset name from database by asset_id
+func getAssetName(ctx context.Context, assetID string) (string, error) {
+	if assetID == "" {
+		return "", errors.New("asset_id is empty")
+	}
+
+	// Initialize database connection if needed
+	if database.Pool == nil {
+		if err := database.InitPostgres(); err != nil {
+			return "", fmt.Errorf("failed to initialize database: %w", err)
+		}
+	}
+
+	queryCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	query := `SELECT name FROM assets WHERE id = $1 LIMIT 1;`
+	var assetName string
+	err := database.QueryRow(queryCtx, query, assetID).Scan(&assetName)
+	if err != nil {
+		utils.Logger.Warnf("failed to fetch asset name for asset_id=%s error=%v", assetID, err)
+		return "", fmt.Errorf("asset not found: %w", err)
+	}
+
+	return assetName, nil
+}
+
 func Run(ctx context.Context, task executor.Task) executor.Result {
 	utils.Logger.Infof("executor started job=%s", task.JobID)
 
@@ -94,10 +123,27 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 	utils.Logger.Infof("pipeline loaded job=%s asset_type=%s intensity=%s steps=%d",
 		task.JobID, basePipeline.AssetType, basePipeline.Intensity, len(basePipeline.Pipeline))
 
+	// 🔹 Get asset name from first step's asset_id (for domain assets)
+	var assetName string
+	if len(basePipeline.Pipeline) > 0 && basePipeline.Pipeline[0].AssetID != "" {
+		if basePipeline.AssetType == "domain" {
+			name, err := getAssetName(ctx, basePipeline.Pipeline[0].AssetID)
+			if err != nil {
+				utils.Logger.Warnf("failed to get asset name for job=%s asset_id=%s error=%v, continuing without asset name",
+					task.JobID, basePipeline.Pipeline[0].AssetID, err)
+			} else {
+				assetName = name
+				utils.Logger.Infof("fetched asset name for job=%s asset_id=%s asset_name=%s",
+					task.JobID, basePipeline.Pipeline[0].AssetID, assetName)
+			}
+		}
+	}
+
 	// 🔹 Create enhanced pipeline structure
 	enhancedPipeline := &EnhancedPipeline{
 		JobID:     task.JobID,
 		AssetType: basePipeline.AssetType,
+		AssetName: assetName,
 		Intensity: basePipeline.Intensity,
 		Status:    "RUNNING",
 		Process:   fmt.Sprintf("0/%d", len(basePipeline.Pipeline)),
@@ -150,11 +196,28 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 		switch enhancedPipeline.Pipeline[i].Tool {
 
 		case "subfinder":
-			output, toolErr = subfinder.Run(ctx, enhancedPipeline.AssetType)
+			// Use AssetName (domain name) instead of AssetType
+			domainName := enhancedPipeline.AssetName
+			if domainName == "" {
+				// Fallback: try to get asset name from current step's asset_id
+				if enhancedPipeline.Pipeline[i].AssetID != "" {
+					name, err := getAssetName(ctx, enhancedPipeline.Pipeline[i].AssetID)
+					if err == nil {
+						domainName = name
+						enhancedPipeline.AssetName = name // Update for future steps
+					}
+				}
+				// If still empty, fallback to AssetType (for backward compatibility)
+				if domainName == "" {
+					domainName = enhancedPipeline.AssetType
+					utils.Logger.Warnf("using AssetType as fallback for subfinder job=%s step=%d", task.JobID, i)
+				}
+			}
+			output, toolErr = subfinder.Run(ctx, domainName)
 			if toolErr != nil {
-				utils.Logger.Errorf("subfinder failed job=%s step=%d error=%v", task.JobID, i, toolErr)
+				utils.Logger.Errorf("subfinder failed job=%s step=%d domain=%s error=%v", task.JobID, i, domainName, toolErr)
 			} else {
-				utils.Logger.Infof("subfinder completed job=%s step=%d", task.JobID, i)
+				utils.Logger.Infof("subfinder completed job=%s step=%d domain=%s", task.JobID, i, domainName)
 			}
 
 		default:

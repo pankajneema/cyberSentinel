@@ -70,6 +70,51 @@ class AsmDashboardResponse(BaseModel):
 
 
 # ---------------------------------------------------
+# ASM Overview Response (dashboard overview)
+# ---------------------------------------------------
+class AsmOverviewResponse(BaseModel):
+    attack_surface_index: int
+    total_discoveries: int
+    active_discoveries: int
+    last_discovery_run: Optional[str]
+    
+    asset_counts: dict
+    exposure_summary: dict
+    exposure_breakdown: list
+    exposure_trend: int = 0
+    
+    top_exposed_assets: Optional[list] = None
+    recent_activity: Optional[list] = None
+
+
+# ---------------------------------------------------
+# Asm Discovery Run Response
+# ---------------------------------------------------
+class AsmDiscoveryRunResponse(BaseModel):
+    id: str
+    asm_discovery_id: str
+    user_id: str
+    triggered_by: str
+    run_mode: str
+    status: str
+    started_at: Optional[str]
+    completed_at: Optional[str]
+    error_message: Optional[str]
+    summary: Optional[dict]
+    created_at: Optional[str]
+
+
+# ---------------------------------------------------
+# Asm Discovery Run List Response
+# ---------------------------------------------------
+class AsmDiscoveryRunListResponse(BaseModel):
+    items: List[AsmDiscoveryRunResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+# ---------------------------------------------------
 # Asm Subdomain Create Request
 # ---------------------------------------------------
 class AsmSubdomainCreateRequest(BaseModel):
@@ -87,6 +132,8 @@ class AsmSubdomainResponse(BaseModel):
     asset_id: str
     subdomain: str
     created_at: Optional[str]
+    asset_name: Optional[str] = None  # Parent domain/asset name
+    asset_type: Optional[str] = None  # Parent asset type
 
 
 # ---------------------------------------------------

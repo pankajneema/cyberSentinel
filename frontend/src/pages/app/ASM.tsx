@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Radar, LayoutDashboard, Network, Cloud, Users, GitBranch, FileSearch, Settings } from "lucide-react";
+import { Radar, LayoutDashboard, Network, Cloud, Users, GitBranch, FileSearch, FileText, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ASMOverview } from "@/components/asm/ASMOverview";
@@ -10,6 +10,7 @@ import { HumanAttackSurface } from "@/components/asm/HumanAttackSurface";
 import { AttackSurfaceGraph } from "@/components/asm/AttackSurfaceGraph";
 import { ScanManager } from "@/components/asm/DiscoveryManager";
 import { ASMSettings } from "@/components/asm/ASMSettings";
+import { DiscoveryRunsList } from "@/components/asm/DiscoveryRunsList";
 import { motion } from "framer-motion";
 
 const tabs = [
@@ -18,7 +19,8 @@ const tabs = [
   { value: "cloud", label: "Cloud", icon: Cloud },
   { value: "human", label: "Human", icon: Users },
   { value: "graph", label: "Graph", icon: GitBranch },
-  { value: "scans", label: "Scan Management", icon: FileSearch },
+  { value: "scans", label: "Discovery", icon: FileSearch },
+  { value: "reports", label: "Reports", icon: FileText },
   { value: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -54,7 +56,7 @@ export default function ASM() {
           className="shrink-0"
         >
           <FileSearch className="w-4 h-4" />
-          Scan Management
+          Discovery Management
         </Button>
       </motion.div>
 
@@ -100,6 +102,9 @@ export default function ASM() {
           </TabsContent>
           <TabsContent value="scans" className="mt-0">
             <ScanManager />
+          </TabsContent>
+          <TabsContent value="reports" className="mt-0">
+            <DiscoveryRunsList />
           </TabsContent>
           <TabsContent value="settings" className="mt-0">
             <ASMSettings />

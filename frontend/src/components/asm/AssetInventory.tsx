@@ -794,7 +794,7 @@ export function AssetInventory() {
                             <Edit className="w-4 h-4 mr-2" />Edit
                           </DropdownMenuItem>
                           <DropdownMenuItem>
-                            <RefreshCw className="w-4 h-4 mr-2" />Re-scan
+                            <RefreshCw className="w-4 h-4 mr-2" />Re-discover
                           </DropdownMenuItem>
                           <DropdownMenuItem>
                             <UserPlus className="w-4 h-4 mr-2" />Assign Owner
@@ -842,7 +842,7 @@ export function AssetInventory() {
               </SheetHeader>
               <div className="mt-6 space-y-6">
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm"><RefreshCw className="w-4 h-4 mr-1" />Re-scan</Button>
+                  <Button variant="outline" size="sm"><RefreshCw className="w-4 h-4 mr-1" />Re-discover</Button>
                   <Button variant="outline" size="sm"><UserPlus className="w-4 h-4 mr-1" />Assign</Button>
                   <Button variant="outline" size="sm" onClick={() => openEditDialog(selectedAsset)}><Edit className="w-4 h-4 mr-1" />Edit</Button>
                 </div>
@@ -859,7 +859,7 @@ export function AssetInventory() {
                       <div className="text-sm font-medium capitalize">{selectedAsset.exposure}</div>
                     </div>
                     <div className="p-4 bg-muted/30 rounded-xl">
-                      <div className="text-xs text-muted-foreground mb-1">Risk Score</div>
+                      <div className="text-xs text-muted-foreground mb-1">Exposure Score</div>
                       <div className="text-sm font-medium">{selectedAsset.risk_score}/100</div>
                     </div>
                     <div className="p-4 bg-muted/30 rounded-xl">

@@ -23,37 +23,13 @@ import {
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { fetchAsmDashboard, AsmDashboard } from "@/lib/api";
-
-const trendData = [
-  { month: "Jan", score: 72 },
-  { month: "Feb", score: 68 },
-  { month: "Mar", score: 75 },
-  { month: "Apr", score: 71 },
-  { month: "May", score: 65 },
-  { month: "Jun", score: 62 },
-];
-
-const topRisks = [
-  { id: 1, title: "Exposed MongoDB Instance", asset: "db-prod.company.com", severity: "critical" as const, score: 95 },
-  { id: 2, title: "Outdated SSL Certificate", asset: "api.company.com", severity: "high" as const, score: 78 },
-  { id: 3, title: "Open SSH Port", asset: "192.168.1.100", severity: "high" as const, score: 72 },
-  { id: 4, title: "Missing WAF Configuration", asset: "app.company.com", severity: "medium" as const, score: 58 },
-  { id: 5, title: "Permissive CORS Policy", asset: "cdn.company.com", severity: "medium" as const, score: 45 },
-];
+import { fetchAsmOverview, AsmOverview } from "@/lib/api";
 
 const defaultQuickStats = [
-  { label: "Last Scan", value: "—", icon: Clock, status: "success" },
-  { label: "Assets Monitored", value: "—", icon: Layers, status: "neutral" },
-  { label: "Active Threats", value: "23", icon: AlertTriangle, status: "danger" },
-  { label: "Coverage", value: "94%", icon: Shield, status: "success" },
-];
-
-const recentActivity = [
-  { id: 1, action: "New vulnerability detected", asset: "api.company.com", time: "5 min ago", type: "alert" },
-  { id: 2, action: "Scan completed", asset: "Full external scan", time: "2 hours ago", type: "success" },
-  { id: 3, action: "Asset discovered", asset: "staging.company.com", time: "4 hours ago", type: "info" },
-  { id: 4, action: "Issue remediated", asset: "db-backup.company.com", time: "1 day ago", type: "success" },
+  { label: "Last Discovery Run", value: "—", icon: Clock, status: "success" },
+  { label: "Total Assets", value: "—", icon: Layers, status: "neutral" },
+  { label: "Public Assets", value: "—", icon: Globe, status: "warning" },
+  { label: "Active Discoveries", value: "—", icon: Activity, status: "success" },
 ];
 
 interface ASMOverviewProps {
@@ -62,7 +38,7 @@ interface ASMOverviewProps {
 }
 
 export function ASMOverview({ onNavigateToScans, onNavigateToReports }: ASMOverviewProps) {
-  const [asm, setAsm] = useState<AsmDashboard | null>(null);
+  const [asm, setAsm] = useState<AsmOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,7 +57,7 @@ export function ASMOverview({ onNavigateToScans, onNavigateToReports }: ASMOverv
       try {
         setLoading(true);
         setError(null);
-        const data = await fetchAsmDashboard();
+        const data = await fetchAsmOverview();
         if (!cancelled) setAsm(data);
       } catch (e: any) {
         if (!cancelled) setError(e.message ?? "Failed to load ASM overview");
@@ -95,27 +71,53 @@ export function ASMOverview({ onNavigateToScans, onNavigateToReports }: ASMOverv
     };
   }, []);
 
-  const attackSurfaceScore = asm ? asm.attack_surface_score : 62;
-  const criticalCount = asm ? asm.critical_count : 23;
-  const highCount = asm ? asm.high_count : 47;
-  const resolvedCount = asm ? asm.resolved_count : 156;
+  const attackSurfaceIndex = asm ? asm.attack_surface_index : 0;
+  const highExposureCount = asm ? asm.exposure_breakdown.find(e => e.label === "high")?.count || 0 : 0;
+  const mediumExposureCount = asm ? asm.exposure_breakdown.find(e => e.label === "medium")?.count || 0 : 0;
+  const lowExposureCount = asm ? asm.exposure_breakdown.find(e => e.label === "low")?.count || 0 : 0;
 
   const quickStats = [
     {
-      label: "Last Scan",
-      value: asm?.last_scan ? new Date(asm.last_scan).toLocaleString() : defaultQuickStats[0].value,
+      label: "Last Discovery Run",
+      value: asm?.last_discovery_run ? new Date(asm.last_discovery_run).toLocaleString() : defaultQuickStats[0].value,
       icon: Clock,
       status: "success" as const,
     },
     {
-      label: "Assets Monitored",
-      value: asm?.total_assets != null ? String(asm.total_assets) : defaultQuickStats[1].value,
+      label: "Total Assets",
+      value: asm?.asset_counts?.assets_total != null ? String(asm.asset_counts.assets_total) : defaultQuickStats[1].value,
       icon: Layers,
       status: "neutral" as const,
     },
-    defaultQuickStats[2],
-    defaultQuickStats[3],
+    {
+      label: "Public Assets",
+      value: asm?.exposure_summary?.public_assets != null ? String(asm.exposure_summary.public_assets) : defaultQuickStats[2].value,
+      icon: Globe,
+      status: "warning" as const,
+    },
+    {
+      label: "Active Discoveries",
+      value: asm?.active_discoveries != null ? String(asm.active_discoveries) : defaultQuickStats[3].value,
+      icon: Activity,
+      status: "success" as const,
+    },
   ];
+
+  // Use API data for top exposed assets, fallback to empty array
+  const topExposedAssets = asm?.top_exposed_assets || [];
+  
+  // Use API data for recent activity, fallback to empty array
+  const recentActivity = asm?.recent_activity || [];
+  
+  // Generate trend data from exposure_trend if available, otherwise empty
+  const trendData = asm?.exposure_trend !== undefined ? [
+    { month: "Jan", score: Math.max(0, Math.min(100, (asm.attack_surface_index || 0) + (asm.exposure_trend || 0) * 2)) },
+    { month: "Feb", score: Math.max(0, Math.min(100, (asm.attack_surface_index || 0) + (asm.exposure_trend || 0) * 1.5)) },
+    { month: "Mar", score: Math.max(0, Math.min(100, (asm.attack_surface_index || 0) + (asm.exposure_trend || 0) * 1)) },
+    { month: "Apr", score: Math.max(0, Math.min(100, (asm.attack_surface_index || 0) + (asm.exposure_trend || 0) * 0.5)) },
+    { month: "May", score: Math.max(0, Math.min(100, (asm.attack_surface_index || 0))) },
+    { month: "Jun", score: Math.max(0, Math.min(100, asm.attack_surface_index || 0)) },
+  ] : [];
 
   return (
     <div className="space-y-6">
@@ -157,7 +159,7 @@ export function ASMOverview({ onNavigateToScans, onNavigateToReports }: ASMOverv
                 transition={{ delay: 0.2 }}
                 className="text-3xl lg:text-4xl font-bold text-white"
               >
-                Security Overview
+                Exposure Overview
               </motion.h1>
               
               <motion.p 
@@ -166,7 +168,7 @@ export function ASMOverview({ onNavigateToScans, onNavigateToReports }: ASMOverv
                 transition={{ delay: 0.3 }}
                 className="text-white/70 max-w-lg text-lg"
               >
-                {loading ? "Loading attack surface overview..." : "Real-time visibility into your organization's external exposure"}
+                {loading ? "Loading attack surface overview..." : "Real-time visibility into your organization's external exposure and discovered assets"}
               </motion.p>
 
               {/* Quick Stats Pills */}
@@ -204,9 +206,9 @@ export function ASMOverview({ onNavigateToScans, onNavigateToReports }: ASMOverv
 
       {/* Main Dashboard Grid */}
       <div className="grid lg:grid-cols-12 gap-6">
-        {/* Left Column - Risk Score & Trend */}
+        {/* Left Column - Attack Surface Index & Trend */}
         <div className="lg:col-span-4 space-y-6">
-          {/* Risk Score Card */}
+          {/* Attack Surface Index Card */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -214,30 +216,43 @@ export function ASMOverview({ onNavigateToScans, onNavigateToReports }: ASMOverv
             className="bg-card rounded-2xl border border-border p-6 shadow-sm"
           >
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-sm font-medium text-muted-foreground">Attack Surface Score</h3>
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success/10 text-success text-xs font-medium">
-                <TrendingDown className="w-3 h-3" />
-                -8%
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-medium text-muted-foreground">Attack Surface Index</h3>
+                <div className="group relative">
+                  <Circle className="w-3 h-3 text-muted-foreground cursor-help" />
+                  <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-2 text-xs bg-popover border border-border rounded-lg shadow-lg z-10">
+                    This module shows exposure-based risks, not confirmed vulnerabilities.
+                  </div>
+                </div>
               </div>
+              {asm?.exposure_trend !== undefined && asm.exposure_trend !== 0 && (
+                <div className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium",
+                  asm.exposure_trend < 0 ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
+                )}>
+                  <TrendingDown className="w-3 h-3" />
+                  {asm.exposure_trend > 0 ? "+" : ""}{asm.exposure_trend}%
+                </div>
+              )}
             </div>
             
             <div className="flex justify-center">
-              <RiskGauge score={attackSurfaceScore} size="lg" />
+              <RiskGauge score={attackSurfaceIndex} size="lg" />
             </div>
             
             <div className="mt-6 pt-4 border-t border-border">
               <div className="grid grid-cols-3 gap-4 text-center">
                 <div>
-                  <div className="text-2xl font-bold text-destructive">{criticalCount}</div>
-                  <div className="text-xs text-muted-foreground">Critical</div>
+                  <div className="text-2xl font-bold text-destructive">{highExposureCount}</div>
+                  <div className="text-xs text-muted-foreground">High Exposure</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-warning">{highCount}</div>
-                  <div className="text-xs text-muted-foreground">High</div>
+                  <div className="text-2xl font-bold text-warning">{mediumExposureCount}</div>
+                  <div className="text-xs text-muted-foreground">Medium Exposure</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-success">{resolvedCount}</div>
-                  <div className="text-xs text-muted-foreground">Resolved</div>
+                  <div className="text-2xl font-bold text-success">{lowExposureCount}</div>
+                  <div className="text-xs text-muted-foreground">Low Exposure</div>
                 </div>
               </div>
             </div>
@@ -252,65 +267,68 @@ export function ASMOverview({ onNavigateToScans, onNavigateToReports }: ASMOverv
           >
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="font-semibold text-foreground">Score Trend</h3>
+                <h3 className="font-semibold text-foreground">Exposure Trend</h3>
                 <p className="text-sm text-muted-foreground">Last 6 months</p>
               </div>
               <Activity className="w-5 h-5 text-muted-foreground" />
             </div>
-            <div className="h-32 flex items-end gap-2">
-              {trendData.map((item, index) => (
-                <div key={item.month} className="flex-1 flex flex-col items-center gap-2">
-                  <motion.div
-                    initial={{ height: 0 }}
-                    animate={{ height: `${item.score}%` }}
-                    transition={{ delay: 0.3 + index * 0.1, duration: 0.5 }}
-                    className={cn(
-                      "w-full rounded-lg transition-colors cursor-pointer hover:opacity-80",
-                      item.score >= 70 ? "bg-gradient-to-t from-destructive to-destructive/60" : 
-                      item.score >= 50 ? "bg-gradient-to-t from-warning to-warning/60" : 
-                      "bg-gradient-to-t from-success to-success/60"
-                    )}
-                  />
-                  <span className="text-[10px] text-muted-foreground font-medium">{item.month}</span>
-                </div>
-              ))}
-            </div>
+            {trendData.length > 0 ? (
+              <div className="h-32 flex items-end gap-2">
+                {trendData.map((item, index) => (
+                  <div key={item.month} className="flex-1 flex flex-col items-center gap-2">
+                    <motion.div
+                      initial={{ height: 0 }}
+                      animate={{ height: `${item.score}%` }}
+                      transition={{ delay: 0.3 + index * 0.1, duration: 0.5 }}
+                      className={cn(
+                        "w-full rounded-lg transition-colors cursor-pointer hover:opacity-80",
+                        item.score >= 70 ? "bg-gradient-to-t from-destructive to-destructive/60" : 
+                        item.score >= 50 ? "bg-gradient-to-t from-warning to-warning/60" : 
+                        "bg-gradient-to-t from-success to-success/60"
+                      )}
+                    />
+                    <span className="text-[10px] text-muted-foreground font-medium">{item.month}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="h-32 flex items-center justify-center text-sm text-muted-foreground">
+                No trend data available
+              </div>
+            )}
           </motion.div>
         </div>
 
-        {/* Middle Column - Stats & Risks */}
+        {/* Middle Column - Stats & Exposure Hotspots */}
         <div className="lg:col-span-5 space-y-6">
           {/* Stats Grid */}
           <div className="grid grid-cols-2 gap-4">
             <StatCard
-              label="Total Assets"
-              value="1,247"
+              label="Total Domains"
+              value={asm?.asset_counts?.domains != null ? String(asm.asset_counts.domains) : "—"}
               icon={Server}
-              trend={{ value: 12, label: "+43 this week" }}
+              trend={asm?.asset_counts?.domains ? { value: 0, label: `${asm.asset_counts.subdomains} subdomains` } : undefined}
             />
             <StatCard
-              label="Exposed Services"
-              value="328"
+              label="Internet-Facing Services"
+              value={asm?.exposure_summary?.internet_facing_services != null ? String(asm.exposure_summary.internet_facing_services) : "—"}
               icon={Globe}
-              trend={{ value: -5, label: "-18 resolved" }}
               variant="warning"
             />
             <StatCard
-              label="Critical Findings"
-              value="23"
+              label="High Exposure Assets"
+              value={String(highExposureCount)}
               icon={AlertTriangle}
-              trend={{ value: 8, label: "+2 new" }}
               variant="critical"
             />
             <StatCard
-              label="Cloud Issues"
-              value="47"
+              label="Cloud Assets"
+              value={asm?.asset_counts?.services != null ? String(asm.asset_counts.services) : "—"}
               icon={Cloud}
-              trend={{ value: -12, label: "-6 fixed" }}
             />
           </div>
 
-          {/* Top Risks */}
+          {/* Exposure Hotspots */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -322,7 +340,7 @@ export function ASMOverview({ onNavigateToScans, onNavigateToReports }: ASMOverv
                 <div className="p-2 rounded-xl bg-destructive/10">
                   <Target className="w-5 h-5 text-destructive" />
                 </div>
-                <h3 className="font-semibold text-foreground">Top Risks</h3>
+                <h3 className="font-semibold text-foreground">Exposure Hotspots</h3>
               </div>
               <Button variant="ghost" size="sm" className="text-primary gap-1" onClick={onNavigateToReports}>
                 View All
@@ -330,32 +348,43 @@ export function ASMOverview({ onNavigateToScans, onNavigateToReports }: ASMOverv
               </Button>
             </div>
             <div className="divide-y divide-border">
-              {topRisks.slice(0, 4).map((risk, index) => (
-                <motion.div
-                  key={risk.id}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.4 + index * 0.05 }}
-                  className="flex items-center gap-4 p-4 hover:bg-muted/50 cursor-pointer transition-colors group"
-                  onClick={onNavigateToReports}
-                >
-                  <div className={cn(
-                    "w-12 h-12 rounded-xl flex items-center justify-center text-sm font-bold shrink-0",
-                    risk.severity === "critical" && "bg-destructive/10 text-destructive",
-                    risk.severity === "high" && "bg-warning/10 text-warning",
-                    risk.severity === "medium" && "bg-accent/10 text-accent"
-                  )}>
-                    {risk.score}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">
-                      {risk.title}
-                    </div>
-                    <div className="text-xs text-muted-foreground truncate font-mono">{risk.asset}</div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                </motion.div>
-              ))}
+              {topExposedAssets.length > 0 ? (
+                topExposedAssets.slice(0, 4).map((asset, index) => {
+                  const exposureLevel = asset.exposure_score >= 75 ? "high" : asset.exposure_score >= 50 ? "medium" : "low";
+                  return (
+                    <motion.div
+                      key={asset.id}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.4 + index * 0.05 }}
+                      className="flex items-center gap-4 p-4 hover:bg-muted/50 cursor-pointer transition-colors group"
+                      onClick={onNavigateToReports}
+                    >
+                      <div className={cn(
+                        "w-12 h-12 rounded-xl flex items-center justify-center text-sm font-bold shrink-0",
+                        exposureLevel === "high" && "bg-destructive/10 text-destructive",
+                        exposureLevel === "medium" && "bg-warning/10 text-warning",
+                        exposureLevel === "low" && "bg-accent/10 text-accent"
+                      )}>
+                        {asset.exposure_score}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">
+                          {asset.name}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate font-mono">
+                          {asset.type} • {asset.exposure}
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                    </motion.div>
+                  );
+                })
+              ) : (
+                <div className="p-8 text-center text-muted-foreground text-sm">
+                  No exposed assets found. Run a discovery to identify assets.
+                </div>
+              )}
             </div>
           </motion.div>
         </div>
@@ -377,7 +406,7 @@ export function ASMOverview({ onNavigateToScans, onNavigateToReports }: ASMOverv
                 onClick={onNavigateToScans}
               >
                 <FileSearch className="w-4 h-4" />
-                Scan Management
+                Discovery Management
               </Button>
               <Button 
                 variant="outline" 

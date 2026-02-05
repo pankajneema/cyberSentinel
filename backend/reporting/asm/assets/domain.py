@@ -16,17 +16,27 @@ logger = logging.getLogger(__name__)
 # Utils
 # -------------------------
 
-def extract_subdomains(payload: dict[str, Any]) -> list[str]:
-    subdomains = []
+def extract_subdomains(payload: dict[str, Any]) -> list[tuple[str, str]]:
+    """Return list of (asset_id, subdomain) pairs extracted from completed steps."""
+    entries: list[tuple[str, str]] = []
     pipeline = payload.get("pipeline", [])
 
     for step in pipeline:
-        if step.get("status") == "COMPLETED":
-            data = step.get("result", {}).get("data")
-            if data:
-                subdomains.extend(data)
+        if step.get("status") != "COMPLETED":
+            continue
 
-    return subdomains
+        asset_id = step.get("asset_id") or payload.get("asset_id")
+        data = step.get("result", {}).get("data")
+        if not data:
+            continue
+
+        for item in data:
+            subdomain = (item.get("subdomain") if isinstance(item, dict) else str(item))
+            if not subdomain:
+                continue
+            entries.append((asset_id, subdomain))
+
+    return entries
 
 
 # -------------------------
@@ -41,7 +51,7 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
 
     logger.info(f"Processing ASM job={job_id}")
 
-    subdomains = extract_subdomains(payload)
+    subdomain_entries = extract_subdomains(payload)
     run = None
 
     try:
@@ -65,15 +75,12 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         # Insert Subdomains
         # -------------------------
 
+
         inserted = 0
 
-        for item in subdomains:
-            subdomain = (
-                item.get("subdomain") if isinstance(item, dict)
-                else str(item)
-            )
-
-            if not subdomain:
+        for asset_id, subdomain in subdomain_entries:
+            if not asset_id:
+                logger.warning(f"Skipping subdomain insert for job={job_id} missing asset_id subdomain={subdomain}")
                 continue
 
             obj = AsmSubdomain(
@@ -94,9 +101,9 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         run.status = "COMPLETED"
         run.completed_at = datetime.utcnow()
         run.summary = {
-            "found": len(subdomains),
+            "found": len(subdomain_entries),
             "inserted": inserted,
-            "skipped": len(subdomains) - inserted,
+            "skipped": len(subdomain_entries) - inserted,
             "intensity": intensity
         }
 

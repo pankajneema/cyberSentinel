@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "./EmptyState";
 import {
@@ -14,6 +14,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { fetchAssets, fetchSubdomains, type ApiAsset, type AsmSubdomain } from "@/lib/api";
 
 interface GraphNode {
   id: string;
@@ -24,25 +25,6 @@ interface GraphNode {
   y: number;
   connections: string[];
 }
-
-const nodes: GraphNode[] = [
-  { id: "1", label: "company.com", type: "domain", x: 400, y: 100, connections: ["2", "3", "4"] },
-  { id: "2", label: "api.company.com", type: "subdomain", x: 200, y: 200, connections: ["5", "6"] },
-  { id: "3", label: "app.company.com", type: "subdomain", x: 400, y: 200, connections: ["7"] },
-  { id: "4", label: "mail.company.com", type: "subdomain", x: 600, y: 200, connections: ["8", "9"] },
-  { id: "5", label: "192.168.1.10", type: "ip", x: 100, y: 300, connections: ["10"] },
-  { id: "6", label: "192.168.1.11", type: "ip", x: 250, y: 300, connections: ["11"] },
-  { id: "7", label: "192.168.1.12", type: "ip", x: 400, y: 300, connections: ["12"] },
-  { id: "8", label: "192.168.1.13", type: "ip", x: 550, y: 300, connections: [] },
-  { id: "9", label: "192.168.1.14", type: "ip", x: 700, y: 300, connections: ["13"] },
-  { id: "10", label: ":443", type: "port", x: 50, y: 400, connections: ["14"] },
-  { id: "11", label: ":22", type: "port", x: 200, y: 400, connections: ["15"] },
-  { id: "12", label: ":80", type: "port", x: 350, y: 400, connections: [] },
-  { id: "13", label: ":25", type: "port", x: 650, y: 400, connections: ["16"] },
-  { id: "14", label: "SSL Expired", type: "finding", severity: "high", x: 50, y: 500, connections: [] },
-  { id: "15", label: "Open SSH", type: "finding", severity: "critical", x: 200, y: 500, connections: [] },
-  { id: "16", label: "Open Relay", type: "finding", severity: "critical", x: 650, y: 500, connections: [] },
-];
 
 const getNodeColor = (type: string, severity?: string) => {
   if (type === "finding") {
@@ -73,10 +55,128 @@ const getNodeSize = (type: string) => {
   }
 };
 
+const calculateLayout = (nodes: GraphNode[]) => {
+  const domainNodes = nodes.filter(n => n.type === "domain");
+  const subdomainNodes = nodes.filter(n => n.type === "subdomain");
+  const otherNodes = nodes.filter(n => !["domain", "subdomain"].includes(n.type));
+  
+  const centerX = 400;
+  const centerY = 100;
+  const radius = 150;
+  
+  // Position domain nodes in a circle at the top
+  domainNodes.forEach((node, index) => {
+    const angle = (index / domainNodes.length) * 2 * Math.PI;
+    node.x = centerX + radius * Math.cos(angle);
+    node.y = centerY + radius * Math.sin(angle);
+  });
+  
+  // Position subdomains below their parent domains
+  let subdomainIndex = 0;
+  domainNodes.forEach((domainNode) => {
+    const connectedSubdomains = subdomainNodes.filter(sub => 
+      sub.connections.includes(domainNode.id)
+    );
+    
+    connectedSubdomains.forEach((sub, idx) => {
+      const offsetX = (idx - (connectedSubdomains.length - 1) / 2) * 80;
+      sub.x = domainNode.x + offsetX;
+      sub.y = domainNode.y + 120;
+      subdomainIndex++;
+    });
+  });
+  
+  // Position other nodes (IPs, ports, findings) below subdomains
+  let otherIndex = 0;
+  subdomainNodes.forEach((subNode) => {
+    const connectedOthers = otherNodes.filter(other => 
+      other.connections.includes(subNode.id)
+    );
+    
+    connectedOthers.forEach((other, idx) => {
+      const offsetX = (idx - (connectedOthers.length - 1) / 2) * 60;
+      other.x = subNode.x + offsetX;
+      other.y = subNode.y + 100;
+      otherIndex++;
+    });
+  });
+  
+  return nodes;
+};
+
 export function AttackSurfaceGraph() {
   const [zoom, setZoom] = useState(1);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
-  const [activeFilters, setActiveFilters] = useState<string[]>(["domain", "subdomain", "ip", "port", "finding"]);
+  const [activeFilters, setActiveFilters] = useState<string[]>(["domain", "subdomain"]);
+  const [assets, setAssets] = useState<ApiAsset[]>([]);
+  const [subdomains, setSubdomains] = useState<AsmSubdomain[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [assetsRes, subdomainsRes] = await Promise.all([
+          fetchAssets({ type: "domain", page: 1, page_size: 1000 }),
+          fetchSubdomains(undefined, 1, 1000),
+        ]);
+        setAssets(assetsRes.items || []);
+        setSubdomains(subdomainsRes.items || []);
+      } catch (error) {
+        console.error("Failed to load graph data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  // Build graph nodes from real data
+  const nodes = useMemo(() => {
+    const graphNodes: GraphNode[] = [];
+    const nodeIdMap = new Map<string, string>(); // Map asset_id/subdomain_id to graph node id
+
+    // Create domain nodes from assets
+    assets.forEach((asset, index) => {
+      if (asset.type === "domain") {
+        const nodeId = `domain-${asset.id}`;
+        nodeIdMap.set(asset.id, nodeId);
+        graphNodes.push({
+          id: nodeId,
+          label: asset.name,
+          type: "domain",
+          x: 0, // Will be calculated
+          y: 0,
+          connections: [],
+        });
+      }
+    });
+
+    // Create subdomain nodes and connect them to parent domains
+    subdomains.forEach((subdomain) => {
+      const parentNodeId = nodeIdMap.get(subdomain.asset_id);
+      if (parentNodeId) {
+        const subdomainNodeId = `subdomain-${subdomain.id}`;
+        graphNodes.push({
+          id: subdomainNodeId,
+          label: subdomain.subdomain,
+          type: "subdomain",
+          x: 0, // Will be calculated
+          y: 0,
+          connections: [parentNodeId],
+        });
+        
+        // Add reverse connection from domain to subdomain
+        const domainNode = graphNodes.find(n => n.id === parentNodeId);
+        if (domainNode) {
+          domainNode.connections.push(subdomainNodeId);
+        }
+      }
+    });
+
+    // Calculate layout positions
+    return calculateLayout(graphNodes);
+  }, [assets, subdomains]);
 
   const filteredNodes = nodes.filter((node) => activeFilters.includes(node.type));
 
@@ -86,20 +186,32 @@ export function AttackSurfaceGraph() {
     );
   };
 
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-center h-[600px]">
+          <RefreshCw className="w-6 h-6 animate-spin text-primary" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold text-foreground">Attack Surface Graph</h2>
-          <p className="text-sm text-muted-foreground">Visual representation of your asset relationships</p>
+          <p className="text-sm text-muted-foreground">
+            Visual representation of your asset relationships - {nodes.length} nodes total
+          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline">
             <Download className="w-4 h-4 mr-2" />
             Export Image
           </Button>
-          <Button variant="gradient">
+          <Button variant="gradient" onClick={() => window.location.reload()}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
           </Button>
@@ -111,9 +223,6 @@ export function AttackSurfaceGraph() {
         {[
           { type: "domain", label: "Domains", icon: Globe },
           { type: "subdomain", label: "Subdomains", icon: Globe },
-          { type: "ip", label: "IPs", icon: Server },
-          { type: "port", label: "Ports", icon: Shield },
-          { type: "finding", label: "Findings", icon: AlertTriangle },
         ].map((filter) => (
           <Button
             key={filter.type}
@@ -149,90 +258,97 @@ export function AttackSurfaceGraph() {
         </div>
 
         {/* Graph SVG */}
-        <div className="relative h-[600px] overflow-hidden bg-muted/20">
-          <svg
-            width="100%"
-            height="100%"
-            viewBox="0 0 800 600"
-            style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
-            className="transition-transform duration-300"
-          >
-            {/* Connections */}
-            {filteredNodes.map((node) =>
-              node.connections
-                .filter((connId) => filteredNodes.find((n) => n.id === connId))
-                .map((connId) => {
-                  const target = nodes.find((n) => n.id === connId);
-                  if (!target) return null;
-                  return (
-                    <motion.line
-                      key={`${node.id}-${connId}`}
-                      initial={{ pathLength: 0, opacity: 0 }}
-                      animate={{ pathLength: 1, opacity: 0.3 }}
-                      transition={{ duration: 0.5 }}
-                      x1={node.x}
-                      y1={node.y}
-                      x2={target.x}
-                      y2={target.y}
-                      stroke="currentColor"
-                      strokeWidth="1"
-                      className="text-muted-foreground"
-                    />
-                  );
-                })
-            )}
+        {filteredNodes.length > 0 ? (
+          <div className="relative h-[600px] overflow-hidden bg-muted/20">
+            <svg
+              width="100%"
+              height="100%"
+              viewBox="0 0 800 600"
+              style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
+              className="transition-transform duration-300"
+            >
+              {/* Connections */}
+              {filteredNodes.map((node) =>
+                node.connections
+                  .filter((connId) => filteredNodes.find((n) => n.id === connId))
+                  .map((connId) => {
+                    const target = filteredNodes.find((n) => n.id === connId);
+                    if (!target) return null;
+                    return (
+                      <motion.line
+                        key={`${node.id}-${connId}`}
+                        initial={{ pathLength: 0, opacity: 0 }}
+                        animate={{ pathLength: 1, opacity: 0.3 }}
+                        transition={{ duration: 0.5 }}
+                        x1={node.x}
+                        y1={node.y}
+                        x2={target.x}
+                        y2={target.y}
+                        stroke="currentColor"
+                        strokeWidth="1"
+                        className="text-muted-foreground"
+                      />
+                    );
+                  })
+              )}
 
-            {/* Nodes */}
-            {filteredNodes.map((node, index) => {
-              const size = getNodeSize(node.type);
-              return (
-                <motion.g
-                  key={node.id}
-                  initial={{ scale: 0, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ delay: index * 0.05 }}
-                  onClick={() => setSelectedNode(node)}
-                  className="cursor-pointer"
-                >
-                  <circle
-                    cx={node.x}
-                    cy={node.y}
-                    r={size}
-                    className={`${getNodeColor(node.type, node.severity)} stroke-background stroke-2 hover:stroke-primary transition-colors`}
-                  />
-                  <text
-                    x={node.x}
-                    y={node.y + size + 14}
-                    textAnchor="middle"
-                    className="fill-foreground text-xs font-medium"
-                    style={{ fontSize: "10px" }}
+              {/* Nodes */}
+              {filteredNodes.map((node, index) => {
+                const size = getNodeSize(node.type);
+                return (
+                  <motion.g
+                    key={node.id}
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ delay: index * 0.05 }}
+                    onClick={() => setSelectedNode(node)}
+                    className="cursor-pointer"
                   >
-                    {node.label}
-                  </text>
-                </motion.g>
-              );
-            })}
-          </svg>
+                    <circle
+                      cx={node.x}
+                      cy={node.y}
+                      r={size}
+                      className={`${getNodeColor(node.type, node.severity)} stroke-background stroke-2 hover:stroke-primary transition-colors`}
+                    />
+                    <text
+                      x={node.x}
+                      y={node.y + size + 14}
+                      textAnchor="middle"
+                      className="fill-foreground text-xs font-medium"
+                      style={{ fontSize: "10px" }}
+                    >
+                      {node.label.length > 20 ? node.label.substring(0, 20) + "..." : node.label}
+                    </text>
+                  </motion.g>
+                );
+              })}
+            </svg>
 
-          {/* Legend */}
-          <div className="absolute bottom-4 left-4 p-3 bg-card/90 backdrop-blur-sm rounded-lg border border-border">
-            <div className="text-xs font-medium text-foreground mb-2">Legend</div>
-            <div className="space-y-1">
-              {[
-                { type: "Domain", color: "bg-primary" },
-                { type: "Subdomain", color: "bg-secondary" },
-                { type: "IP Address", color: "bg-muted-foreground" },
-                { type: "Port", color: "bg-accent" },
-                { type: "Finding", color: "bg-destructive" },
-              ].map((item) => (
-                <div key={item.type} className="flex items-center gap-2">
-                  <div className={`w-3 h-3 rounded-full ${item.color}`} />
-                  <span className="text-xs text-muted-foreground">{item.type}</span>
-                </div>
-              ))}
+            {/* Legend */}
+            <div className="absolute bottom-4 left-4 p-3 bg-card/90 backdrop-blur-sm rounded-lg border border-border">
+              <div className="text-xs font-medium text-foreground mb-2">Legend</div>
+              <div className="space-y-1">
+                {[
+                  { type: "Domain", color: "bg-primary" },
+                  { type: "Subdomain", color: "bg-secondary" },
+                ].map((item) => (
+                  <div key={item.type} className="flex items-center gap-2">
+                    <div className={`w-3 h-3 rounded-full ${item.color}`} />
+                    <span className="text-xs text-muted-foreground">{item.type}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="h-[600px] flex items-center justify-center">
+            <EmptyState
+              icon={Globe}
+              title="No graph data"
+              description="No domains or subdomains found. Start a discovery to populate the graph."
+            />
+          </div>
+        )}
 
         {/* Selected Node Info */}
         {selectedNode && (
@@ -254,14 +370,6 @@ export function AttackSurfaceGraph() {
           </motion.div>
         )}
       </div>
-
-      {filteredNodes.length === 0 && (
-        <EmptyState
-          icon={Globe}
-          title="No graph data"
-          description="Select at least one node type to display the attack surface graph."
-        />
-      )}
     </div>
   );
 }

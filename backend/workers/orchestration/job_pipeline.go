@@ -7,7 +7,7 @@ import (
 // PipelineConfig holds all asset type and intensity mappings
 var PipelineConfig = map[string]map[string][]string{
 	"domain": {
-		"LIGHT":  {"subfinder", "basic_dns"},
+		"LIGHT":  {"subfinder"},
 		"NORMAL": {"amass_passive"},
 		"DEEP":   {"amass_active", "reverse_dns", "exposure_scan"},
 	},

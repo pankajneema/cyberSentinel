@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import json
 from typing import Any
 from backend.reporting.asm.assets.domain import process_domain_asm
 from backend.api_service.utils.database import AsyncSessionLocal
@@ -19,8 +20,19 @@ async def handle_event(event: dict[str, Any], redis_client=None) -> None:
     job_id = event.get("job_id")
     job_detail = await redis_client.get(f"asm:pipeline:{job_id}")
     if job_detail:
+        # Redis client may return bytes or a JSON string; normalize to dict
+        try:
+            if isinstance(job_detail, (bytes, bytearray)):
+                job_detail = job_detail.decode()
+            if isinstance(job_detail, str):
+                job_detail = json.loads(job_detail)
+        except Exception as e:
+            logger.error(f"Failed to parse job detail from cache for job {job_id}: {e}", exc_info=True)
+            job_detail = None
+
+    if job_detail:
         logger.info(f"Retrieved job detail from cache for job {job_id}")
-         
+
         async with AsyncSessionLocal() as db:
             try:
                 if asset_type == "domain":
@@ -28,15 +40,14 @@ async def handle_event(event: dict[str, Any], redis_client=None) -> None:
                 else:
                     raise ValueError(f"Unsupported asset type: {asset_type}")
             except Exception as e:
-                logger.error(f"Failed to process event: {e}", exc_info=True)                
+                logger.error(f"Failed to process event: {e}", exc_info=True)
                 raise
     else:     
         logger.warning(f"No job detail found in cache for job {job_id}")         
 
-
 async def consume_events(redis_client) -> None:
     """Consume events from RabbitMQ queue and process them"""
-    async def event_callback(redis_client, payload: dict[str, Any]) -> None:
+    async def event_callback(payload: dict[str, Any]) -> None:
         """Callback for each message from queue"""
         try:
             logger.info(f"Received event: {payload.get('job_id')}")
@@ -46,8 +57,7 @@ async def consume_events(redis_client) -> None:
             logger.error(f"❌ Failed: {e}", exc_info=True)
             raise
     
-    await consume_messages("report.asm", event_callback, redis_client=redis_client)
-
+    await consume_messages("report.asm", event_callback)
 
 async def main() -> None:
     """Start ASM Reporting Consumer"""

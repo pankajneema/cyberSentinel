@@ -43,6 +43,71 @@ export interface AsmDashboard {
   last_discovery_run: string | null;
 }
 
+export interface AsmOverview {
+  attack_surface_index: number;
+  total_discoveries: number;
+  active_discoveries: number;
+  last_discovery_run: string | null;
+  asset_counts: {
+    domains: number;
+    subdomains: number;
+    ips: number;
+    services: number;
+    assets_total: number;
+  };
+  exposure_summary: {
+    public_assets: number;
+    internet_facing_services: number;
+    unknown_assets: number;
+  };
+  exposure_breakdown: Array<{
+    label: string;
+    count: number;
+  }>;
+  exposure_trend: number;
+  top_exposed_assets: Array<{
+    id: string;
+    name: string;
+    type: string;
+    exposure: string;
+    exposure_score: number;
+    tags: string[];
+    status: string;
+    last_seen: string | null;
+  }>;
+  recent_activity: Array<{
+    id?: string;
+    action: string;
+    asset: string;
+    time: string;
+    type: string;
+  }>;
+}
+
+export interface AsmSubdomain {
+  id: string;
+  asm_discovery_id: string;
+  asset_id: string;
+  subdomain: string;
+  created_at?: string | null;
+  asset_name?: string | null;  // Parent domain/asset name
+  asset_type?: string | null;  // Parent asset type
+}
+
+export interface AsmDiscoveryRun {
+  id: string;
+  asm_discovery_id: string;
+  user_id: string;
+  triggered_by: string;
+  run_mode: string;
+  status: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  error_message?: string | null;
+  summary?: any;
+  created_at?: string | null;
+}
+
 export interface DiscoveryListParams {
   page?: number;
   page_size?: number;
@@ -83,4 +148,34 @@ export function deleteDiscovery(discoveryId: string) {
 
 export function fetchAsmDashboard() {
   return apiFetch<AsmDashboard>("/asm/dashboard");
+}
+
+export function fetchAsmOverview() {
+  return apiFetch<AsmOverview>("/asm/dashboard/overview");
+}
+
+export function fetchSubdomains(discoveryId?: string, page = 1, page_size = 50) {
+  const qs = new URLSearchParams();
+  qs.set("page", String(page));
+  qs.set("page_size", String(page_size));
+  if (discoveryId) qs.set("discovery_id", discoveryId);
+  return apiFetch<Paginated<AsmSubdomain>>(`/asm/subdomains?${qs.toString()}`);
+}
+
+export function getRunDetail(runId: string) {
+  return apiFetch<AsmDiscoveryRun>(`/asm/runs/${runId}`);
+}
+
+export function fetchDiscoveryRuns(discoveryId: string, page = 1, page_size = 50) {
+  const qs = new URLSearchParams();
+  qs.set("page", String(page));
+  qs.set("page_size", String(page_size));
+  return apiFetch<Paginated<AsmDiscoveryRun>>(`/asm/discoveries/${discoveryId}/runs?${qs.toString()}`);
+}
+
+export function fetchAllRuns(page = 1, page_size = 50) {
+  const qs = new URLSearchParams();
+  qs.set("page", String(page));
+  qs.set("page_size", String(page_size));
+  return apiFetch<Paginated<AsmDiscoveryRun>>(`/asm/runs?${qs.toString()}`);
 }
