@@ -101,7 +101,7 @@ function SubdomainNodeComponent({
                 ? node.name 
                 : (() => {
                     const parentAsset = assets.find(a => a.id === node.asset_id);
-                    return parentAsset ? `${node.name}.${parentAsset.name}` : node.name;
+                    return parentAsset ? `${node.name}` : node.name;
                   })()
               }
             </span>
