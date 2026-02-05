@@ -24,8 +24,10 @@ type Pipeline struct {
 type PipelineStep struct {
 	Order  int    `json:"order"`
 	Tool   string `json:"tool"`
-	Status string `json:"status"`
+	AssetID string `json:"asset_id,omitempty"`
+	Status  string `json:"status"`
 }
+
 
 const pipelineTTL = 24 * time.Hour
 
@@ -103,6 +105,23 @@ func SavePipeline(ctx context.Context, jobID string, p *Pipeline) error {
 	return nil
 }
 
+// SavePipelineRaw saves raw pipeline data to Redis
+func SavePipelineRaw(ctx context.Context, key string, data string) error {
+	if err := ensureDBConnection(); err != nil {
+		utils.Logger.Warnf("database connection failed, continuing without cache: %v", err)
+		return nil
+	}
+
+	redisCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	if err := database.Set(redisCtx, key, data, pipelineTTL); err != nil {
+		utils.Logger.Errorf("failed to store pipeline in redis key=%s error=%v", key, err)
+		return err
+	}
+
+	return nil
+}
 
 // UpdateStepStatus updates a single pipeline step safely
 func UpdateStepStatus(

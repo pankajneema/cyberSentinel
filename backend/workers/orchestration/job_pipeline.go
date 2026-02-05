@@ -36,6 +36,7 @@ var PipelineConfig = map[string]map[string][]string{
 // ToolExecution represents a single tool in the pipeline
 type ToolExecution struct {
 	Order      int                      `json:"order"`
+	AssetID    string                   `json:"asset_id,omitempty"`
 	Tool       string                   `json:"tool"`
 	Status     string                   `json:"status"`
 	DurationMs *int64                   `json:"duration_ms,omitempty"`
@@ -60,6 +61,7 @@ type DiscoveryJob struct {
 	AssetType string
 	Intensity string
 	Status    string
+	AssetIDs  []string
 }
 
 // GeneratePipeline creates pipeline structure from job data
@@ -70,21 +72,34 @@ func GeneratePipeline(job DiscoveryJob) (*PipelineResponse, error) {
 		return nil, fmt.Errorf("invalid asset_type: %s or intensity: %s", job.AssetType, job.Intensity)
 	}
 
-	// Create pipeline structure
+	// Determine assets; if none provided create pipeline per-tool without an asset_id
+	assets := job.AssetIDs
+	if len(assets) == 0 {
+		assets = []string{""}
+	}
+
+	// Preallocate pipeline entries (assets x tools)
+	total := len(assets) * len(tools)
 	pipeline := &PipelineResponse{
 		JobID:     job.ID,
 		AssetType: job.AssetType,
 		Intensity: job.Intensity,
 		Status:    job.Status,
-		Pipeline:  make([]ToolExecution, len(tools)),
+		Pipeline:  make([]ToolExecution, 0, total),
 	}
 
-	// Initialize each tool with PENDING status
-	for i, tool := range tools {
-		pipeline.Pipeline[i] = ToolExecution{
-			Order:  i + 1,
-			Tool:   tool,
-			Status: "PENDING",
+	// Create entries: iterate assets outer, tools inner to keep order sequential across assets
+	order := 1
+	for _, asset := range assets {
+		for _, tool := range tools {
+			entry := ToolExecution{
+				Order:   order,
+				AssetID: asset,
+				Tool:    tool,
+				Status:  "PENDING",
+			}
+			pipeline.Pipeline = append(pipeline.Pipeline, entry)
+			order++
 		}
 	}
 

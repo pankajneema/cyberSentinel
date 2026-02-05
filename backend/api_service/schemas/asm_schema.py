@@ -26,7 +26,7 @@ class AsmDiscoveryUpdateRequest(BaseModel):
     intensity: Optional[Literal["LIGHT", "NORMAL", "DEEP"]] = None
     schedule_type: Optional[Literal["QUICK", "INTERVAL", "CRON"]] = None
     schedule_value: Optional[str] = None
-    status: Optional[Literal["RUNNING", "PAUSED", "FAILED"]] = None
+    status: Optional[Literal["RUNNING", "PAUSED", "FAILED", "COMPLETED"]] = None
 
 
 # ---------------------------------------------------
@@ -67,3 +67,33 @@ class AsmDashboardResponse(BaseModel):
     total_discoveries: int
     active_discoveries: int
     last_discovery_run: Optional[str]
+
+
+# ---------------------------------------------------
+# Asm Subdomain Create Request
+# ---------------------------------------------------
+class AsmSubdomainCreateRequest(BaseModel):
+    asm_discovery_id: str
+    asset_id: str
+    subdomain: str
+
+
+# ---------------------------------------------------
+# Asm Subdomain Response
+# ---------------------------------------------------
+class AsmSubdomainResponse(BaseModel):
+    id: str
+    asm_discovery_id: str
+    asset_id: str
+    subdomain: str
+    created_at: Optional[str]
+
+
+# ---------------------------------------------------
+# Asm Subdomain List Response
+# ---------------------------------------------------
+class AsmSubdomainListResponse(BaseModel):
+    items: List[AsmSubdomainResponse]
+    total: int
+    page: int
+    page_size: int

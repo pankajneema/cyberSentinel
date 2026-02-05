@@ -194,8 +194,8 @@ export function ScanManager() {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case "RUNNING": return <CheckCircle2 className="w-4 h-4 text-success" />;
       case "RUNNING": return <Loader2 className="w-4 h-4 text-primary animate-spin" />;
+      case "COMPLETED": return <CheckCircle2 className="w-4 h-4 text-success" />;
       case "PENDING": return <Clock className="w-4 h-4 text-warning" />;
       case "PAUSED": return <Pause className="w-4 h-4 text-muted-foreground" />;
       case "FAILED": return <XCircle className="w-4 h-4 text-destructive" />;
@@ -205,8 +205,8 @@ export function ScanManager() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "RUNNING": return "bg-success/10 text-success";
       case "RUNNING": return "bg-primary/10 text-primary";
+      case "COMPLETED": return "bg-success/10 text-success";
       case "PENDING": return "bg-warning/10 text-warning";
       case "PAUSED": return "bg-muted text-muted-foreground";
       case "FAILED": return "bg-destructive/10 text-destructive";
@@ -926,6 +926,7 @@ export function ScanManager() {
           <TabsTrigger value="running">Running</TabsTrigger>
           <TabsTrigger value="paused">Paused</TabsTrigger>
           <TabsTrigger value="pending">Pending</TabsTrigger>
+          <TabsTrigger value="completed">Completed</TabsTrigger>
           <TabsTrigger value="failed">Failed</TabsTrigger>
         </TabsList>
 
@@ -1192,6 +1193,64 @@ export function ScanManager() {
                 icon={Clock}
                 title="No pending discoveries"
                 description="There are no discoveries in the queue."
+              />
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="completed" className="mt-4">
+          <div className="space-y-3">
+            {discoveries.filter(d => d.status === "COMPLETED").map((discovery, index) => (
+              <motion.div
+                key={discovery.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05 }}
+                className="bg-card rounded-2xl border border-border p-5"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    {getStatusIcon(discovery.status)}
+                    <div>
+                      <div className="font-medium text-foreground">{discovery.name}</div>
+                      <div className="text-sm text-muted-foreground capitalize">{discovery.asset_type} • {discovery.intensity}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs px-2.5 py-1 rounded-full capitalize ${getStatusColor(discovery.status)}`}>
+                      {discovery.status}
+                    </span>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => openViewDialog(discovery)}>
+                          <Eye className="w-4 h-4 mr-2" />View Details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEditDialog(discovery)}>
+                          <Edit className="w-4 h-4 mr-2" />Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem 
+                          onClick={() => handleDeleteDiscovery(discovery.id, discovery.name)}
+                          className="text-destructive"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+            {discoveries.filter(d => d.status === "COMPLETED").length === 0 && (
+              <EmptyState
+                icon={CheckCircle2}
+                title="No completed discoveries"
+                description="Completed discoveries will appear here."
               />
             )}
           </div>

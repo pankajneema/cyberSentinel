@@ -12,6 +12,8 @@ type Task struct {
 type Result struct {
 	JobID   string
 	Success bool
+	Status  string
+	Data    map[string]interface{} // Add this field
 	Error   string
 	EndAt   time.Time
 }

@@ -13,7 +13,6 @@ import (
 
 	"workers/executor"
 	"workers/executor/runner"
-
 )
 
 var (
@@ -102,11 +101,53 @@ func RegisterJob(job *Job) error {
 
 	status, _ := jobData["status"].(string)
 
+	// Extract asset_ids array from jobData (if present). Support multiple shapes.
+	var assetIDs []string
+	if rawIDs, ok := jobData["asset_ids"]; ok && rawIDs != nil {
+		switch ids := rawIDs.(type) {
+		case []interface{}:
+			for _, id := range ids {
+				switch v := id.(type) {
+				case string:
+					assetIDs = append(assetIDs, v)
+				case map[string]interface{}:
+					if s, ok := v["id"].(string); ok {
+						assetIDs = append(assetIDs, s)
+					} else if s, ok := v["asset_id"].(string); ok {
+						assetIDs = append(assetIDs, s)
+					}
+				}
+			}
+		case []string:
+			assetIDs = ids
+		case map[string]interface{}:
+			if s, ok := ids["id"].(string); ok {
+				assetIDs = append(assetIDs, s)
+			} else if s, ok := ids["asset_id"].(string); ok {
+				assetIDs = append(assetIDs, s)
+			}
+		case string:
+			assetIDs = append(assetIDs, ids)
+		}
+	}
+
+	// Also accept singular `asset_id` key for backward compatibility
+	if len(assetIDs) == 0 {
+		if rawID, ok := jobData["asset_id"]; ok && rawID != nil {
+			if s, ok := rawID.(string); ok {
+				assetIDs = append(assetIDs, s)
+			}
+		}
+	}
+
+	utils.Logger.Infof("parsed asset_ids for job id=%s asset_ids=%v", job.ID, assetIDs)
+
 	discoveryJob := DiscoveryJob{
 		ID:        job.ID,
 		AssetType: assetType,
 		Intensity: intensity,
 		Status:    status,
+		AssetIDs:  assetIDs,
 	}
 
 	pipeline, err := GeneratePipeline(discoveryJob)
@@ -137,8 +178,8 @@ func RegisterJob(job *Job) error {
 	} else {
 		utils.Logger.Infof("pipeline stored in redis key=asm:pipeline:%s", job.ID)
 	}
-   
-    //TODO FOR FUTURES HERE MAKE A LOAD BALANCE AND SHARDING LOGIC=========================
+
+	//TODO FOR FUTURES HERE MAKE A LOAD BALANCE AND SHARDING LOGIC=========================
 	go executeJob(job.ID)
 
 	// Update job status to RUNNING in DB
@@ -150,17 +191,12 @@ func RegisterJob(job *Job) error {
 		return fmt.Errorf("update job status failed: %w", err)
 	}
 	utils.Logger.Infof("job status updated to RUNNING id=%s", job.ID)
-    
-
-	
 
 	utils.Logger.Infof("job registered successfully id=%s type=%s asset_type=%s intensity=%s tools=%d",
 		job.ID, job.Type, assetType, intensity, len(pipeline.Pipeline))
 
 	return nil
 }
-
-
 
 func executeJob(jobID string) error {
 	ctx, cancel := runner.NewContext()
@@ -175,8 +211,8 @@ func executeJob(jobID string) error {
 
 	if !result.Success {
 		JobFailed := `UPDATE asm_discoveries SET status = 'FAILED', updated_at = NOW() WHERE id = $1;`
-		if err := database.Exec(ctx, JobFailed,jobID); err != nil {
-		// Update status to FAILED  DB
+		if err := database.Exec(ctx, JobFailed, jobID); err != nil {
+			// Update status to FAILED  DB
 			utils.Logger.Errorf("failed to update job status: %v", err)
 		}
 
@@ -188,11 +224,15 @@ func executeJob(jobID string) error {
 		return fmt.Errorf("job execution failed: %s", result.Error)
 	}
 
+	// Update status to COMPLETED on success
+	JobCompleted := `UPDATE asm_discoveries SET status = 'COMPLETED', updated_at = NOW() WHERE id = $1;`
+	if err := database.Exec(ctx, JobCompleted, jobID); err != nil {
+		utils.Logger.Errorf("failed to update job status to COMPLETED: %v", err)
+	}
+
 	utils.Logger.Infof("job_manager job completed job=%s", jobID)
 	return nil
 }
-
-
 
 func UpdateJobState(jobID string, state JobState) error {
 	jobMux.Lock()

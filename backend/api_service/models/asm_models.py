@@ -39,7 +39,7 @@ class AsmDiscovery(Base):
     schedule_value = Column(String, nullable=True)
 
     status = Column(
-        Enum("RUNNING","PENDING","PAUSED", "DELETED", "FAILED", name="asm_status"),
+        Enum("RUNNING","PENDING","PAUSED", "DELETED", "FAILED", "COMPLETED", name="asm_status"),
         default="PENDING",
     )
 
@@ -109,5 +109,30 @@ class AsmDiscoveryRun(Base):
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "summary": self.summary,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AsmSubdomain(Base):
+    __tablename__ = "asm_subdomains"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    asm_discovery_id = Column(String, nullable=False, index=True)
+    asset_id = Column(String, nullable=False, index=True)
+    subdomain = Column(String, nullable=False)
+    
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        # Unique constraint on subdomain + asset_id combination
+        __import__('sqlalchemy').UniqueConstraint('asset_id', 'subdomain', name='uq_subdomain_per_asset'),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asm_discovery_id": self.asm_discovery_id,
+            "asset_id": self.asset_id,
+            "subdomain": self.subdomain,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

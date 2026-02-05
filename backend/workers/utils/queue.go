@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"errors"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -51,6 +52,22 @@ func Connect(rabbitURL, queueName string) (*Queue, error) {
 	}, nil
 }
 
+// Publish sends a message to the queue
+func (q *Queue) Publish(ctx context.Context, body []byte) error {
+	return q.channel.PublishWithContext(
+		ctx,
+		"",           // exchange
+		q.queue.Name, // routing key
+		false,        // mandatory
+		false,        // immediate
+		amqp.Publishing{
+			ContentType:  "application/json",
+			Body:         body,
+			DeliveryMode: amqp.Persistent,
+		},
+	)
+}
+
 // Consume starts consuming messages
 func (q *Queue) Consume() (<-chan amqp.Delivery, error) {
 	return q.channel.Consume(
@@ -83,4 +100,3 @@ func (q *Queue) Close() {
 		_ = q.conn.Close()
 	}
 }
-
