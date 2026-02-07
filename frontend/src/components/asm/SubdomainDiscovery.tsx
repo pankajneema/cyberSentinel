@@ -43,16 +43,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { fetchSubdomains, fetchAsmOverview, fetchAssets, type AsmSubdomain, type ApiAsset } from "@/lib/api";
+import { fetchSubdomainIPs, getSubdomainDetail, type AsmIP } from "@/lib/services/asm";
 
 interface SubdomainNode {
   id: string;
   name: string;
-  type: "asset" | "subdomain";
+  type: "asset" | "subdomain" | "ip";
   asset_id?: string;
   risk: "critical" | "high" | "medium" | "low";
   dns?: string;
   hosting?: string;
   ip?: string;
+  ip_count?: number;
   status: "active" | "inactive";
   children?: SubdomainNode[];
 }
@@ -70,8 +72,30 @@ function SubdomainNodeComponent({
   onRescan: (name: string) => void;
   assets: ApiAsset[];
 }) {
-  const [isExpanded, setIsExpanded] = useState(level < 2);
-  const hasChildren = node.children && node.children.length > 0;
+  const [isExpanded, setIsExpanded] = useState(level < 1);
+  const [ips, setIps] = useState<AsmIP[]>([]);
+  const [loadingIPs, setLoadingIPs] = useState(false);
+  const hasChildren = (node.children && node.children.length > 0) || (node.type === "subdomain" && (node.ip_count || 0) > 0);
+  
+  const loadIPs = async () => {
+    if (node.type !== "subdomain" || ips.length > 0) return;
+    setLoadingIPs(true);
+    try {
+      const data = await fetchSubdomainIPs(node.id, 1, 50);
+      setIps(data.items || []);
+    } catch (e) {
+      console.error("Failed to load IPs:", e);
+    } finally {
+      setLoadingIPs(false);
+    }
+  };
+  
+  const handleToggle = () => {
+    if (node.type === "subdomain" && !isExpanded && (node.ip_count || 0) > 0) {
+      loadIPs();
+    }
+    setIsExpanded(!isExpanded);
+  };
 
   return (
     <div>
@@ -80,7 +104,7 @@ function SubdomainNodeComponent({
         animate={{ opacity: 1, x: 0 }}
         className="flex items-center gap-3 p-3 hover:bg-muted/50 rounded-xl cursor-pointer transition-all duration-200 group"
         style={{ marginLeft: level * 28 }}
-        onClick={() => hasChildren && setIsExpanded(!isExpanded)}
+        onClick={() => hasChildren && handleToggle()}
       >
         <div className="w-6 h-6 flex items-center justify-center">
           {hasChildren ? (
@@ -97,7 +121,9 @@ function SubdomainNodeComponent({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-medium text-foreground group-hover:text-primary transition-colors">
-              {node.type === "asset" 
+              {node.type === "ip" 
+                ? node.ip || node.name
+                : node.type === "asset" 
                 ? node.name 
                 : (() => {
                     const parentAsset = assets.find(a => a.id === node.asset_id);
@@ -108,6 +134,16 @@ function SubdomainNodeComponent({
             {node.type === "asset" && (
               <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded-full">
                 Parent Domain
+              </span>
+            )}
+            {node.type === "subdomain" && node.ip_count !== undefined && node.ip_count > 0 && (
+              <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-600 rounded-full">
+                {node.ip_count} IP{node.ip_count !== 1 ? 's' : ''}
+              </span>
+            )}
+            {node.type === "ip" && (
+              <span className="text-xs px-2 py-0.5 bg-muted text-muted-foreground rounded-full">
+                IP Address
               </span>
             )}
           </div>
@@ -151,13 +187,14 @@ function SubdomainNodeComponent({
         </div>
       </motion.div>
       <AnimatePresence>
-        {isExpanded && hasChildren && (
+        {isExpanded && (
           <motion.div 
             initial={{ opacity: 0, height: 0 }} 
             animate={{ opacity: 1, height: "auto" }} 
             exit={{ opacity: 0, height: 0 }}
           >
-            {node.children?.map((child) => (
+            {/* Show subdomain children */}
+            {node.children && node.children.length > 0 && node.children.map((child) => (
               <SubdomainNodeComponent 
                 key={child.id} 
                 node={child} 
@@ -167,6 +204,41 @@ function SubdomainNodeComponent({
                 assets={assets}
               />
             ))}
+            
+            {/* Show IPs for subdomain */}
+            {node.type === "subdomain" && (
+              <div style={{ marginLeft: (level + 1) * 28 }}>
+                {loadingIPs ? (
+                  <div className="p-3 text-sm text-muted-foreground flex items-center gap-2">
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Loading IPs...
+                  </div>
+                ) : ips.length > 0 ? (
+                  ips.map((ip) => (
+                    <SubdomainNodeComponent
+                      key={ip.id}
+                      node={{
+                        id: ip.id,
+                        name: ip.ip_address,
+                        type: "ip",
+                        asset_id: ip.asset_id,
+                        risk: ip.exposure_level === "high" ? "high" : ip.exposure_level === "medium" ? "medium" : "low",
+                        ip: ip.ip_address,
+                        status: ip.status === "active" ? "active" : "inactive",
+                      }}
+                      level={level + 1}
+                      onDelete={onDelete}
+                      onRescan={onRescan}
+                      assets={assets}
+                    />
+                  ))
+                ) : node.ip_count === 0 ? (
+                  <div className="p-3 text-sm text-muted-foreground">
+                    No IPs found for this subdomain
+                  </div>
+                ) : null}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -183,25 +255,39 @@ export function SubdomainDiscovery() {
   const [subdomains, setSubdomains] = useState<AsmSubdomain[]>([]);
   const [assets, setAssets] = useState<ApiAsset[]>([]);
   const [totalSubdomainsStat, setTotalSubdomainsStat] = useState<string>("0");
+  const [totalIPsStat, setTotalIPsStat] = useState<string>("0");
+  const [activeSubdomainsStat, setActiveSubdomainsStat] = useState<string>("0");
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
-        // Load all subdomains
-        const res = await fetchSubdomains(undefined, 1, 1000);
+        // Load subdomains with pagination (max 100 per page for performance)
+        const res = await fetchSubdomains(undefined, 1, 100);
         if (!cancelled) {
           setSubdomains(res.items || []);
         }
         
         // Load assets (domains) to use as parents
-        const assetsRes = await fetchAssets({ type: "domain", page: 1, page_size: 1000 });
+        const assetsRes = await fetchAssets({ type: "domain", page: 1, page_size: 100 });
         if (!cancelled) {
           setAssets(assetsRes.items || []);
         }
         
+        // Get accurate counts from overview API
         const overview = await fetchAsmOverview();
-        if (!cancelled) setTotalSubdomainsStat(String(overview.asset_counts?.subdomains || 0));
+        if (!cancelled) {
+          setTotalSubdomainsStat(String(overview.asset_counts?.subdomains || 0));
+          setTotalIPsStat(String(overview.asset_counts?.ips || 0));
+          
+          // For active subdomains, we need to count from all subdomains
+          // Fetch all subdomains to get accurate active count
+          const allSubdomainsRes = await fetchSubdomains(undefined, 1, 1000);
+          if (!cancelled) {
+            const activeCount = (allSubdomainsRes.items || []).filter(sd => sd.status === "active").length;
+            setActiveSubdomainsStat(String(activeCount));
+          }
+        }
       } catch (e) {
         console.error("Failed to load subdomains", e);
       }
@@ -239,7 +325,8 @@ export function SubdomainDiscovery() {
         type: "subdomain",
         asset_id: subdomain.asset_id,
         risk: "medium", // Default risk, can be enhanced later
-        status: "active",
+        status: (subdomain.status || "active") as "active" | "inactive",
+        ip_count: subdomain.ip_count || 0,
       };
 
       if (parentAsset) {
@@ -334,9 +421,9 @@ export function SubdomainDiscovery() {
       <div className="grid sm:grid-cols-4 gap-4">
         {[
           { label: "Total Subdomains", value: totalSubdomainsStat, icon: Globe, color: "bg-primary/10 text-primary" },
-          { label: "Active", value: String(subdomains.length), icon: Shield, color: "bg-success/10 text-success" },
+          { label: "Total IPs", value: totalIPsStat, icon: Network, color: "bg-blue-500/10 text-blue-600" },
+          { label: "Active Subdomains", value: activeSubdomainsStat, icon: Shield, color: "bg-success/10 text-success" },
           { label: "Parent Domains", value: String(domainAssets.length), icon: Network, color: "bg-accent/10 text-accent" },
-          { label: "New This Week", value: "0", icon: Plus, color: "bg-accent/10 text-accent" },
         ].map((stat, i) => (
           <motion.div 
             key={stat.label} 

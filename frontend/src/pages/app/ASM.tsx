@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Radar, LayoutDashboard, Network, Cloud, Users, GitBranch, FileSearch, FileText, Settings } from "lucide-react";
+import { Radar, LayoutDashboard, Network, Cloud, Users, GitBranch, FileSearch, FileText, Settings, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ASMOverview } from "@/components/asm/ASMOverview";
 import { SubdomainDiscovery } from "@/components/asm/SubdomainDiscovery";
+import { IPDiscovery } from "@/components/asm/IPDiscovery";
 import { CloudAttackSurface } from "@/components/asm/CloudAttackSurface";
 import { HumanAttackSurface } from "@/components/asm/HumanAttackSurface";
 import { AttackSurfaceGraph } from "@/components/asm/AttackSurfaceGraph";
@@ -16,6 +17,7 @@ import { motion } from "framer-motion";
 const tabs = [
   { value: "overview", label: "Overview", icon: LayoutDashboard },
   { value: "subdomains", label: "Subdomains", icon: Network },
+  { value: "ips", label: "IPs", icon: Server },
   { value: "cloud", label: "Cloud", icon: Cloud },
   { value: "human", label: "Human", icon: Users },
   { value: "graph", label: "Graph", icon: GitBranch },
@@ -90,6 +92,9 @@ export default function ASM() {
           </TabsContent>
           <TabsContent value="subdomains" className="mt-0">
             <SubdomainDiscovery />
+          </TabsContent>
+          <TabsContent value="ips" className="mt-0">
+            <IPDiscovery />
           </TabsContent>
           <TabsContent value="cloud" className="mt-0">
             <CloudAttackSurface />

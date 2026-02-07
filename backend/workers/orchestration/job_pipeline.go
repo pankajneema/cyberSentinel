@@ -4,41 +4,115 @@ import (
 	"fmt"
 )
 
-// PipelineConfig holds all asset type and intensity mappings
-var PipelineConfig = map[string]map[string][]string{
+// StageConfig represents a single pipeline stage with its tool mapping
+type StageConfig struct {
+	Stage string `json:"stage"` // Stage name (e.g., "subdomain_discovery")
+	Tool  string `json:"tool"`  // Tool name (e.g., "subfinder")
+}
+
+// PipelineConfig holds all asset type and intensity mappings with stage-based configuration
+// ASM Intensity Levels: LIGHT (visibility), NORMAL (exposure), DEEP (risk signals)
+var PipelineConfig = map[string]map[string][]StageConfig{
 	"domain": {
-		"LIGHT":  {"subfinder"},
-		"NORMAL": {"amass_passive"},
-		"DEEP":   {"amass_active", "reverse_dns", "exposure_scan"},
+		"LIGHT": {
+			{Stage: "subdomain_discovery", Tool: "subfinder"},
+			{Stage: "dns_resolution", Tool: "dnsx"},
+			{Stage: "reachability_check", Tool: "http_probe"},
+			{Stage: "http_status", Tool: "httpx"},
+		},
+		"NORMAL": {
+			{Stage: "subdomain_discovery", Tool: "subfinder"},
+			{Stage: "dns_resolution", Tool: "dnsx"},
+			{Stage: "reachability_check", Tool: "http_probe"},
+			{Stage: "http_status", Tool: "httpx"},
+			{Stage: "ip_mapping", Tool: "dnsx"},
+			{Stage: "common_port_scan", Tool: "top_ports_scanner"},
+			{Stage: "service_fingerprint", Tool: "service_detector"},
+			{Stage: "tls_metadata", Tool: "ssl_analyzer"},
+			{Stage: "api_surface_hint", Tool: "api_detector"},
+		},
+		"DEEP": {
+			{Stage: "subdomain_discovery", Tool: "subfinder"},
+			{Stage: "dns_resolution", Tool: "dnsx"},
+			{Stage: "reachability_check", Tool: "http_probe"},
+			{Stage: "http_status", Tool: "httpx"},
+			{Stage: "ip_mapping", Tool: "dnsx"},
+			{Stage: "common_port_scan", Tool: "top_ports_scanner"},
+			{Stage: "service_fingerprint", Tool: "service_detector"},
+			{Stage: "tls_metadata", Tool: "ssl_analyzer"},
+			{Stage: "api_surface_hint", Tool: "api_detector"},
+			{Stage: "cloud_exposure_detect", Tool: "cloud_osint"},
+			{Stage: "admin_endpoint_check", Tool: "admin_finder"},
+			{Stage: "backup_file_check", Tool: "backup_detector"},
+			{Stage: "change_detection", Tool: "asset_diff_engine"},
+		},
 	},
 	"ip": {
-		"LIGHT":  {"ip_resolve"},
-		"NORMAL": {"asn_geo_mapping"},
-		"DEEP":   {"full_port_service_scan"},
+		"LIGHT": {
+			{Stage: "ip_resolve", Tool: "ip_resolve"},
+		},
+		"NORMAL": {
+			{Stage: "ip_resolve", Tool: "ip_resolve"},
+			{Stage: "asn_geo_mapping", Tool: "asn_geo_mapping"},
+		},
+		"DEEP": {
+			{Stage: "ip_resolve", Tool: "ip_resolve"},
+			{Stage: "asn_geo_mapping", Tool: "asn_geo_mapping"},
+			{Stage: "full_port_service_scan", Tool: "full_port_service_scan"},
+		},
 	},
 	"service": {
-		"LIGHT":  {"http_banner_check"},
-		"NORMAL": {"top_ports_services"},
-		"DEEP":   {"deep_misconfig_analysis"},
+		"LIGHT": {
+			{Stage: "http_banner_check", Tool: "http_banner_check"},
+		},
+		"NORMAL": {
+			{Stage: "http_banner_check", Tool: "http_banner_check"},
+			{Stage: "top_ports_services", Tool: "top_ports_services"},
+		},
+		"DEEP": {
+			{Stage: "http_banner_check", Tool: "http_banner_check"},
+			{Stage: "top_ports_services", Tool: "top_ports_services"},
+			{Stage: "deep_misconfig_analysis", Tool: "deep_misconfig_analysis"},
+		},
 	},
 	"cloud": {
-		"LIGHT":  {"public_endpoint_detect"},
-		"NORMAL": {"config_review_readonly"},
-		"DEEP":   {"full_osint_correlation"},
+		"LIGHT": {
+			{Stage: "public_endpoint_detect", Tool: "public_endpoint_detect"},
+		},
+		"NORMAL": {
+			{Stage: "public_endpoint_detect", Tool: "public_endpoint_detect"},
+			{Stage: "config_review_readonly", Tool: "config_review_readonly"},
+		},
+		"DEEP": {
+			{Stage: "public_endpoint_detect", Tool: "public_endpoint_detect"},
+			{Stage: "config_review_readonly", Tool: "config_review_readonly"},
+			{Stage: "full_osint_correlation", Tool: "full_osint_correlation"},
+		},
 	},
 	"human": {
-		"LIGHT":  {"email_leak_check"},
-		"NORMAL": {"repo_secret_scan"},
-		"DEEP":   {"full_osint_correlation"},
+		"LIGHT": {
+			{Stage: "email_leak_check", Tool: "email_leak_check"},
+		},
+		"NORMAL": {
+			{Stage: "email_leak_check", Tool: "email_leak_check"},
+			{Stage: "repo_secret_scan", Tool: "repo_secret_scan"},
+		},
+		"DEEP": {
+			{Stage: "email_leak_check", Tool: "email_leak_check"},
+			{Stage: "repo_secret_scan", Tool: "repo_secret_scan"},
+			{Stage: "full_osint_correlation", Tool: "full_osint_correlation"},
+		},
 	},
 }
 
-// ToolExecution represents a single tool in the pipeline
+// ToolExecution represents a single tool execution in the pipeline
+// Each execution corresponds to a stage in the ASM pipeline
 type ToolExecution struct {
 	Order      int                      `json:"order"`
+	Step       string                   `json:"step"` // Stage name (e.g., "subdomain_discovery")
 	AssetID    string                   `json:"asset_id,omitempty"`
-	Tool       string                   `json:"tool"`
-	Status     string                   `json:"status"`
+	Tool       string                   `json:"tool"`   // Tool name (e.g., "subfinder")
+	Status     string                   `json:"status"` // PENDING, RUNNING, COMPLETED, FAILED
 	DurationMs *int64                   `json:"duration_ms,omitempty"`
 	Summary    map[string]interface{}   `json:"summary,omitempty"`
 	Result     []map[string]interface{} `json:"result,omitempty"`
@@ -65,21 +139,25 @@ type DiscoveryJob struct {
 }
 
 // GeneratePipeline creates pipeline structure from job data
+// ASM Principle: One job supports ONLY ONE asset_type at a time
+// Pipeline executes sequentially, step-by-step, emitting events after each step
 func GeneratePipeline(job DiscoveryJob) (*PipelineResponse, error) {
-	// Get tools for this asset type and intensity
-	tools, exists := PipelineConfig[job.AssetType][job.Intensity]
+	// Get stage configurations for this asset type and intensity
+	stages, exists := PipelineConfig[job.AssetType][job.Intensity]
 	if !exists {
 		return nil, fmt.Errorf("invalid asset_type: %s or intensity: %s", job.AssetType, job.Intensity)
 	}
 
-	// Determine assets; if none provided create pipeline per-tool without an asset_id
+	// Determine assets; if none provided create pipeline per-stage without an asset_id
 	assets := job.AssetIDs
 	if len(assets) == 0 {
 		assets = []string{""}
 	}
 
-	// Preallocate pipeline entries (assets x tools)
-	total := len(assets) * len(tools)
+	// Preallocate pipeline entries (assets x stages)
+	// Note: ASM design supports one asset_type per job, but allows multiple assets
+	// Each asset gets its own sequential pipeline execution
+	total := len(assets) * len(stages)
 	pipeline := &PipelineResponse{
 		JobID:     job.ID,
 		AssetType: job.AssetType,
@@ -88,14 +166,16 @@ func GeneratePipeline(job DiscoveryJob) (*PipelineResponse, error) {
 		Pipeline:  make([]ToolExecution, 0, total),
 	}
 
-	// Create entries: iterate assets outer, tools inner to keep order sequential across assets
+	// Create entries: iterate assets outer, stages inner to keep order sequential across assets
+	// Each stage represents a step in the ASM pipeline
 	order := 1
 	for _, asset := range assets {
-		for _, tool := range tools {
+		for _, stageConfig := range stages {
 			entry := ToolExecution{
 				Order:   order,
+				Step:    stageConfig.Stage, // Stage name (e.g., "subdomain_discovery")
 				AssetID: asset,
-				Tool:    tool,
+				Tool:    stageConfig.Tool, // Tool name (e.g., "subfinder")
 				Status:  "PENDING",
 			}
 			pipeline.Pipeline = append(pipeline.Pipeline, entry)

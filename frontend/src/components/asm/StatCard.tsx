@@ -7,7 +7,7 @@ interface StatCardProps {
   value: string | number;
   icon: LucideIcon;
   trend?: { value: number; label: string };
-  variant?: "default" | "critical" | "warning" | "success";
+  variant?: "default" | "critical" | "warning" | "success" | "info";
   onClick?: () => void;
 }
 
@@ -17,6 +17,7 @@ export function StatCard({ label, value, icon: Icon, trend, variant = "default",
     critical: "border-destructive/30 bg-destructive/5",
     warning: "border-warning/30 bg-warning/5",
     success: "border-success/30 bg-success/5",
+    info: "border-blue-500/30 bg-blue-500/5",
   };
 
   const iconVariants = {
@@ -24,6 +25,7 @@ export function StatCard({ label, value, icon: Icon, trend, variant = "default",
     critical: "text-destructive bg-destructive/10",
     warning: "text-warning bg-warning/10",
     success: "text-success bg-success/10",
+    info: "text-blue-600 bg-blue-500/10",
   };
 
   return (

@@ -89,9 +89,25 @@ export interface AsmSubdomain {
   asm_discovery_id: string;
   asset_id: string;
   subdomain: string;
+  status?: string;
+  ip_count?: number;  // Number of IPs for this subdomain
   created_at?: string | null;
   asset_name?: string | null;  // Parent domain/asset name
   asset_type?: string | null;  // Parent asset type
+}
+
+export interface AsmIP {
+  id: string;
+  asm_discovery_id: string;
+  asset_id: string;
+  ip_address: string;
+  subdomain_id?: string | null;  // Parent subdomain ID
+  subdomain?: string | null;  // Denormalized subdomain name
+  status: string;
+  exposure_score?: number | null;
+  exposure_level: string;  // low, medium, high, not_calculated
+  reachable?: boolean | null;
+  created_at?: string | null;
 }
 
 export interface AsmDiscoveryRun {
@@ -178,4 +194,22 @@ export function fetchAllRuns(page = 1, page_size = 50) {
   qs.set("page", String(page));
   qs.set("page_size", String(page_size));
   return apiFetch<Paginated<AsmDiscoveryRun>>(`/asm/runs?${qs.toString()}`);
+}
+
+export function fetchSubdomainIPs(subdomainId: string, page = 1, page_size = 50) {
+  const qs = new URLSearchParams();
+  qs.set("page", String(page));
+  qs.set("page_size", String(page_size));
+  return apiFetch<Paginated<AsmIP>>(`/asm/subdomains/${subdomainId}/ips?${qs.toString()}`);
+}
+
+export function getSubdomainDetail(subdomainId: string) {
+  return apiFetch<AsmSubdomain & { preview_ips?: AsmIP[] }>(`/asm/subdomains/${subdomainId}`);
+}
+
+export function fetchAllIPs(page = 1, page_size = 50) {
+  const qs = new URLSearchParams();
+  qs.set("page", String(page));
+  qs.set("page_size", String(page_size));
+  return apiFetch<Paginated<AsmIP>>(`/asm/ips?${qs.toString()}`);
 }

@@ -19,6 +19,7 @@ import {
   Eye,
   FileText,
   FileSearch,
+  Network,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -307,24 +308,31 @@ export function ASMOverview({ onNavigateToScans, onNavigateToReports }: ASMOverv
               label="Total Domains"
               value={asm?.asset_counts?.domains != null ? String(asm.asset_counts.domains) : "—"}
               icon={Server}
-              trend={asm?.asset_counts?.domains ? { value: 0, label: `${asm.asset_counts.subdomains} subdomains` } : undefined}
+              trend={asm?.asset_counts?.domains ? { 
+                value: 0, 
+                label: `${asm.asset_counts.subdomains || 0} subdomains, ${asm.asset_counts.ips || 0} IPs` 
+              } : undefined}
             />
             <StatCard
-              label="Internet-Facing Services"
-              value={asm?.exposure_summary?.internet_facing_services != null ? String(asm.exposure_summary.internet_facing_services) : "—"}
+              label="Subdomains"
+              value={asm?.asset_counts?.subdomains != null ? String(asm.asset_counts.subdomains) : "—"}
               icon={Globe}
-              variant="warning"
+              trend={asm?.asset_counts?.subdomains ? { 
+                value: 0, 
+                label: `${asm.asset_counts.ips || 0} IPs discovered` 
+              } : undefined}
+            />
+            <StatCard
+              label="IP Addresses"
+              value={asm?.asset_counts?.ips != null ? String(asm.asset_counts.ips) : "—"}
+              icon={Network}
+              variant="info"
             />
             <StatCard
               label="High Exposure Assets"
               value={String(highExposureCount)}
               icon={AlertTriangle}
               variant="critical"
-            />
-            <StatCard
-              label="Cloud Assets"
-              value={asm?.asset_counts?.services != null ? String(asm.asset_counts.services) : "—"}
-              icon={Cloud}
             />
           </div>
 

@@ -144,3 +144,38 @@ class AsmSubdomainListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ---------------------------------------------------
+# Asm IP Response (child of Subdomain)
+# ---------------------------------------------------
+class AsmIPResponse(BaseModel):
+    id: str
+    asm_discovery_id: str
+    asset_id: str
+    ip_address: str
+    subdomain_id: Optional[str]  # Parent subdomain ID (hierarchy link)
+    subdomain: Optional[str]  # Denormalized subdomain name
+    status: str
+    exposure_score: Optional[int] = None  # 0-100, null if not calculated
+    exposure_level: str = "not_calculated"  # low, medium, high, not_calculated
+    reachable: Optional[bool] = None  # HTTP/HTTPS reachable
+    created_at: Optional[str]
+
+
+# ---------------------------------------------------
+# Asm IP List Response
+# ---------------------------------------------------
+class AsmIPListResponse(BaseModel):
+    items: List[AsmIPResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+# ---------------------------------------------------
+# Enhanced Subdomain Response with IP count
+# ---------------------------------------------------
+class AsmSubdomainWithIPsResponse(AsmSubdomainResponse):
+    ip_count: int = 0  # Number of IPs associated with this subdomain
+    status: Optional[str] = None  # Subdomain status

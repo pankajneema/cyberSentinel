@@ -22,10 +22,11 @@ type Pipeline struct {
 }
 
 type PipelineStep struct {
-	Order  int    `json:"order"`
-	Tool   string `json:"tool"`
+	Order   int    `json:"order"`
+	Step    string `json:"step"`        // Stage name (e.g., "subdomain_discovery")
+	Tool    string `json:"tool"`        // Tool name (e.g., "subfinder")
 	AssetID string `json:"asset_id,omitempty"`
-	Status  string `json:"status"`
+	Status  string `json:"status"`       // PENDING, RUNNING, COMPLETED, FAILED
 }
 
 

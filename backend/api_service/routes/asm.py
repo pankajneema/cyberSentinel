@@ -12,7 +12,8 @@ from utils.auth_utils import get_current_user
 from models.asm_models import (
     AsmDiscovery as AsmDiscoveryModel,
     AsmDiscoveryRun as AsmDiscoveryRunModel,
-    AsmSubdomain as AsmSubdomain,
+    AsmSubdomain as AsmSubdomainModel,
+    AsmIP as AsmIPModel,
 )
 from models.asset_models import Asset as AssetModel
 
@@ -27,6 +28,8 @@ from schemas.asm_schema import (
     AsmSubdomainListResponse,
     AsmDiscoveryRunResponse,
     AsmDiscoveryRunListResponse,
+    AsmIPListResponse,
+    AsmIPResponse,
 )
 
 # -------------------- Router -------------------- #
@@ -247,7 +250,7 @@ async def asm_dashboard(
         attack_surface_score=75,  # placeholder
         total_discoveries=total,
         active_discoveries=active,
-        last_discovery_run=last_run.started_at if last_run else None,
+        last_discovery_run=last_run.started_at.isoformat() if last_run and last_run.started_at else None,
     )
 
 
@@ -275,9 +278,15 @@ async def asm_overview(
 
     # total subdomains (join with discoveries to ensure user scoping)
     subdomain_query = select(func.count()).select_from(
-        select(AsmSubdomain).join(AsmDiscoveryModel, AsmSubdomain.asm_discovery_id == AsmDiscoveryModel.id).where(AsmDiscoveryModel.user_id == user_id).subquery()
+        select(AsmSubdomainModel).join(AsmDiscoveryModel, AsmSubdomainModel.asm_discovery_id == AsmDiscoveryModel.id).where(AsmDiscoveryModel.user_id == user_id).subquery()
     )
     total_subdomains = (await db.execute(subdomain_query)).scalar() or 0
+
+    # total IPs (join with discoveries to ensure user scoping)
+    ip_query = select(func.count()).select_from(
+        select(AsmIPModel).join(AsmDiscoveryModel, AsmIPModel.asm_discovery_id == AsmDiscoveryModel.id).where(AsmDiscoveryModel.user_id == user_id).subquery()
+    )
+    total_ips_discovered = (await db.execute(ip_query)).scalar() or 0
 
     # last discovery run
     last_run_query = (
@@ -357,7 +366,7 @@ async def asm_overview(
         asset_counts={
             "domains": total_domains,
             "subdomains": total_subdomains,
-            "ips": total_ips,
+            "ips": total_ips_discovered,  # Use discovered IPs from ASM, not asset inventory
             "services": total_services,
             "assets_total": total_assets,
         },
@@ -380,47 +389,272 @@ async def asm_overview(
 async def list_subdomains(
     discovery_id: Optional[str] = None,
     page: int = 1,
-    page_size: int = 50,
+    page_size: int = 50,  # Reduced default for performance (was 50, keeping it)
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    """
+    List subdomains with pagination.
+    
+    Performance: Uses pagination to handle large datasets (250+ subdomains).
+    Max page_size is 100 to prevent UI crashes.
+    """
     user_id = current_user["user_id"]
+    
+    # Enforce max page_size for performance
+    if page_size > 100:
+        page_size = 100
 
     # Base query: join to ensure user scoping and include asset info
     base = (
-        select(AsmSubdomain, AssetModel.name.label("asset_name"), AssetModel.type.label("asset_type"))
-        .join(AsmDiscoveryModel, AsmSubdomain.asm_discovery_id == AsmDiscoveryModel.id)
-        .outerjoin(AssetModel, AsmSubdomain.asset_id == AssetModel.id)
+        select(AsmSubdomainModel, AssetModel.name.label("asset_name"), AssetModel.type.label("asset_type"))
+        .join(AsmDiscoveryModel, AsmSubdomainModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .outerjoin(AssetModel, AsmSubdomainModel.asset_id == AssetModel.id)
         .where(AsmDiscoveryModel.user_id == user_id)
     )
 
     if discovery_id:
-        base = base.where(AsmSubdomain.asm_discovery_id == discovery_id)
+        base = base.where(AsmSubdomainModel.asm_discovery_id == discovery_id)
 
-    # total count
+    # Optimized count query (separate, faster)
     total_base = (
-        select(AsmSubdomain)
-        .join(AsmDiscoveryModel, AsmSubdomain.asm_discovery_id == AsmDiscoveryModel.id)
+        select(AsmSubdomainModel)
+        .join(AsmDiscoveryModel, AsmSubdomainModel.asm_discovery_id == AsmDiscoveryModel.id)
         .where(AsmDiscoveryModel.user_id == user_id)
     )
     if discovery_id:
-        total_base = total_base.where(AsmSubdomain.asm_discovery_id == discovery_id)
+        total_base = total_base.where(AsmSubdomainModel.asm_discovery_id == discovery_id)
     
     total_q = select(func.count()).select_from(total_base.subquery())
     total = (await db.execute(total_q)).scalar() or 0
 
-    paginated = base.order_by(AsmSubdomain.created_at.desc()).offset((page-1)*page_size).limit(page_size)
+    # Paginated query with limit
+    paginated = base.order_by(AsmSubdomainModel.created_at.desc()).offset((page-1)*page_size).limit(page_size)
     result = await db.execute(paginated)
     rows = result.all()
+
+    # Get subdomain IDs for IP count lookup
+    subdomain_ids = [row[0].id for row in rows]
+    
+    # Batch fetch IP counts for all subdomains in this page (performance optimization)
+    ip_counts = {}
+    if subdomain_ids:
+        ip_count_query = (
+            select(AsmIPModel.subdomain_id, func.count(AsmIPModel.id).label("ip_count"))
+            .where(AsmIPModel.subdomain_id.in_(subdomain_ids))
+            .group_by(AsmIPModel.subdomain_id)
+        )
+        ip_count_result = await db.execute(ip_count_query)
+        ip_counts = {row.subdomain_id: row.ip_count for row in ip_count_result.all()}
 
     items = []
     for row in rows:
         subdomain_dict = row[0].to_dict()
         subdomain_dict["asset_name"] = row.asset_name
         subdomain_dict["asset_type"] = row.asset_type
+        subdomain_dict["ip_count"] = ip_counts.get(subdomain_dict["id"], 0)  # Add IP count
         items.append(subdomain_dict)
 
     return AsmSubdomainListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# ---------------------------------------------------
+# IPs list for a specific subdomain (HIERARCHY: Subdomain → IPs)
+# ---------------------------------------------------
+@router.get("/subdomains/{subdomain_id}/ips", response_model=AsmIPListResponse)
+async def list_subdomain_ips(
+    subdomain_id: str,
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    List IPs for a specific subdomain.
+    
+    HIERARCHY: Domain → Subdomain → IP
+    This endpoint shows IPs that belong to a subdomain.
+    IPs are derived from DNS resolution of the subdomain.
+    
+    Risk flows bottom-up: IP exposure → Subdomain exposure → Domain exposure
+    """
+    user_id = current_user["user_id"]
+    
+    # Enforce max page_size
+    if page_size > 100:
+        page_size = 100
+    
+    # Verify subdomain exists and user has access
+    subdomain_query = (
+        select(AsmSubdomainModel)
+        .join(AsmDiscoveryModel, AsmSubdomainModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(
+            AsmSubdomainModel.id == subdomain_id,
+            AsmDiscoveryModel.user_id == user_id
+        )
+    )
+    subdomain_result = await db.execute(subdomain_query)
+    subdomain = subdomain_result.scalar_one_or_none()
+    
+    if not subdomain:
+        raise HTTPException(status_code=404, detail="Subdomain not found or access denied")
+    
+    # Get IPs for this subdomain
+    base_query = select(AsmIPModel).where(AsmIPModel.subdomain_id == subdomain_id)
+    
+    # Total count
+    total_query = select(func.count()).select_from(base_query.subquery())
+    total_result = await db.execute(total_query)
+    total = total_result.scalar() or 0
+    
+    # Paginated results
+    paginated_query = (
+        base_query
+        .order_by(AsmIPModel.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    
+    result = await db.execute(paginated_query)
+    ips = result.scalars().all()
+    
+    items = []
+    for ip in ips:
+        ip_dict = ip.to_dict()
+        items.append(AsmIPResponse(**ip_dict))
+    
+    return AsmIPListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# ---------------------------------------------------
+# Get single subdomain with IPs (for detail view)
+# ---------------------------------------------------
+@router.get("/subdomains/{subdomain_id}", response_model=dict)
+async def get_subdomain_detail(
+    subdomain_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Get subdomain detail with IP count and basic IP info.
+    
+    Returns subdomain info with:
+    - IP count (for UI display)
+    - First few IPs (preview)
+    """
+    user_id = current_user["user_id"]
+    
+    # Get subdomain with user verification
+    subdomain_query = (
+        select(AsmSubdomainModel, AssetModel.name.label("asset_name"), AssetModel.type.label("asset_type"))
+        .join(AsmDiscoveryModel, AsmSubdomainModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .outerjoin(AssetModel, AsmSubdomainModel.asset_id == AssetModel.id)
+        .where(
+            AsmSubdomainModel.id == subdomain_id,
+            AsmDiscoveryModel.user_id == user_id
+        )
+    )
+    subdomain_result = await db.execute(subdomain_query)
+    row = subdomain_result.first()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Subdomain not found")
+    
+    subdomain = row[0]
+    
+    # Get IP count
+    ip_count_query = select(func.count(AsmIPModel.id)).where(AsmIPModel.subdomain_id == subdomain_id)
+    ip_count_result = await db.execute(ip_count_query)
+    ip_count = ip_count_result.scalar() or 0
+    
+    # Get first 5 IPs for preview
+    preview_ips_query = (
+        select(AsmIPModel)
+        .where(AsmIPModel.subdomain_id == subdomain_id)
+        .order_by(AsmIPModel.created_at.desc())
+        .limit(5)
+    )
+    preview_ips_result = await db.execute(preview_ips_query)
+    preview_ips = preview_ips_result.scalars().all()
+    
+    subdomain_dict = subdomain.to_dict()
+    subdomain_dict["asset_name"] = row.asset_name
+    subdomain_dict["asset_type"] = row.asset_type
+    subdomain_dict["ip_count"] = ip_count
+    subdomain_dict["preview_ips"] = [ip.to_dict() for ip in preview_ips]
+    
+    return subdomain_dict
+
+
+# ---------------------------------------------------
+# List all IPs (for IPs tab)
+# ---------------------------------------------------
+@router.get("/ips", response_model=AsmIPListResponse)
+async def list_all_ips(
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    List all IPs discovered by the user.
+    
+    Shows all IPs across all discoveries, with pagination.
+    """
+    user_id = current_user["user_id"]
+    
+    # Enforce max page_size
+    if page_size > 100:
+        page_size = 100
+    
+    # Get all discovery IDs owned by the user
+    disc_query = select(AsmDiscoveryModel.id).where(AsmDiscoveryModel.user_id == user_id)
+    disc_result = await db.execute(disc_query)
+    discovery_ids = [row[0] for row in disc_result.all()]
+    
+    if not discovery_ids:
+        return AsmIPListResponse(
+            items=[],
+            total=0,
+            page=page,
+            page_size=page_size,
+        )
+    
+    # Get IPs for these discoveries
+    base_query = select(AsmIPModel).where(AsmIPModel.asm_discovery_id.in_(discovery_ids))
+    
+    # Total count
+    total_query = select(func.count()).select_from(base_query.subquery())
+    total_result = await db.execute(total_query)
+    total = total_result.scalar() or 0
+    
+    # Paginated results
+    paginated_query = (
+        base_query
+        .order_by(AsmIPModel.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    
+    result = await db.execute(paginated_query)
+    ips = result.scalars().all()
+    
+    items = []
+    for ip in ips:
+        ip_dict = ip.to_dict()
+        items.append(AsmIPResponse(**ip_dict))
+    
+    return AsmIPListResponse(
         items=items,
         total=total,
         page=page,

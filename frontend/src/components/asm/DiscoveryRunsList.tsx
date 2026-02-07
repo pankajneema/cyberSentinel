@@ -296,19 +296,32 @@ export function DiscoveryRunsList() {
                     <td className="p-4">
                       {run.summary ? (
                         <div className="text-sm space-y-1">
-                          {run.summary.found !== undefined && (
+                          {run.summary.subdomains && (
+                            <div className="text-foreground">
+                              <span className="text-muted-foreground">Subdomains:</span>{" "}
+                              <span className="font-medium">{run.summary.subdomains.found || 0}</span>
+                              {run.summary.subdomains.inserted !== undefined && (
+                                <span className="text-muted-foreground ml-1">
+                                  ({run.summary.subdomains.inserted} new)
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {run.summary.ips && (
+                            <div className="text-foreground">
+                              <span className="text-muted-foreground">IPs:</span>{" "}
+                              <span className="font-medium">{run.summary.ips.found || 0}</span>
+                              {run.summary.ips.inserted !== undefined && (
+                                <span className="text-muted-foreground ml-1">
+                                  ({run.summary.ips.inserted} new)
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {/* Fallback for old summary format */}
+                          {!run.summary.subdomains && !run.summary.ips && run.summary.found !== undefined && (
                             <div className="text-foreground">
                               <span className="text-muted-foreground">Found:</span> {run.summary.found}
-                            </div>
-                          )}
-                          {run.summary.inserted !== undefined && (
-                            <div className="text-foreground">
-                              <span className="text-muted-foreground">Inserted:</span> {run.summary.inserted}
-                            </div>
-                          )}
-                          {run.summary.skipped !== undefined && (
-                            <div className="text-foreground">
-                              <span className="text-muted-foreground">Skipped:</span> {run.summary.skipped}
                             </div>
                           )}
                         </div>
@@ -353,12 +366,20 @@ export function DiscoveryRunsList() {
             </table>
             
             {/* Pagination */}
-            {totalRuns > pageSize && (
+            {totalRuns > 0 && (
               <div className="flex items-center justify-between p-4 border-t border-border">
                 <div className="text-sm text-muted-foreground">
                   Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalRuns)} of {totalRuns} runs
                 </div>
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(1)}
+                    disabled={page === 1}
+                  >
+                    First
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
@@ -367,6 +388,12 @@ export function DiscoveryRunsList() {
                   >
                     Previous
                   </Button>
+                  <div className="flex items-center gap-1 px-2">
+                    <span className="text-sm text-muted-foreground">Page</span>
+                    <span className="text-sm font-medium text-foreground">{page}</span>
+                    <span className="text-sm text-muted-foreground">of</span>
+                    <span className="text-sm font-medium text-foreground">{Math.ceil(totalRuns / pageSize)}</span>
+                  </div>
                   <Button
                     variant="outline"
                     size="sm"
@@ -374,6 +401,14 @@ export function DiscoveryRunsList() {
                     disabled={page * pageSize >= totalRuns}
                   >
                     Next
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(Math.ceil(totalRuns / pageSize))}
+                    disabled={page * pageSize >= totalRuns}
+                  >
+                    Last
                   </Button>
                 </div>
               </div>
@@ -439,35 +474,86 @@ export function DiscoveryRunsList() {
                 {/* Summary */}
                 {selectedRun.summary && (
                   <div className="border-t border-border pt-4">
-                    <div className="text-sm font-medium mb-3">Summary</div>
-                    <div className="grid grid-cols-2 gap-4 bg-muted/30 rounded-lg p-4">
-                      {selectedRun.summary.found !== undefined && (
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-1">Found</div>
-                          <div className="text-lg font-bold text-foreground">{selectedRun.summary.found}</div>
+                    <div className="text-sm font-medium mb-3">Discovery Summary</div>
+                    <div className="space-y-4">
+                      {/* Subdomains Summary */}
+                      {selectedRun.summary.subdomains && (
+                        <div className="bg-muted/30 rounded-lg p-4">
+                          <div className="text-sm font-medium mb-3 text-foreground">Subdomains</div>
+                          <div className="grid grid-cols-4 gap-4">
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">Found</div>
+                              <div className="text-lg font-bold text-foreground">{selectedRun.summary.subdomains.found || 0}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">Inserted</div>
+                              <div className="text-lg font-bold text-success">{selectedRun.summary.subdomains.inserted || 0}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">Skipped</div>
+                              <div className="text-lg font-bold text-muted-foreground">{selectedRun.summary.subdomains.skipped || 0}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">Errors</div>
+                              <div className="text-lg font-bold text-destructive">{selectedRun.summary.subdomains.errors || 0}</div>
+                            </div>
+                          </div>
                         </div>
                       )}
-                      {selectedRun.summary.inserted !== undefined && (
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-1">Inserted</div>
-                          <div className="text-lg font-bold text-foreground">{selectedRun.summary.inserted}</div>
+                      
+                      {/* IPs Summary */}
+                      {selectedRun.summary.ips && (
+                        <div className="bg-muted/30 rounded-lg p-4">
+                          <div className="text-sm font-medium mb-3 text-foreground">IP Addresses</div>
+                          <div className="grid grid-cols-4 gap-4">
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">Found</div>
+                              <div className="text-lg font-bold text-foreground">{selectedRun.summary.ips.found || 0}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">Inserted</div>
+                              <div className="text-lg font-bold text-success">{selectedRun.summary.ips.inserted || 0}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">Skipped</div>
+                              <div className="text-lg font-bold text-muted-foreground">{selectedRun.summary.ips.skipped || 0}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">Errors</div>
+                              <div className="text-lg font-bold text-destructive">{selectedRun.summary.ips.errors || 0}</div>
+                            </div>
+                          </div>
                         </div>
                       )}
-                      {selectedRun.summary.skipped !== undefined && (
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-1">Skipped</div>
-                          <div className="text-lg font-bold text-foreground">{selectedRun.summary.skipped}</div>
+                      
+                      {/* Pipeline Info */}
+                      {selectedRun.summary.pipeline_steps !== undefined && (
+                        <div className="bg-muted/30 rounded-lg p-4">
+                          <div className="text-sm font-medium mb-2 text-foreground">Pipeline</div>
+                          <div className="text-sm text-muted-foreground">
+                            <span className="font-medium text-foreground">{selectedRun.summary.pipeline_steps}</span> steps executed
+                            {selectedRun.summary.intensity && (
+                              <span className="ml-2">
+                                • Intensity: <span className="font-medium text-foreground capitalize">{selectedRun.summary.intensity}</span>
+                              </span>
+                            )}
+                          </div>
                         </div>
                       )}
-                      {selectedRun.summary.intensity && (
-                        <div>
-                          <div className="text-xs text-muted-foreground mb-1">Intensity</div>
-                          <Badge 
-                            variant="outline" 
-                            className={`capitalize ${getIntensityColor(selectedRun.summary.intensity)}`}
-                          >
-                            {selectedRun.summary.intensity}
-                          </Badge>
+                      
+                      {/* Fallback for old format */}
+                      {!selectedRun.summary.subdomains && !selectedRun.summary.ips && selectedRun.summary.found !== undefined && (
+                        <div className="grid grid-cols-2 gap-4 bg-muted/30 rounded-lg p-4">
+                          <div>
+                            <div className="text-xs text-muted-foreground mb-1">Found</div>
+                            <div className="text-lg font-bold text-foreground">{selectedRun.summary.found}</div>
+                          </div>
+                          {selectedRun.summary.inserted !== undefined && (
+                            <div>
+                              <div className="text-xs text-muted-foreground mb-1">Inserted</div>
+                              <div className="text-lg font-bold text-success">{selectedRun.summary.inserted}</div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

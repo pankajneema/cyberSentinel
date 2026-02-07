@@ -1,7 +1,7 @@
 # models/asm_models.py
 
 import uuid
-from sqlalchemy import Column, String, DateTime, Enum, JSON
+from sqlalchemy import Column, String, DateTime, Enum, JSON, Integer, Boolean
 from sqlalchemy.sql import func
 
 from utils.database import Base
@@ -121,6 +121,9 @@ class AsmSubdomain(Base):
     asset_id = Column(String, nullable=False, index=True)
     subdomain = Column(String, nullable=False)
     
+    # Status: active, inactive, archived
+    status = Column(String(50), default="active", nullable=False)
+    
     created_at = Column(DateTime, server_default=func.now())
 
     __table_args__ = (
@@ -134,5 +137,364 @@ class AsmSubdomain(Base):
             "asm_discovery_id": self.asm_discovery_id,
             "asset_id": self.asset_id,
             "subdomain": self.subdomain,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AsmIP(Base):
+    __tablename__ = "asm_ips"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    asm_discovery_id = Column(String, nullable=False, index=True)
+    asset_id = Column(String, nullable=False, index=True)
+    ip_address = Column(String, nullable=False)
+    
+    # Hierarchy: IP belongs to a subdomain
+    subdomain_id = Column(String, nullable=True, index=True)  # FK to asm_subdomains.id
+    subdomain = Column(String, nullable=True)  # Denormalized subdomain name for quick reference
+    
+    # Status: active, inactive, archived
+    status = Column(String(50), default="active", nullable=False)
+    
+    # Exposure metrics (future-ready for ASM-Medium/HIGH)
+    # For ASM-LIGHT, these may be null/not calculated
+    exposure_score = Column(Integer, nullable=True)  # 0-100 exposure score
+    exposure_level = Column(String(20), nullable=True)  # low, medium, high, not_calculated
+    reachable = Column(Boolean, nullable=True)  # HTTP/HTTPS reachable
+    
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        # Unique constraint: same IP per asset (but can belong to multiple subdomains)
+        __import__('sqlalchemy').UniqueConstraint('asset_id', 'ip_address', name='uq_ip_per_asset'),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asm_discovery_id": self.asm_discovery_id,
+            "asset_id": self.asset_id,
+            "ip_address": self.ip_address,
+            "subdomain_id": self.subdomain_id,  # Hierarchy link
+            "subdomain": self.subdomain,  # Denormalized name
+            "status": self.status,
+            "exposure_score": self.exposure_score,
+            "exposure_level": self.exposure_level or "not_calculated",
+            "reachable": self.reachable,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AsmPort(Base):
+    """Stores discovered open ports on IPs"""
+    __tablename__ = "asm_ports"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    asm_discovery_id = Column(String, nullable=False, index=True)
+    asset_id = Column(String, nullable=False, index=True)
+    ip_address = Column(String, nullable=False, index=True)
+    
+    # Hierarchy: Port belongs to an IP
+    ip_id = Column(String, nullable=True, index=True)  # FK to asm_ips.id
+    subdomain_id = Column(String, nullable=True, index=True)  # FK to asm_subdomains.id
+    
+    port = Column(Integer, nullable=False)
+    protocol = Column(String(10), default="tcp", nullable=False)  # tcp, udp
+    status = Column(String(50), default="open", nullable=False)  # open, closed, filtered
+    
+    # Metadata
+    service = Column(String, nullable=True)  # Detected service name
+    banner = Column(String, nullable=True)  # Service banner
+    
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        # Unique constraint: same port per IP
+        __import__('sqlalchemy').UniqueConstraint('ip_address', 'port', 'protocol', name='uq_port_per_ip'),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asm_discovery_id": self.asm_discovery_id,
+            "asset_id": self.asset_id,
+            "ip_address": self.ip_address,
+            "ip_id": self.ip_id,
+            "subdomain_id": self.subdomain_id,
+            "port": self.port,
+            "protocol": self.protocol,
+            "status": self.status,
+            "service": self.service,
+            "banner": self.banner,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AsmService(Base):
+    """Stores discovered services on ports"""
+    __tablename__ = "asm_services"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    asm_discovery_id = Column(String, nullable=False, index=True)
+    asset_id = Column(String, nullable=False, index=True)
+    ip_address = Column(String, nullable=False, index=True)
+    port = Column(Integer, nullable=False)
+    
+    # Hierarchy links
+    port_id = Column(String, nullable=True, index=True)  # FK to asm_ports.id
+    ip_id = Column(String, nullable=True, index=True)  # FK to asm_ips.id
+    
+    service_name = Column(String, nullable=False)  # http, ssh, mysql, etc.
+    version = Column(String, nullable=True)  # Service version
+    product = Column(String, nullable=True)  # Product name
+    extra_info = Column(JSON, nullable=True)  # Additional service metadata
+    
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        # Unique constraint: same service per IP:port
+        __import__('sqlalchemy').UniqueConstraint('ip_address', 'port', 'service_name', name='uq_service_per_port'),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asm_discovery_id": self.asm_discovery_id,
+            "asset_id": self.asset_id,
+            "ip_address": self.ip_address,
+            "port": self.port,
+            "port_id": self.port_id,
+            "ip_id": self.ip_id,
+            "service_name": self.service_name,
+            "version": self.version,
+            "product": self.product,
+            "extra_info": self.extra_info,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AsmSSLCert(Base):
+    """Stores SSL/TLS certificate information"""
+    __tablename__ = "asm_ssl_certs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    asm_discovery_id = Column(String, nullable=False, index=True)
+    asset_id = Column(String, nullable=False, index=True)
+    host = Column(String, nullable=False, index=True)  # Subdomain or IP
+    port = Column(Integer, default=443, nullable=False)
+    
+    # Hierarchy
+    subdomain_id = Column(String, nullable=True, index=True)  # FK to asm_subdomains.id
+    
+    # Certificate details
+    protocol = Column(String, nullable=True)  # TLS 1.2, TLS 1.3, etc.
+    cipher = Column(String, nullable=True)  # Cipher suite
+    certificate_issuer = Column(String, nullable=True)  # Certificate Authority
+    certificate_subject = Column(String, nullable=True)  # Certificate subject
+    valid_from = Column(DateTime, nullable=True)
+    valid_until = Column(DateTime, nullable=True)
+    certificate_details = Column(JSON, nullable=True)  # Full certificate data
+    
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        # Unique constraint: same SSL cert per host:port
+        __import__('sqlalchemy').UniqueConstraint('host', 'port', name='uq_ssl_per_host'),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asm_discovery_id": self.asm_discovery_id,
+            "asset_id": self.asset_id,
+            "host": self.host,
+            "port": self.port,
+            "subdomain_id": self.subdomain_id,
+            "protocol": self.protocol,
+            "cipher": self.cipher,
+            "certificate_issuer": self.certificate_issuer,
+            "certificate_subject": self.certificate_subject,
+            "valid_from": self.valid_from.isoformat() if self.valid_from else None,
+            "valid_until": self.valid_until.isoformat() if self.valid_until else None,
+            "certificate_details": self.certificate_details,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AsmAPIEndpoint(Base):
+    """Stores discovered API endpoints"""
+    __tablename__ = "asm_api_endpoints"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    asm_discovery_id = Column(String, nullable=False, index=True)
+    asset_id = Column(String, nullable=False, index=True)
+    url = Column(String, nullable=False, index=True)
+    
+    # Hierarchy
+    subdomain_id = Column(String, nullable=True, index=True)  # FK to asm_subdomains.id
+    
+    method = Column(String(10), nullable=True)  # GET, POST, PUT, etc.
+    status_code = Column(Integer, nullable=True)  # HTTP status code
+    endpoint_type = Column(String, nullable=True)  # api, graphql, rest, etc.
+    response_size = Column(Integer, nullable=True)  # Response size in bytes
+    
+    # Metadata
+    title = Column(String, nullable=True)  # Page title
+    content_type = Column(String, nullable=True)  # Content-Type header
+    extra_info = Column(JSON, nullable=True)  # Additional endpoint metadata
+    
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        # Unique constraint: same endpoint per discovery
+        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'url', name='uq_endpoint_per_discovery'),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asm_discovery_id": self.asm_discovery_id,
+            "asset_id": self.asset_id,
+            "url": self.url,
+            "subdomain_id": self.subdomain_id,
+            "method": self.method,
+            "status_code": self.status_code,
+            "endpoint_type": self.endpoint_type,
+            "response_size": self.response_size,
+            "title": self.title,
+            "content_type": self.content_type,
+            "extra_info": self.extra_info,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AsmCloudResource(Base):
+    """Stores discovered cloud resources (S3 buckets, storage accounts, etc.)"""
+    __tablename__ = "asm_cloud_resources"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    asm_discovery_id = Column(String, nullable=False, index=True)
+    asset_id = Column(String, nullable=False, index=True)
+    
+    service = Column(String, nullable=False)  # AWS, Azure, GCP
+    resource_type = Column(String, nullable=False)  # S3, Storage, etc.
+    resource_name = Column(String, nullable=False, index=True)
+    
+    # Access status
+    access_status = Column(String, nullable=True)  # public, private, unknown
+    permissions = Column(JSON, nullable=True)  # Detailed permissions if available
+    
+    # Metadata
+    region = Column(String, nullable=True)  # Cloud region
+    extra_info = Column(JSON, nullable=True)  # Additional resource metadata
+    
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        # Unique constraint: same resource per discovery
+        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'resource_name', name='uq_cloud_resource'),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asm_discovery_id": self.asm_discovery_id,
+            "asset_id": self.asset_id,
+            "service": self.service,
+            "resource_type": self.resource_type,
+            "resource_name": self.resource_name,
+            "access_status": self.access_status,
+            "permissions": self.permissions,
+            "region": self.region,
+            "extra_info": self.extra_info,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AsmAdminEndpoint(Base):
+    """Stores discovered admin/management endpoints"""
+    __tablename__ = "asm_admin_endpoints"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    asm_discovery_id = Column(String, nullable=False, index=True)
+    asset_id = Column(String, nullable=False, index=True)
+    url = Column(String, nullable=False, index=True)
+    
+    # Hierarchy
+    subdomain_id = Column(String, nullable=True, index=True)  # FK to asm_subdomains.id
+    
+    status_code = Column(Integer, nullable=True)  # HTTP status code
+    response_size = Column(Integer, nullable=True)  # Response size
+    endpoint_type = Column(String, nullable=True)  # admin, login, dashboard, panel, etc.
+    
+    # Metadata
+    title = Column(String, nullable=True)  # Page title
+    content_type = Column(String, nullable=True)  # Content-Type
+    extra_info = Column(JSON, nullable=True)  # Additional metadata
+    
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        # Unique constraint: same admin endpoint per discovery
+        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'url', name='uq_admin_endpoint'),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asm_discovery_id": self.asm_discovery_id,
+            "asset_id": self.asset_id,
+            "url": self.url,
+            "subdomain_id": self.subdomain_id,
+            "status_code": self.status_code,
+            "response_size": self.response_size,
+            "endpoint_type": self.endpoint_type,
+            "title": self.title,
+            "content_type": self.content_type,
+            "extra_info": self.extra_info,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AsmBackupFile(Base):
+    """Stores discovered backup files"""
+    __tablename__ = "asm_backup_files"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    asm_discovery_id = Column(String, nullable=False, index=True)
+    asset_id = Column(String, nullable=False, index=True)
+    file_url = Column(String, nullable=False, index=True)
+    
+    # Hierarchy
+    subdomain_id = Column(String, nullable=True, index=True)  # FK to asm_subdomains.id
+    
+    file_extension = Column(String, nullable=True)  # .bak, .backup, .old, etc.
+    status = Column(String, nullable=True)  # found, accessible, protected, etc.
+    file_size = Column(Integer, nullable=True)  # File size in bytes
+    
+    # Metadata
+    content_type = Column(String, nullable=True)  # Content-Type if available
+    extra_info = Column(JSON, nullable=True)  # Additional file metadata
+    
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        # Unique constraint: same backup file per discovery
+        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'file_url', name='uq_backup_file'),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asm_discovery_id": self.asm_discovery_id,
+            "asset_id": self.asset_id,
+            "file_url": self.file_url,
+            "subdomain_id": self.subdomain_id,
+            "file_extension": self.file_extension,
+            "status": self.status,
+            "file_size": self.file_size,
+            "content_type": self.content_type,
+            "extra_info": self.extra_info,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
