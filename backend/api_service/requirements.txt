@@ -16,3 +16,4 @@ dotenv
 asyncpg
 redis
 clickhouse_connect
+python-decouple==3.8
