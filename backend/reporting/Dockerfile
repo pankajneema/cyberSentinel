@@ -5,12 +5,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY backend/api_service/requirements.txt /app/backend/api_service/requirements.txt
-COPY backend/reporting/requirements.txt /app/backend/reporting/requirements.txt
-RUN pip install --no-cache-dir -r /app/backend/reporting/requirements.txt
-
+# Copy full backend to keep relative paths consistent
 COPY backend /app/backend
 
-ENV PYTHONPATH=/app
+# Install reporting deps (includes api_service deps via -r)
+RUN pip install --no-cache-dir -r /app/backend/reporting/requirements.txt
+
+ENV PYTHONPATH=/app:/app/backend
 
 CMD ["python", "/app/backend/reporting/asm/main.py"]
