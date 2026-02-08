@@ -27,8 +27,9 @@ import {
   ChevronUp
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { requestEarlyAccess } from "@/lib/services/marketing";
 
 const services = [
   {
@@ -155,15 +156,21 @@ export default function ServicesPage() {
   const [selectedService, setSelectedService] = useState<string | null>(null);
   const [expandedFeatures, setExpandedFeatures] = useState<string | null>(null);
 
-  const handleNotify = (serviceName: string) => {
+  const handleNotify = async (serviceName: string) => {
     if (!notifyEmail) {
       toast.error("Please enter your email address");
       return;
     }
-    toast.success(`You'll be notified when ${serviceName} launches!`);
-    setNotifyEmail("");
-    setSelectedService(null);
+    try {
+      await requestEarlyAccess({ email: notifyEmail.trim(), service: serviceName });
+      toast.success(`You're on the early access list for ${serviceName}.`);
+      setNotifyEmail("");
+      setSelectedService(null);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to register. Please try again.");
+    }
   };
+
 
   const toggleFeatures = (serviceTitle: string) => {
     setExpandedFeatures(expandedFeatures === serviceTitle ? null : serviceTitle);

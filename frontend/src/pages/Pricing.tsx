@@ -107,7 +107,7 @@ export default function Pricing() {
               Simple, Transparent <span className="gradient-text">Pricing</span>
             </h1>
             <p className="text-lg text-muted-foreground mb-8">
-              Start with a 14-day free trial. No credit card required.
+              Start with a 14-day free trial. No credit card required. All plans include core ASM and reporting.
             </p>
 
             {/* Billing Toggle */}

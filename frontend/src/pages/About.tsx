@@ -47,11 +47,12 @@ export default function About() {
             className="text-center max-w-3xl mx-auto mb-20"
           >
             <h1 className="text-4xl sm:text-5xl font-heading font-bold text-foreground mb-6">
-              About <span className="gradient-text">CuriousDevs</span>
+              About <span className="gradient-text">CyberSentinel</span>
             </h1>
             <p className="text-lg text-muted-foreground">
-              We're on a mission to make enterprise security accessible, unified, and actionable. 
-              CyberSentinel was born from the frustration of managing dozens of disconnected security tools.
+              CyberSentinel is a unified security platform built by <strong>CuriousDevs</strong>.
+              It was created to replace scattered tools with one intelligent cockpit for ASM, vulnerability
+              scanning, and risk operations.
             </p>
           </motion.div>
 
@@ -64,9 +65,8 @@ export default function About() {
           >
             <h2 className="text-2xl font-heading font-bold text-foreground mb-4">Our Mission</h2>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              To empower organizations of all sizes with unified cyber risk orchestration, 
-              enabling them to predict threats, test defenses, and remediate vulnerabilities 
-              faster than ever before.
+              To give every organization real-time visibility and control over its attack surface,
+              so teams can predict threats, test defenses, and remediate faster.
             </p>
           </motion.div>
 

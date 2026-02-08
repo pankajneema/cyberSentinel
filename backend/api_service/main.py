@@ -16,7 +16,8 @@ from utils.queue import close_queue, get_queue_connection
 from utils.clickhouse_client import close_clickhouse, get_clickhouse
 
 # Import all routes
-from routes import auth, users, profile, accounts, billing, services, asm, vs, settings_route, activity, assets, tasks, team
+from routes import auth, users, profile, accounts, billing, services, asm, vs, settings_route, activity, assets, tasks, team, marketing
+from models import marketing_models  # ensure marketing tables are registered
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -86,6 +87,7 @@ app.include_router(activity.router)
 app.include_router(assets.router)
 app.include_router(tasks.router)
 app.include_router(team.router)
+app.include_router(marketing.router)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

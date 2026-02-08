@@ -11,6 +11,7 @@ SMTP_SERVER = config("SMTP_SERVER", default="smtp.gmail.com")
 SMTP_PORT = int(config("SMTP_PORT", default=587))
 SMTP_EMAIL = config("SMTP_EMAIL", default="")
 SMTP_PASSWORD = config("SMTP_PASSWORD", default="")
+CONTACT_EMAIL = config("CONTACT_EMAIL", default="pankaj200321@gmail.com")
 
 COMPANY_NAME = "CuriousDevs"
 PRODUCT_NAME = "CyberSentinel"
@@ -215,3 +216,40 @@ def send_member_removed_notification(
 
     body = _wrap_html(content)
     send_email(to_email, subject, body, is_html=True, cc_list=cc_list)
+
+
+def send_contact_notification(payload: dict):
+    subject = f"New Contact Request - {payload.get('subject', 'General')}"
+    content = f"""
+    <h2 style="font-size:22px;">New Contact Request</h2>
+
+    <p><strong>Name:</strong> {payload.get('first_name', '')} {payload.get('last_name', '')}</p>
+    <p><strong>Email:</strong> {payload.get('email', '')}</p>
+    <p><strong>Company:</strong> {payload.get('company', '')}</p>
+    <p><strong>Subject:</strong> {payload.get('subject', '')}</p>
+    <p><strong>Submitted At:</strong> {payload.get('submitted_at', '')}</p>
+
+    <div style="margin-top:18px;">
+      <strong>Message:</strong>
+      <div style=\"white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin-top:8px;\">{payload.get('message', '')}</div>
+    </div>
+
+    <p style=\"margin-top:24px;\">— {PRODUCT_NAME} Web</p>
+    """
+    body = _wrap_html(content)
+    return send_email(CONTACT_EMAIL, subject, body, is_html=True)
+
+
+def send_early_access_notification(payload: dict):
+    subject = f"Early Access Request - {payload.get('service', 'Service')}"
+    content = f"""
+    <h2 style="font-size:22px;">Early Access Request</h2>
+
+    <p><strong>Email:</strong> {payload.get('email', '')}</p>
+    <p><strong>Service:</strong> {payload.get('service', '')}</p>
+    <p><strong>Submitted At:</strong> {payload.get('submitted_at', '')}</p>
+
+    <p style=\"margin-top:24px;\">— {PRODUCT_NAME} Web</p>
+    """
+    body = _wrap_html(content)
+    return send_email(CONTACT_EMAIL, subject, body, is_html=True)
