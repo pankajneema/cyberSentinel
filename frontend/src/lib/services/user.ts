@@ -4,19 +4,14 @@ import { apiFetch, Paginated } from "../api";
 export interface User {
   id: string;
   email: string;
-  full_name: string;
+  name: string;
   role: string;
-  company_name: string;
-  country: string;
-  created_at: string;
-  updated_at: string;
-  is_active: boolean;
+  company_id?: string | null;
 }
 
 export interface UpdateUserPayload {
-  full_name?: string;
+  name?: string;
   role?: string;
-  is_active?: boolean;
 }
 
 export interface UserListParams {

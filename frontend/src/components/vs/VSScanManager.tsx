@@ -51,6 +51,10 @@ import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import { fetchScans, createScan, type Scan } from "@/lib/api";
 
+interface VSScanManagerProps {
+  canWrite?: boolean;
+}
+
 const availableAssets = [
   { id: 1, name: "api.company.com", type: "Domain", lastScan: "2h ago" },
   { id: 2, name: "app.company.com", type: "Domain", lastScan: "1d ago" },
@@ -60,7 +64,7 @@ const availableAssets = [
   { id: 6, name: "mail.company.com", type: "Domain", lastScan: "5d ago" },
 ];
 
-export function VSScanManager() {
+export function VSScanManager({ canWrite = true }: VSScanManagerProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [isNewScanOpen, setIsNewScanOpen] = useState(false);
@@ -118,6 +122,10 @@ export function VSScanManager() {
   };
 
   const handleCreateScan = async () => {
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to create scans." });
+      return;
+    }
     if (selectedAssets.length === 0 || !scanConfig.name) {
       toast({ title: "Error", description: "Please select assets and provide a scan name", variant: "destructive" });
       return;
@@ -167,10 +175,12 @@ export function VSScanManager() {
           <h2 className="text-xl font-semibold text-foreground">Scan Manager</h2>
           <p className="text-sm text-muted-foreground">Create, schedule, and manage vulnerability scans</p>
         </div>
-        <Button variant="gradient" onClick={() => setIsNewScanOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          New Scan
-        </Button>
+        {canWrite && (
+          <Button variant="gradient" onClick={() => setIsNewScanOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            New Scan
+          </Button>
+        )}
       </div>
 
       {/* Stats */}
@@ -312,17 +322,21 @@ export function VSScanManager() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem><Eye className="w-4 h-4 mr-2" />View Results</DropdownMenuItem>
-                        {scan.status === "running" ? (
-                          <DropdownMenuItem><Pause className="w-4 h-4 mr-2" />Pause</DropdownMenuItem>
-                        ) : scan.status === "paused" ? (
-                          <DropdownMenuItem><Play className="w-4 h-4 mr-2" />Resume</DropdownMenuItem>
-                        ) : (
-                          <DropdownMenuItem><Play className="w-4 h-4 mr-2" />Run Now</DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem><Edit className="w-4 h-4 mr-2" />Edit</DropdownMenuItem>
                         <DropdownMenuItem><FileText className="w-4 h-4 mr-2" />View Logs</DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />Delete</DropdownMenuItem>
+                        {canWrite && (
+                          <>
+                            {scan.status === "running" ? (
+                              <DropdownMenuItem><Pause className="w-4 h-4 mr-2" />Pause</DropdownMenuItem>
+                            ) : scan.status === "paused" ? (
+                              <DropdownMenuItem><Play className="w-4 h-4 mr-2" />Resume</DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem><Play className="w-4 h-4 mr-2" />Run Now</DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem><Edit className="w-4 h-4 mr-2" />Edit</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-destructive"><Trash2 className="w-4 h-4 mr-2" />Delete</DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </td>

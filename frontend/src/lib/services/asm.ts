@@ -52,6 +52,7 @@ export interface AsmOverview {
     domains: number;
     subdomains: number;
     ips: number;
+    cloud: number;
     services: number;
     assets_total: number;
   };
@@ -89,7 +90,8 @@ export interface AsmSubdomain {
   asm_discovery_id: string;
   asset_id: string;
   subdomain: string;
-  status?: string;
+  status?: string;  // active, inactive, archived
+  resolved?: boolean | null;  // DNS resolution status: true=resolved, false=unresolved, null=not checked
   ip_count?: number;  // Number of IPs for this subdomain
   created_at?: string | null;
   asset_name?: string | null;  // Parent domain/asset name
@@ -107,6 +109,99 @@ export interface AsmIP {
   exposure_score?: number | null;
   exposure_level: string;  // low, medium, high, not_calculated
   reachable?: boolean | null;
+  open_ports?: number | null;
+  created_at?: string | null;
+}
+
+export interface AsmPort {
+  id: string;
+  asm_discovery_id: string;
+  asset_id: string;
+  ip_address: string;
+  port: number;
+  protocol?: string | null;
+  status?: string | null;
+  service?: string | null;
+  banner?: string | null;
+  created_at?: string | null;
+}
+
+export interface AsmService {
+  id: string;
+  asm_discovery_id: string;
+  asset_id: string;
+  ip_address: string;
+  port: number;
+  service_name: string;
+  version?: string | null;
+  product?: string | null;
+  created_at?: string | null;
+}
+
+export interface AsmSSLCert {
+  id: string;
+  asm_discovery_id: string;
+  asset_id: string;
+  host: string;
+  port: number;
+  protocol?: string | null;
+  cipher?: string | null;
+  certificate_issuer?: string | null;
+  certificate_subject?: string | null;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  created_at?: string | null;
+}
+
+export interface AsmAPIEndpoint {
+  id: string;
+  asm_discovery_id: string;
+  asset_id: string;
+  url: string;
+  method?: string | null;
+  status_code?: number | null;
+  endpoint_type?: string | null;
+  created_at?: string | null;
+}
+
+export interface AsmCloudResource {
+  id: string;
+  asm_discovery_id: string;
+  asset_id: string;
+  service: string;
+  resource_type: string;
+  resource_name: string;
+  access_status?: string | null;
+  region?: string | null;
+  created_at?: string | null;
+}
+
+export interface AsmAdminEndpoint {
+  id: string;
+  asm_discovery_id: string;
+  asset_id: string;
+  url: string;
+  status_code?: number | null;
+  endpoint_type?: string | null;
+  created_at?: string | null;
+}
+
+export interface AsmBackupFile {
+  id: string;
+  asm_discovery_id: string;
+  asset_id: string;
+  file_url: string;
+  file_extension?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+}
+
+export interface AsmChange {
+  id: string;
+  asm_discovery_id: string;
+  asset_id: string;
+  changes?: any[] | null;
+  message?: string | null;
   created_at?: string | null;
 }
 
@@ -119,14 +214,62 @@ export interface AsmDiscoveryRun {
   status: string;
   started_at?: string | null;
   completed_at?: string | null;
+  duration_seconds?: number | null;
   error_message?: string | null;
   summary?: any;
   created_at?: string | null;
 }
 
+export interface AsmSettingsPayload {
+  thresholds: {
+    critical: number;
+    high: number;
+    medium: number;
+  };
+  signals?: Record<string, number>;
+  notifications?: {
+    high_exposure: boolean;
+    medium_exposure: boolean;
+    new_assets: boolean;
+    discovery_completed: boolean;
+    daily_summary: boolean;
+    weekly_report: boolean;
+    email_recipients?: string;
+    slack_webhook?: string;
+    teams_webhook?: string;
+  };
+  automation?: {
+    auto_create_tickets: boolean;
+    auto_assign_assets: boolean;
+    auto_verify_changes: boolean;
+    auto_archive_stale: boolean;
+  };
+  suppression?: Array<{
+    pattern: string;
+    reason: string;
+    expires: string;
+  }>;
+  grouping?: Array<{
+    pattern: string;
+    group: string;
+    tags: string[];
+  }>;
+}
+
+export interface AsmSettingsResponse {
+  id: string | null;
+  user_id: string;
+  settings: AsmSettingsPayload;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface DiscoveryListParams {
   page?: number;
   page_size?: number;
+  q?: string;
+  sort_by?: string;
+  sort_dir?: string;
 }
 
 // API Functions
@@ -134,6 +277,9 @@ export function fetchDiscoveries(params?: DiscoveryListParams) {
   const search = new URLSearchParams();
   if (params?.page) search.set("page", String(params.page));
   if (params?.page_size) search.set("page_size", String(params.page_size));
+  if (params?.q) search.set("q", params.q);
+  if (params?.sort_by) search.set("sort_by", params.sort_by);
+  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
   const qs = search.toString();
   return apiFetch<Paginated<AsmDiscovery>>(`/asm/discoveries${qs ? `?${qs}` : ""}`);
 }
@@ -162,6 +308,120 @@ export function deleteDiscovery(discoveryId: string) {
   });
 }
 
+export function getAsmSettings() {
+  return apiFetch<AsmSettingsResponse>("/asm/settings");
+}
+
+export function updateAsmSettings(payload: AsmSettingsPayload) {
+  return apiFetch<AsmSettingsResponse>("/asm/settings", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchPorts(params?: { discovery_id?: string; ip_address?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
+  const search = new URLSearchParams();
+  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
+  if (params?.ip_address) search.set("ip_address", params.ip_address);
+  if (params?.q) search.set("q", params.q);
+  if (params?.sort_by) search.set("sort_by", params.sort_by);
+  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.page_size) search.set("page_size", String(params.page_size));
+  const qs = search.toString();
+  return apiFetch<Paginated<AsmPort>>(`/asm/ports${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchServices(params?: { discovery_id?: string; ip_address?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
+  const search = new URLSearchParams();
+  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
+  if (params?.ip_address) search.set("ip_address", params.ip_address);
+  if (params?.q) search.set("q", params.q);
+  if (params?.sort_by) search.set("sort_by", params.sort_by);
+  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.page_size) search.set("page_size", String(params.page_size));
+  const qs = search.toString();
+  return apiFetch<Paginated<AsmService>>(`/asm/services${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchSSLCerts(params?: { discovery_id?: string; host?: string; subdomain_id?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
+  const search = new URLSearchParams();
+  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
+  if (params?.host) search.set("host", params.host);
+  if (params?.subdomain_id) search.set("subdomain_id", params.subdomain_id);
+  if (params?.q) search.set("q", params.q);
+  if (params?.sort_by) search.set("sort_by", params.sort_by);
+  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.page_size) search.set("page_size", String(params.page_size));
+  const qs = search.toString();
+  return apiFetch<Paginated<AsmSSLCert>>(`/asm/ssl${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchApiEndpoints(params?: { discovery_id?: string; subdomain_id?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
+  const search = new URLSearchParams();
+  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
+  if (params?.subdomain_id) search.set("subdomain_id", params.subdomain_id);
+  if (params?.q) search.set("q", params.q);
+  if (params?.sort_by) search.set("sort_by", params.sort_by);
+  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.page_size) search.set("page_size", String(params.page_size));
+  const qs = search.toString();
+  return apiFetch<Paginated<AsmAPIEndpoint>>(`/asm/api-endpoints${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchCloudResources(params?: { discovery_id?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
+  const search = new URLSearchParams();
+  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
+  if (params?.q) search.set("q", params.q);
+  if (params?.sort_by) search.set("sort_by", params.sort_by);
+  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.page_size) search.set("page_size", String(params.page_size));
+  const qs = search.toString();
+  return apiFetch<Paginated<AsmCloudResource>>(`/asm/cloud-resources${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchAdminEndpoints(params?: { discovery_id?: string; subdomain_id?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
+  const search = new URLSearchParams();
+  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
+  if (params?.subdomain_id) search.set("subdomain_id", params.subdomain_id);
+  if (params?.q) search.set("q", params.q);
+  if (params?.sort_by) search.set("sort_by", params.sort_by);
+  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.page_size) search.set("page_size", String(params.page_size));
+  const qs = search.toString();
+  return apiFetch<Paginated<AsmAdminEndpoint>>(`/asm/admin-endpoints${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchBackupFiles(params?: { discovery_id?: string; subdomain_id?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
+  const search = new URLSearchParams();
+  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
+  if (params?.subdomain_id) search.set("subdomain_id", params.subdomain_id);
+  if (params?.q) search.set("q", params.q);
+  if (params?.sort_by) search.set("sort_by", params.sort_by);
+  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.page_size) search.set("page_size", String(params.page_size));
+  const qs = search.toString();
+  return apiFetch<Paginated<AsmBackupFile>>(`/asm/backup-files${qs ? `?${qs}` : ""}`);
+}
+
+export function fetchChanges(params?: { discovery_id?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
+  const search = new URLSearchParams();
+  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
+  if (params?.q) search.set("q", params.q);
+  if (params?.sort_by) search.set("sort_by", params.sort_by);
+  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.page_size) search.set("page_size", String(params.page_size));
+  const qs = search.toString();
+  return apiFetch<Paginated<AsmChange>>(`/asm/changes${qs ? `?${qs}` : ""}`);
+}
+
 export function fetchAsmDashboard() {
   return apiFetch<AsmDashboard>("/asm/dashboard");
 }
@@ -182,17 +442,36 @@ export function getRunDetail(runId: string) {
   return apiFetch<AsmDiscoveryRun>(`/asm/runs/${runId}`);
 }
 
-export function fetchDiscoveryRuns(discoveryId: string, page = 1, page_size = 50) {
+export function fetchDiscoveryRuns(
+  discoveryId: string,
+  page = 1,
+  page_size = 50,
+  q?: string,
+  sort_by?: string,
+  sort_dir?: string,
+) {
   const qs = new URLSearchParams();
   qs.set("page", String(page));
   qs.set("page_size", String(page_size));
+  if (q) qs.set("q", q);
+  if (sort_by) qs.set("sort_by", sort_by);
+  if (sort_dir) qs.set("sort_dir", sort_dir);
   return apiFetch<Paginated<AsmDiscoveryRun>>(`/asm/discoveries/${discoveryId}/runs?${qs.toString()}`);
 }
 
-export function fetchAllRuns(page = 1, page_size = 50) {
+export function fetchAllRuns(
+  page = 1,
+  page_size = 50,
+  q?: string,
+  sort_by?: string,
+  sort_dir?: string,
+) {
   const qs = new URLSearchParams();
   qs.set("page", String(page));
   qs.set("page_size", String(page_size));
+  if (q) qs.set("q", q);
+  if (sort_by) qs.set("sort_by", sort_by);
+  if (sort_dir) qs.set("sort_dir", sort_dir);
   return apiFetch<Paginated<AsmDiscoveryRun>>(`/asm/runs?${qs.toString()}`);
 }
 

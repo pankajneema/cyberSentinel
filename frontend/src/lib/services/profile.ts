@@ -3,23 +3,23 @@ import { apiFetch } from "../api";
 // Types
 export interface UserProfile {
   id: string;
+  user_id: string;
   full_name: string;
   email: string;
+  role?: string;
+  is_superadmin?: boolean;
   phone?: string;
-  bio?: string;
   country?: string;
-  timezone?: string;
   avatar_url?: string;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface UpdateProfilePayload {
   full_name?: string;
+  email?: string;
   phone?: string;
-  bio?: string;
   country?: string;
-  timezone?: string;
 }
 
 export interface UpdateAvatarPayload {

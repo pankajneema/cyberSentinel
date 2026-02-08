@@ -7,6 +7,7 @@ from sqlalchemy import select, func, and_, not_
 from utils.database import get_db
 from utils.auth_utils import get_current_user
 from models.asset_models import Asset as AssetModel
+from models.auth_models import User as UserModel
 
 
 # -------------------- Schemas --------------------
@@ -14,6 +15,31 @@ from schemas.asset_schema import AssetCreateRequest, AssetUpdateRequest, AssetRe
 
 # -------------------- Routes --------------------
 router = APIRouter(prefix="/api/v1/assets", tags=["Assets"])
+
+
+async def _company_user_ids(db: AsyncSession, current_user: dict) -> list[str]:
+    user_res = await db.execute(
+        select(UserModel).where(UserModel.id == current_user["user_id"])
+    )
+    user = user_res.scalar_one_or_none()
+    if not user or not user.company_id:
+        raise HTTPException(status_code=404, detail="Company not found")
+    ids_res = await db.execute(
+        select(UserModel.id).where(UserModel.company_id == user.company_id)
+    )
+    return [row[0] for row in ids_res.all()]
+
+
+async def _require_write_access(db: AsyncSession, current_user: dict):
+    user_res = await db.execute(
+        select(UserModel).where(UserModel.id == current_user["user_id"])
+    )
+    user = user_res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.role == "reader":
+        raise HTTPException(status_code=403, detail="Read-only access")
+    return user
 
 # ---------------------------------------------------
 # List Assets
@@ -28,8 +54,9 @@ async def list_assets(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    user_ids = await _company_user_ids(db, current_user)
     query = select(AssetModel).filter(
-        AssetModel.user_id == current_user["user_id"]
+        AssetModel.user_id.in_(user_ids)
     )
 
     if q:
@@ -74,6 +101,7 @@ async def create_asset(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    await _require_write_access(db, current_user)
     asset = AssetModel(
         user_id=current_user["user_id"],
         name=payload.name,
@@ -101,9 +129,10 @@ async def get_asset(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    user_ids = await _company_user_ids(db, current_user)
     query = select(AssetModel).filter(
         AssetModel.id == asset_id,
-        AssetModel.user_id == current_user["user_id"],
+        AssetModel.user_id.in_(user_ids),
     )
     
     result = await db.execute(query)
@@ -125,9 +154,11 @@ async def update_asset(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    await _require_write_access(db, current_user)
+    user_ids = await _company_user_ids(db, current_user)
     query = select(AssetModel).filter(
         AssetModel.id == asset_id,
-        AssetModel.user_id == current_user["user_id"],
+        AssetModel.user_id.in_(user_ids),
     )
     
     result = await db.execute(query)
@@ -154,9 +185,11 @@ async def delete_asset(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    await _require_write_access(db, current_user)
+    user_ids = await _company_user_ids(db, current_user)
     query = select(AssetModel).filter(
         AssetModel.id == asset_id,
-        AssetModel.user_id == current_user["user_id"],
+        AssetModel.user_id.in_(user_ids),
     )
     
     result = await db.execute(query)

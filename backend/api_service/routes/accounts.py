@@ -2,7 +2,8 @@
 Account Management Routes -
 """
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from pydantic import BaseModel, EmailStr
 from typing import List
 
@@ -23,21 +24,38 @@ class AccountUpdate(BaseModel):
     name: str = None
     plan: str = None
 
+class InviteMember(BaseModel):
+    email: EmailStr
+    role: str = "reader"
+
 @router.get("/{account_id}")
 async def get_account(
     account_id: str,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Get account/company details"""
+    current_user_result = await db.execute(
+        select(User).where(User.id == current_user["user_id"])
+    )
+    current_user_record = current_user_result.scalar_one_or_none()
+    if not current_user_record or not current_user_record.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found"
+        )
+
     # Verify user belongs to this company
-    if current_user["company_id"] != account_id:
+    if current_user_record.company_id != account_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access this account"
         )
     
-    account = db.query(Company).filter(Company.id == account_id).first()
+    result = await db.execute(
+        select(Company).where(Company.id == account_id)
+    )
+    account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -56,23 +74,36 @@ async def update_account(
     account_id: str,
     account_data: AccountUpdate,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Update account details"""
+    current_user_result = await db.execute(
+        select(User).where(User.id == current_user["user_id"])
+    )
+    current_user_record = current_user_result.scalar_one_or_none()
+    if not current_user_record or not current_user_record.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found"
+        )
+
     # Only admins can update account
-    if current_user.get("role") != "admin":
+    if current_user_record.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins can update account"
         )
     
-    if current_user["company_id"] != account_id:
+    if current_user_record.company_id != account_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to update this account"
         )
     
-    account = db.query(Company).filter(Company.id == account_id).first()
+    result = await db.execute(
+        select(Company).where(Company.id == account_id)
+    )
+    account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -84,33 +115,43 @@ async def update_account(
     for key, value in update_data.items():
         setattr(account, key, value)
     
-    db.commit()
-    db.refresh(account)
+    await db.commit()
+    await db.refresh(account)
     
     return {
-        "message": "Account updated successfully",
-        "account": {
-            "id": account.id,
-            "name": account.name,
-            "plan": account.plan,
-        }
+        "id": account.id,
+        "name": account.name,
+        "plan": account.plan,
     }
 
 @router.get("/{account_id}/members", response_model=List[UserInfo])
 async def list_account_members(
     account_id: str,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """List all members of an account"""
+    current_user_result = await db.execute(
+        select(User).where(User.id == current_user["user_id"])
+    )
+    current_user_record = current_user_result.scalar_one_or_none()
+    if not current_user_record or not current_user_record.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found"
+        )
+
     # Verify user belongs to this company
-    if current_user["company_id"] != account_id:
+    if current_user_record.company_id != account_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to view members"
         )
     
-    users = db.query(User).filter(User.company_id == account_id).all()
+    result = await db.execute(
+        select(User).where(User.company_id == account_id)
+    )
+    users = result.scalars().all()
     
     return [
         UserInfo(
@@ -126,20 +167,29 @@ async def list_account_members(
 @router.post("/{account_id}/invite")
 async def invite_member(
     account_id: str,
-    email: EmailStr,
-    role: str = "reader",
+    payload: InviteMember,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Invite a new member to the account"""
+    current_user_result = await db.execute(
+        select(User).where(User.id == current_user["user_id"])
+    )
+    current_user_record = current_user_result.scalar_one_or_none()
+    if not current_user_record or not current_user_record.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found"
+        )
+
     # Only admins can invite members
-    if current_user.get("role") != "admin":
+    if current_user_record.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins can invite members"
         )
     
-    if current_user["company_id"] != account_id:
+    if current_user_record.company_id != account_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to invite to this account"
@@ -149,8 +199,8 @@ async def invite_member(
     
     return {
         "message": "Invitation sent successfully",
-        "email": email,
-        "role": role
+        "email": payload.email,
+        "role": payload.role
     }
 
 @router.delete("/{account_id}/members/{member_id}")
@@ -158,33 +208,46 @@ async def remove_member(
     account_id: str,
     member_id: str,
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Remove a member from the account"""
+    current_user_result = await db.execute(
+        select(User).where(User.id == current_user["user_id"])
+    )
+    current_user_record = current_user_result.scalar_one_or_none()
+    if not current_user_record or not current_user_record.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account not found"
+        )
+
     # Only admins can remove members
-    if current_user.get("role") != "admin":
+    if current_user_record.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins can remove members"
         )
     
-    if current_user["company_id"] != account_id:
+    if current_user_record.company_id != account_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized"
         )
     
     # Prevent self-removal
-    if current_user["id"] == member_id:
+    if current_user["user_id"] == member_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot remove yourself"
         )
     
-    user = db.query(User).filter(
-        User.id == member_id,
-        User.company_id == account_id
-    ).first()
+    result = await db.execute(
+        select(User).where(
+            User.id == member_id,
+            User.company_id == account_id
+        )
+    )
+    user = result.scalar_one_or_none()
     
     if not user:
         raise HTTPException(
@@ -192,7 +255,7 @@ async def remove_member(
             detail="Member not found"
         )
     
-    db.delete(user)
-    db.commit()
+    await db.delete(user)
+    await db.commit()
     
     return {"message": "Member removed successfully"}

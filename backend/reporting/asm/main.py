@@ -10,7 +10,7 @@ import asyncio
 import logging
 import json
 from typing import Any
-from backend.reporting.asm.assets.domain import process_domain_asm, store_step_data, store_step_data
+from backend.reporting.asm.assets.domain import process_domain_asm, store_step_data
 from backend.api_service.utils.database import AsyncSessionLocal
 from backend.api_service.utils.queue import consume_messages, close_queue
 from backend.api_service.utils.redis_client import get_redis, close_redis

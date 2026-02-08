@@ -194,8 +194,7 @@ export function IPDiscovery() {
                       </td>
                       <td className="p-4">
                         <Badge variant="outline" className="bg-blue-500/20 text-blue-600">
-                          {/* TODO: Add open_ports field to model when available */}
-                          {ip.exposure_score ? `${Math.floor(ip.exposure_score / 10)} ports` : "N/A"}
+                          {ip.open_ports != null ? `${ip.open_ports} ports` : "N/A"}
                         </Badge>
                       </td>
                     </motion.tr>
@@ -258,4 +257,3 @@ export function IPDiscovery() {
     </div>
   );
 }
-

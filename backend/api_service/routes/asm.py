@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from datetime import datetime
 
 from utils.database import get_db
@@ -14,8 +14,18 @@ from models.asm_models import (
     AsmDiscoveryRun as AsmDiscoveryRunModel,
     AsmSubdomain as AsmSubdomainModel,
     AsmIP as AsmIPModel,
+    AsmPort as AsmPortModel,
+    AsmSettings as AsmSettingsModel,
+    AsmService as AsmServiceModel,
+    AsmSSLCert as AsmSSLCertModel,
+    AsmAPIEndpoint as AsmAPIEndpointModel,
+    AsmCloudResource as AsmCloudResourceModel,
+    AsmAdminEndpoint as AsmAdminEndpointModel,
+    AsmBackupFile as AsmBackupFileModel,
+    AsmChange as AsmChangeModel,
 )
 from models.asset_models import Asset as AssetModel
+from models.auth_models import User as UserModel
 
 # -------------------- Schemas -------------------- #
 from schemas.asm_schema import (
@@ -30,10 +40,146 @@ from schemas.asm_schema import (
     AsmDiscoveryRunListResponse,
     AsmIPListResponse,
     AsmIPResponse,
+    AsmPortListResponse,
+    AsmPortResponse,
+    AsmServiceListResponse,
+    AsmServiceResponse,
+    AsmSSLCertListResponse,
+    AsmSSLCertResponse,
+    AsmAPIEndpointListResponse,
+    AsmAPIEndpointResponse,
+    AsmCloudResourceListResponse,
+    AsmCloudResourceResponse,
+    AsmAdminEndpointListResponse,
+    AsmAdminEndpointResponse,
+    AsmBackupFileListResponse,
+    AsmBackupFileResponse,
+    AsmChangeListResponse,
+    AsmChangeResponse,
 )
 
 # -------------------- Router -------------------- #
 router = APIRouter(prefix="/api/v1/asm", tags=["ASM"])
+
+
+# ---------------------------------------------------
+# Helpers
+# ---------------------------------------------------
+def _calc_duration_seconds(run: AsmDiscoveryRunModel) -> int | None:
+    if not run.started_at:
+        return None
+    if not run.completed_at:
+        return None
+    return int((run.completed_at - run.started_at).total_seconds())
+
+
+async def _company_user_ids(
+    db: AsyncSession,
+    current_user: dict,
+) -> list[str]:
+    user_res = await db.execute(
+        select(UserModel).where(UserModel.id == current_user["user_id"])
+    )
+    user = user_res.scalar_one_or_none()
+    if not user or not user.company_id:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    ids_res = await db.execute(
+        select(UserModel.id).where(UserModel.company_id == user.company_id)
+    )
+    return [row[0] for row in ids_res.all()]
+
+
+async def _require_write_access(
+    db: AsyncSession,
+    current_user: dict,
+):
+    user_res = await db.execute(
+        select(UserModel).where(UserModel.id == current_user["user_id"])
+    )
+    user = user_res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.role == "reader":
+        raise HTTPException(status_code=403, detail="Read-only access")
+    return user
+
+
+# ---------------------------------------------------
+# ASM Settings
+# ---------------------------------------------------
+@router.get("/settings")
+async def get_asm_settings(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = current_user["user_id"]
+    query = (
+        select(AsmSettingsModel)
+        .where(AsmSettingsModel.user_id == user_id)
+        .order_by(AsmSettingsModel.updated_at.desc(), AsmSettingsModel.created_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(query)
+    settings_row = result.scalars().first()
+
+    if settings_row:
+        return settings_row.to_dict()
+
+    # Default settings if none saved
+    default_settings = {
+        "thresholds": {
+            "critical": 80,
+            "high": 60,
+            "medium": 40,
+        },
+        "signals": {
+            "internet_facing": 30,
+            "open_ports": 25,
+            "ssl_issues": 15,
+            "public_cloud": 15,
+            "admin_or_backup": 10,
+            "api_exposure": 5,
+        },
+    }
+    return {
+        "id": None,
+        "user_id": user_id,
+        "settings": default_settings,
+        "created_at": None,
+        "updated_at": None,
+    }
+
+
+@router.put("/settings")
+async def update_asm_settings(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    await _require_write_access(db, current_user)
+    user_id = current_user["user_id"]
+    query = (
+        select(AsmSettingsModel)
+        .where(AsmSettingsModel.user_id == user_id)
+        .order_by(AsmSettingsModel.updated_at.desc(), AsmSettingsModel.created_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(query)
+    settings_row = result.scalars().first()
+
+    if settings_row:
+        settings_row.settings = payload
+    else:
+        settings_row = AsmSettingsModel(
+            user_id=user_id,
+            settings=payload,
+        )
+        db.add(settings_row)
+
+    await db.commit()
+    await db.refresh(settings_row)
+    return settings_row.to_dict()
 
 
 # ---------------------------------------------------
@@ -45,6 +191,7 @@ async def create_discovery(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    await _require_write_access(db, current_user)
     discovery = AsmDiscoveryModel(
         user_id=current_user["user_id"],
         name=payload.name,
@@ -94,12 +241,25 @@ async def create_discovery(
 async def list_discoveries(
     page: int = 1,
     page_size: int = 20,
+    q: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = "desc",
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    user_ids = await _company_user_ids(db, current_user)
     base_query = select(AsmDiscoveryModel).where(
-        AsmDiscoveryModel.user_id == current_user["user_id"]
+        AsmDiscoveryModel.user_id.in_(user_ids)
     )
+    if q:
+        like = f"%{q}%"
+        base_query = base_query.where(
+            or_(
+                AsmDiscoveryModel.name.ilike(like),
+                AsmDiscoveryModel.status.ilike(like),
+                AsmDiscoveryModel.asset_type.ilike(like),
+            )
+        )
 
     # Total count
     total_query = select(func.count()).select_from(
@@ -109,9 +269,18 @@ async def list_discoveries(
     total = total_result.scalar() or 0
 
     # Paginated results
+    sort_col = AsmDiscoveryModel.created_at
+    if sort_by == "name":
+        sort_col = AsmDiscoveryModel.name
+    elif sort_by == "status":
+        sort_col = AsmDiscoveryModel.status
+    elif sort_by == "asset_type":
+        sort_col = AsmDiscoveryModel.asset_type
+    sort_col = sort_col.desc() if (sort_dir or "desc").lower() == "desc" else sort_col.asc()
+
     paginated_query = (
         base_query
-        .order_by(AsmDiscoveryModel.created_at.desc())
+        .order_by(sort_col)
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
@@ -136,9 +305,10 @@ async def get_discovery(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    user_ids = await _company_user_ids(db, current_user)
     query = select(AsmDiscoveryModel).where(
         AsmDiscoveryModel.id == discovery_id,
-        AsmDiscoveryModel.user_id == current_user["user_id"],
+        AsmDiscoveryModel.user_id.in_(user_ids),
     )
 
     result = await db.execute(query)
@@ -160,9 +330,11 @@ async def update_discovery(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    await _require_write_access(db, current_user)
+    user_ids = await _company_user_ids(db, current_user)
     query = select(AsmDiscoveryModel).where(
         AsmDiscoveryModel.id == discovery_id,
-        AsmDiscoveryModel.user_id == current_user["user_id"],
+        AsmDiscoveryModel.user_id.in_(user_ids),
     )
 
     result = await db.execute(query)
@@ -189,9 +361,11 @@ async def delete_discovery(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
+    await _require_write_access(db, current_user)
+    user_ids = await _company_user_ids(db, current_user)
     query = select(AsmDiscoveryModel).where(
         AsmDiscoveryModel.id == discovery_id,
-        AsmDiscoveryModel.user_id == current_user["user_id"],
+        AsmDiscoveryModel.user_id.in_(user_ids),
     )
 
     result = await db.execute(query)
@@ -213,12 +387,12 @@ async def asm_dashboard(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    user_id = current_user["user_id"]
+    user_ids = await _company_user_ids(db, current_user)
 
     # Total discoveries
     total_query = select(func.count()).select_from(
         select(AsmDiscoveryModel)
-        .where(AsmDiscoveryModel.user_id == user_id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
         .subquery()
     )
     total_result = await db.execute(total_query)
@@ -228,7 +402,7 @@ async def asm_dashboard(
     active_query = select(func.count()).select_from(
         select(AsmDiscoveryModel)
         .where(
-            AsmDiscoveryModel.user_id == user_id,
+            AsmDiscoveryModel.user_id.in_(user_ids),
             AsmDiscoveryModel.status == "RUNNING",
         )
         .subquery()
@@ -239,7 +413,7 @@ async def asm_dashboard(
     # Last discovery run
     last_run_query = (
         select(AsmDiscoveryRunModel)
-        .where(AsmDiscoveryRunModel.user_id == user_id)
+        .where(AsmDiscoveryRunModel.user_id.in_(user_ids))
         .order_by(AsmDiscoveryRunModel.started_at.desc())
         .limit(1)
     )
@@ -262,72 +436,122 @@ async def asm_overview(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    user_id = current_user["user_id"]
+    user_ids = await _company_user_ids(db, current_user)
 
     # total discoveries
     total_query = select(func.count()).select_from(
-        select(AsmDiscoveryModel).where(AsmDiscoveryModel.user_id == user_id).subquery()
+        select(AsmDiscoveryModel).where(AsmDiscoveryModel.user_id.in_(user_ids)).subquery()
     )
     total = (await db.execute(total_query)).scalar() or 0
 
     # active discoveries
     active_query = select(func.count()).select_from(
-        select(AsmDiscoveryModel).where(AsmDiscoveryModel.user_id == user_id, AsmDiscoveryModel.status == "RUNNING").subquery()
+        select(AsmDiscoveryModel).where(AsmDiscoveryModel.user_id.in_(user_ids), AsmDiscoveryModel.status == "RUNNING").subquery()
     )
     active = (await db.execute(active_query)).scalar() or 0
 
     # total subdomains (join with discoveries to ensure user scoping)
     subdomain_query = select(func.count()).select_from(
-        select(AsmSubdomainModel).join(AsmDiscoveryModel, AsmSubdomainModel.asm_discovery_id == AsmDiscoveryModel.id).where(AsmDiscoveryModel.user_id == user_id).subquery()
+        select(AsmSubdomainModel)
+        .join(AsmDiscoveryModel, AsmSubdomainModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .subquery()
     )
     total_subdomains = (await db.execute(subdomain_query)).scalar() or 0
 
     # total IPs (join with discoveries to ensure user scoping)
     ip_query = select(func.count()).select_from(
-        select(AsmIPModel).join(AsmDiscoveryModel, AsmIPModel.asm_discovery_id == AsmDiscoveryModel.id).where(AsmDiscoveryModel.user_id == user_id).subquery()
+        select(AsmIPModel)
+        .join(AsmDiscoveryModel, AsmIPModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .subquery()
     )
     total_ips_discovered = (await db.execute(ip_query)).scalar() or 0
 
     # last discovery run
     last_run_query = (
         select(AsmDiscoveryRunModel)
-        .where(AsmDiscoveryRunModel.user_id == user_id)
+        .where(AsmDiscoveryRunModel.user_id.in_(user_ids))
         .order_by(AsmDiscoveryRunModel.started_at.desc())
         .limit(1)
     )
     last_run = (await db.execute(last_run_query)).scalar_one_or_none()
+    
 
     # Asset counts
-    total_assets_q = select(func.count()).select_from(select(AssetModel).where(AssetModel.user_id == user_id).subquery())
+    total_assets_q = select(func.count()).select_from(
+        select(AssetModel).where(AssetModel.user_id.in_(user_ids)).subquery()
+    )
     total_assets = (await db.execute(total_assets_q)).scalar() or 0
 
-    total_domains_q = select(func.count()).select_from(select(AssetModel).where(AssetModel.user_id == user_id, AssetModel.type == 'domain').subquery())
+    total_domains_q = select(func.count()).select_from(
+        select(AssetModel).where(AssetModel.user_id.in_(user_ids), AssetModel.type == 'domain').subquery()
+    )
     total_domains = (await db.execute(total_domains_q)).scalar() or 0
 
-    total_ips_q = select(func.count()).select_from(select(AssetModel).where(AssetModel.user_id == user_id, AssetModel.type == 'ip').subquery())
+    total_cloud_q = select(func.count()).select_from(
+        select(AssetModel).where(AssetModel.user_id.in_(user_ids), AssetModel.type == 'cloud').subquery()
+    )
+    total_cloud = (await db.execute(total_cloud_q)).scalar() or 0
+
+    total_ips_q = select(func.count()).select_from(
+        select(AssetModel).where(AssetModel.user_id.in_(user_ids), AssetModel.type == 'ip').subquery()
+    )
     total_ips = (await db.execute(total_ips_q)).scalar() or 0
 
     # services not modeled explicitly; default to 0
     total_services = 0
 
-    # Exposure-based buckets (using risk_score as exposure_score for ASM)
-    # High exposure: >= 75, Medium: 50-74, Low: < 50
-    high_exposure_q = select(func.count()).select_from(select(AssetModel).where(AssetModel.user_id == user_id, AssetModel.risk_score >= 75).subquery())
+    # Load ASM settings for thresholds
+    settings_query = (
+        select(AsmSettingsModel)
+        .where(AsmSettingsModel.user_id.in_(user_ids))
+        .order_by(AsmSettingsModel.updated_at.desc(), AsmSettingsModel.created_at.desc())
+        .limit(1)
+    )
+    settings_result = await db.execute(settings_query)
+    settings_row = settings_result.scalars().first()
+    thresholds = {
+        "critical": 80,
+        "high": 60,
+        "medium": 40,
+    }
+    if settings_row and isinstance(settings_row.settings, dict):
+        thresholds.update(settings_row.settings.get("thresholds", {}) or {})
+
+    critical_threshold = int(thresholds.get("critical", 80))
+    high_threshold = int(thresholds.get("high", 60))
+    medium_threshold = int(thresholds.get("medium", 40))
+
+    # Exposure-based buckets (using exposure_score mapped from risk_score for ASM)
+    high_exposure_q = select(func.count()).select_from(
+        select(AssetModel).where(
+            AssetModel.user_id.in_(user_ids),
+            AssetModel.risk_score >= high_threshold
+        ).subquery()
+    )
     high_exposure_count = (await db.execute(high_exposure_q)).scalar() or 0
     
-    medium_exposure_q = select(func.count()).select_from(select(AssetModel).where(AssetModel.user_id == user_id, AssetModel.risk_score.between(50, 74)).subquery())
+    medium_exposure_q = select(func.count()).select_from(
+        select(AssetModel).where(
+            AssetModel.user_id.in_(user_ids),
+            AssetModel.risk_score.between(medium_threshold, high_threshold - 1)
+        ).subquery()
+    )
     medium_exposure_count = (await db.execute(medium_exposure_q)).scalar() or 0
     
     low_exposure_count = total_assets - (high_exposure_count + medium_exposure_count)
 
     # Attack Surface Index: average exposure score (0-100)
-    avg_q = select(func.avg(AssetModel.risk_score)).where(AssetModel.user_id == user_id)
+    avg_q = select(func.avg(AssetModel.risk_score)).where(AssetModel.user_id.in_(user_ids))
     avg_res = await db.execute(avg_q)
     avg_score = avg_res.scalar() or 0
     attack_surface_index = int(avg_score)
 
     # Exposure summary
-    public_assets_q = select(func.count()).select_from(select(AssetModel).where(AssetModel.user_id == user_id, AssetModel.exposure == 'public').subquery())
+    public_assets_q = select(func.count()).select_from(
+        select(AssetModel).where(AssetModel.user_id.in_(user_ids), AssetModel.exposure == 'public').subquery()
+    )
     public_assets = (await db.execute(public_assets_q)).scalar() or 0
     
     # Internet-facing services: for now, count public assets with service-like types
@@ -335,11 +559,13 @@ async def asm_overview(
     internet_facing_services = 0
     
     # Unknown ownership: assets without clear ownership tags
-    unknown_assets_q = select(func.count()).select_from(select(AssetModel).where(AssetModel.user_id == user_id, AssetModel.tags == []).subquery())
+    unknown_assets_q = select(func.count()).select_from(
+        select(AssetModel).where(AssetModel.user_id.in_(user_ids), AssetModel.tags == []).subquery()
+    )
     unknown_assets = (await db.execute(unknown_assets_q)).scalar() or 0
 
     # Top exposed assets by exposure_score (mapped from risk_score)
-    top_q = select(AssetModel).where(AssetModel.user_id == user_id).order_by(AssetModel.risk_score.desc()).limit(5)
+    top_q = select(AssetModel).where(AssetModel.user_id.in_(user_ids)).order_by(AssetModel.risk_score.desc()).limit(5)
     top_res = await db.execute(top_q)
     top_assets_raw = top_res.scalars().all()
     
@@ -367,6 +593,7 @@ async def asm_overview(
             "domains": total_domains,
             "subdomains": total_subdomains,
             "ips": total_ips_discovered,  # Use discovered IPs from ASM, not asset inventory
+            "cloud": total_cloud,
             "services": total_services,
             "assets_total": total_assets,
         },
@@ -399,7 +626,7 @@ async def list_subdomains(
     Performance: Uses pagination to handle large datasets (250+ subdomains).
     Max page_size is 100 to prevent UI crashes.
     """
-    user_id = current_user["user_id"]
+    user_ids = await _company_user_ids(db, current_user)
     
     # Enforce max page_size for performance
     if page_size > 100:
@@ -410,7 +637,7 @@ async def list_subdomains(
         select(AsmSubdomainModel, AssetModel.name.label("asset_name"), AssetModel.type.label("asset_type"))
         .join(AsmDiscoveryModel, AsmSubdomainModel.asm_discovery_id == AsmDiscoveryModel.id)
         .outerjoin(AssetModel, AsmSubdomainModel.asset_id == AssetModel.id)
-        .where(AsmDiscoveryModel.user_id == user_id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
     )
 
     if discovery_id:
@@ -420,7 +647,7 @@ async def list_subdomains(
     total_base = (
         select(AsmSubdomainModel)
         .join(AsmDiscoveryModel, AsmSubdomainModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id == user_id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
     )
     if discovery_id:
         total_base = total_base.where(AsmSubdomainModel.asm_discovery_id == discovery_id)
@@ -483,7 +710,7 @@ async def list_subdomain_ips(
     
     Risk flows bottom-up: IP exposure → Subdomain exposure → Domain exposure
     """
-    user_id = current_user["user_id"]
+    user_ids = await _company_user_ids(db, current_user)
     
     # Enforce max page_size
     if page_size > 100:
@@ -495,7 +722,7 @@ async def list_subdomain_ips(
         .join(AsmDiscoveryModel, AsmSubdomainModel.asm_discovery_id == AsmDiscoveryModel.id)
         .where(
             AsmSubdomainModel.id == subdomain_id,
-            AsmDiscoveryModel.user_id == user_id
+            AsmDiscoveryModel.user_id.in_(user_ids)
         )
     )
     subdomain_result = await db.execute(subdomain_query)
@@ -522,10 +749,29 @@ async def list_subdomain_ips(
     
     result = await db.execute(paginated_query)
     ips = result.scalars().all()
+
+    # Batch open port counts for these IPs
+    open_port_counts = {}
+    if ips:
+        asset_ids = list({ip.asset_id for ip in ips})
+        ip_addresses = list({ip.ip_address for ip in ips})
+        port_count_query = (
+            select(AsmPortModel.asset_id, AsmPortModel.ip_address, func.count(AsmPortModel.id).label("port_count"))
+            .where(
+                AsmPortModel.asset_id.in_(asset_ids),
+                AsmPortModel.ip_address.in_(ip_addresses),
+            )
+            .group_by(AsmPortModel.asset_id, AsmPortModel.ip_address)
+        )
+        port_count_result = await db.execute(port_count_query)
+        open_port_counts = {
+            (row.asset_id, row.ip_address): row.port_count for row in port_count_result.all()
+        }
     
     items = []
     for ip in ips:
         ip_dict = ip.to_dict()
+        ip_dict["open_ports"] = open_port_counts.get((ip.asset_id, ip.ip_address), 0)
         items.append(AsmIPResponse(**ip_dict))
     
     return AsmIPListResponse(
@@ -552,7 +798,7 @@ async def get_subdomain_detail(
     - IP count (for UI display)
     - First few IPs (preview)
     """
-    user_id = current_user["user_id"]
+    user_ids = await _company_user_ids(db, current_user)
     
     # Get subdomain with user verification
     subdomain_query = (
@@ -561,7 +807,7 @@ async def get_subdomain_detail(
         .outerjoin(AssetModel, AsmSubdomainModel.asset_id == AssetModel.id)
         .where(
             AsmSubdomainModel.id == subdomain_id,
-            AsmDiscoveryModel.user_id == user_id
+            AsmDiscoveryModel.user_id.in_(user_ids)
         )
     )
     subdomain_result = await db.execute(subdomain_query)
@@ -611,14 +857,14 @@ async def list_all_ips(
     
     Shows all IPs across all discoveries, with pagination.
     """
-    user_id = current_user["user_id"]
+    user_ids = await _company_user_ids(db, current_user)
     
     # Enforce max page_size
     if page_size > 100:
         page_size = 100
     
     # Get all discovery IDs owned by the user
-    disc_query = select(AsmDiscoveryModel.id).where(AsmDiscoveryModel.user_id == user_id)
+    disc_query = select(AsmDiscoveryModel.id).where(AsmDiscoveryModel.user_id.in_(user_ids))
     disc_result = await db.execute(disc_query)
     discovery_ids = [row[0] for row in disc_result.all()]
     
@@ -648,14 +894,507 @@ async def list_all_ips(
     
     result = await db.execute(paginated_query)
     ips = result.scalars().all()
+
+    # Batch open port counts for these IPs
+    open_port_counts = {}
+    if ips:
+        asset_ids = list({ip.asset_id for ip in ips})
+        ip_addresses = list({ip.ip_address for ip in ips})
+        port_count_query = (
+            select(AsmPortModel.asset_id, AsmPortModel.ip_address, func.count(AsmPortModel.id).label("port_count"))
+            .where(
+                AsmPortModel.asset_id.in_(asset_ids),
+                AsmPortModel.ip_address.in_(ip_addresses),
+            )
+            .group_by(AsmPortModel.asset_id, AsmPortModel.ip_address)
+        )
+        port_count_result = await db.execute(port_count_query)
+        open_port_counts = {
+            (row.asset_id, row.ip_address): row.port_count for row in port_count_result.all()
+        }
     
     items = []
     for ip in ips:
         ip_dict = ip.to_dict()
+        ip_dict["open_ports"] = open_port_counts.get((ip.asset_id, ip.ip_address), 0)
         items.append(AsmIPResponse(**ip_dict))
     
     return AsmIPListResponse(
         items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# ---------------------------------------------------
+# Ports list
+# ---------------------------------------------------
+@router.get("/ports", response_model=AsmPortListResponse)
+async def list_ports(
+    discovery_id: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    q: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = "desc",
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_ids = await _company_user_ids(db, current_user)
+    if page_size > 100:
+        page_size = 100
+
+    base = (
+        select(AsmPortModel)
+        .join(AsmDiscoveryModel, AsmPortModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+    )
+    if discovery_id:
+        base = base.where(AsmPortModel.asm_discovery_id == discovery_id)
+    if ip_address:
+        base = base.where(AsmPortModel.ip_address == ip_address)
+    if q:
+        like = f"%{q}%"
+        base = base.where(
+            or_(
+                AsmPortModel.ip_address.ilike(like),
+                AsmPortModel.protocol.ilike(like),
+                AsmPortModel.service.ilike(like),
+            )
+        )
+
+    sort_col = AsmPortModel.created_at
+    if sort_by == "ip_address":
+        sort_col = AsmPortModel.ip_address
+    elif sort_by == "port":
+        sort_col = AsmPortModel.port
+    elif sort_by == "protocol":
+        sort_col = AsmPortModel.protocol
+    elif sort_by == "service":
+        sort_col = AsmPortModel.service
+    elif sort_by == "status":
+        sort_col = AsmPortModel.status
+    sort_col = sort_col.desc() if (sort_dir or "desc").lower() == "desc" else sort_col.asc()
+
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+    rows = (await db.execute(
+        base.order_by(sort_col).offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    return AsmPortListResponse(
+        items=[AsmPortResponse(**r.to_dict()) for r in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# ---------------------------------------------------
+# Services list
+# ---------------------------------------------------
+@router.get("/services", response_model=AsmServiceListResponse)
+async def list_services(
+    discovery_id: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    q: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = "desc",
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_ids = await _company_user_ids(db, current_user)
+    if page_size > 100:
+        page_size = 100
+
+    base = (
+        select(AsmServiceModel)
+        .join(AsmDiscoveryModel, AsmServiceModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+    )
+    if discovery_id:
+        base = base.where(AsmServiceModel.asm_discovery_id == discovery_id)
+    if ip_address:
+        base = base.where(AsmServiceModel.ip_address == ip_address)
+    if q:
+        like = f"%{q}%"
+        base = base.where(
+            or_(
+                AsmServiceModel.ip_address.ilike(like),
+                AsmServiceModel.service_name.ilike(like),
+                AsmServiceModel.product.ilike(like),
+            )
+        )
+
+    sort_col = AsmServiceModel.created_at
+    if sort_by == "ip_address":
+        sort_col = AsmServiceModel.ip_address
+    elif sort_by == "port":
+        sort_col = AsmServiceModel.port
+    elif sort_by == "service_name":
+        sort_col = AsmServiceModel.service_name
+    sort_col = sort_col.desc() if (sort_dir or "desc").lower() == "desc" else sort_col.asc()
+
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+    rows = (await db.execute(
+        base.order_by(sort_col).offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    return AsmServiceListResponse(
+        items=[AsmServiceResponse(**r.to_dict()) for r in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# ---------------------------------------------------
+# SSL/TLS certs list
+# ---------------------------------------------------
+@router.get("/ssl", response_model=AsmSSLCertListResponse)
+async def list_ssl_certs(
+    discovery_id: Optional[str] = None,
+    host: Optional[str] = None,
+    subdomain_id: Optional[str] = None,
+    q: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = "desc",
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_ids = await _company_user_ids(db, current_user)
+    if page_size > 100:
+        page_size = 100
+
+    base = (
+        select(AsmSSLCertModel)
+        .join(AsmDiscoveryModel, AsmSSLCertModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+    )
+    if discovery_id:
+        base = base.where(AsmSSLCertModel.asm_discovery_id == discovery_id)
+    if host:
+        base = base.where(AsmSSLCertModel.host == host)
+    if subdomain_id:
+        base = base.where(AsmSSLCertModel.subdomain_id == subdomain_id)
+    if q:
+        like = f"%{q}%"
+        base = base.where(
+            or_(
+                AsmSSLCertModel.host.ilike(like),
+                AsmSSLCertModel.certificate_issuer.ilike(like),
+                AsmSSLCertModel.certificate_subject.ilike(like),
+            )
+        )
+
+    sort_col = AsmSSLCertModel.created_at
+    if sort_by == "host":
+        sort_col = AsmSSLCertModel.host
+    elif sort_by == "port":
+        sort_col = AsmSSLCertModel.port
+    elif sort_by == "valid_until":
+        sort_col = AsmSSLCertModel.valid_until
+    sort_col = sort_col.desc() if (sort_dir or "desc").lower() == "desc" else sort_col.asc()
+
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+    rows = (await db.execute(
+        base.order_by(sort_col).offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    return AsmSSLCertListResponse(
+        items=[AsmSSLCertResponse(**r.to_dict()) for r in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# ---------------------------------------------------
+# API endpoints list
+# ---------------------------------------------------
+@router.get("/api-endpoints", response_model=AsmAPIEndpointListResponse)
+async def list_api_endpoints(
+    discovery_id: Optional[str] = None,
+    subdomain_id: Optional[str] = None,
+    q: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = "desc",
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_ids = await _company_user_ids(db, current_user)
+    if page_size > 100:
+        page_size = 100
+
+    base = (
+        select(AsmAPIEndpointModel)
+        .join(AsmDiscoveryModel, AsmAPIEndpointModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+    )
+    if discovery_id:
+        base = base.where(AsmAPIEndpointModel.asm_discovery_id == discovery_id)
+    if subdomain_id:
+        base = base.where(AsmAPIEndpointModel.subdomain_id == subdomain_id)
+    if q:
+        like = f"%{q}%"
+        base = base.where(
+            or_(
+                AsmAPIEndpointModel.url.ilike(like),
+                AsmAPIEndpointModel.method.ilike(like),
+                AsmAPIEndpointModel.endpoint_type.ilike(like),
+            )
+        )
+
+    sort_col = AsmAPIEndpointModel.created_at
+    if sort_by == "url":
+        sort_col = AsmAPIEndpointModel.url
+    elif sort_by == "status_code":
+        sort_col = AsmAPIEndpointModel.status_code
+    elif sort_by == "method":
+        sort_col = AsmAPIEndpointModel.method
+    sort_col = sort_col.desc() if (sort_dir or "desc").lower() == "desc" else sort_col.asc()
+
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+    rows = (await db.execute(
+        base.order_by(sort_col).offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    return AsmAPIEndpointListResponse(
+        items=[AsmAPIEndpointResponse(**r.to_dict()) for r in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# ---------------------------------------------------
+# Cloud resources list
+# ---------------------------------------------------
+@router.get("/cloud-resources", response_model=AsmCloudResourceListResponse)
+async def list_cloud_resources(
+    discovery_id: Optional[str] = None,
+    q: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = "desc",
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_ids = await _company_user_ids(db, current_user)
+    if page_size > 100:
+        page_size = 100
+
+    base = (
+        select(AsmCloudResourceModel)
+        .join(AsmDiscoveryModel, AsmCloudResourceModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+    )
+    if discovery_id:
+        base = base.where(AsmCloudResourceModel.asm_discovery_id == discovery_id)
+    if q:
+        like = f"%{q}%"
+        base = base.where(
+            or_(
+                AsmCloudResourceModel.service.ilike(like),
+                AsmCloudResourceModel.resource_type.ilike(like),
+                AsmCloudResourceModel.resource_name.ilike(like),
+            )
+        )
+
+    sort_col = AsmCloudResourceModel.created_at
+    if sort_by == "service":
+        sort_col = AsmCloudResourceModel.service
+    elif sort_by == "resource_type":
+        sort_col = AsmCloudResourceModel.resource_type
+    elif sort_by == "resource_name":
+        sort_col = AsmCloudResourceModel.resource_name
+    elif sort_by == "access_status":
+        sort_col = AsmCloudResourceModel.access_status
+    sort_col = sort_col.desc() if (sort_dir or "desc").lower() == "desc" else sort_col.asc()
+
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+    rows = (await db.execute(
+        base.order_by(sort_col).offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    return AsmCloudResourceListResponse(
+        items=[AsmCloudResourceResponse(**r.to_dict()) for r in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# ---------------------------------------------------
+# Admin endpoints list
+# ---------------------------------------------------
+@router.get("/admin-endpoints", response_model=AsmAdminEndpointListResponse)
+async def list_admin_endpoints(
+    discovery_id: Optional[str] = None,
+    subdomain_id: Optional[str] = None,
+    q: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = "desc",
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_ids = await _company_user_ids(db, current_user)
+    if page_size > 100:
+        page_size = 100
+
+    base = (
+        select(AsmAdminEndpointModel)
+        .join(AsmDiscoveryModel, AsmAdminEndpointModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+    )
+    if discovery_id:
+        base = base.where(AsmAdminEndpointModel.asm_discovery_id == discovery_id)
+    if subdomain_id:
+        base = base.where(AsmAdminEndpointModel.subdomain_id == subdomain_id)
+    if q:
+        like = f"%{q}%"
+        base = base.where(
+            or_(
+                AsmAdminEndpointModel.url.ilike(like),
+                AsmAdminEndpointModel.endpoint_type.ilike(like),
+            )
+        )
+
+    sort_col = AsmAdminEndpointModel.created_at
+    if sort_by == "url":
+        sort_col = AsmAdminEndpointModel.url
+    elif sort_by == "status_code":
+        sort_col = AsmAdminEndpointModel.status_code
+    sort_col = sort_col.desc() if (sort_dir or "desc").lower() == "desc" else sort_col.asc()
+
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+    rows = (await db.execute(
+        base.order_by(sort_col).offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    return AsmAdminEndpointListResponse(
+        items=[AsmAdminEndpointResponse(**r.to_dict()) for r in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# ---------------------------------------------------
+# Backup files list
+# ---------------------------------------------------
+@router.get("/backup-files", response_model=AsmBackupFileListResponse)
+async def list_backup_files(
+    discovery_id: Optional[str] = None,
+    subdomain_id: Optional[str] = None,
+    q: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = "desc",
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_ids = await _company_user_ids(db, current_user)
+    if page_size > 100:
+        page_size = 100
+
+    base = (
+        select(AsmBackupFileModel)
+        .join(AsmDiscoveryModel, AsmBackupFileModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+    )
+    if discovery_id:
+        base = base.where(AsmBackupFileModel.asm_discovery_id == discovery_id)
+    if subdomain_id:
+        base = base.where(AsmBackupFileModel.subdomain_id == subdomain_id)
+    if q:
+        like = f"%{q}%"
+        base = base.where(
+            or_(
+                AsmBackupFileModel.file_url.ilike(like),
+                AsmBackupFileModel.file_extension.ilike(like),
+                AsmBackupFileModel.status.ilike(like),
+            )
+        )
+
+    sort_col = AsmBackupFileModel.created_at
+    if sort_by == "file_url":
+        sort_col = AsmBackupFileModel.file_url
+    elif sort_by == "file_extension":
+        sort_col = AsmBackupFileModel.file_extension
+    elif sort_by == "status":
+        sort_col = AsmBackupFileModel.status
+    sort_col = sort_col.desc() if (sort_dir or "desc").lower() == "desc" else sort_col.asc()
+
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+    rows = (await db.execute(
+        base.order_by(sort_col).offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    return AsmBackupFileListResponse(
+        items=[AsmBackupFileResponse(**r.to_dict()) for r in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+# ---------------------------------------------------
+# Change detection list
+# ---------------------------------------------------
+@router.get("/changes", response_model=AsmChangeListResponse)
+async def list_changes(
+    discovery_id: Optional[str] = None,
+    q: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = "desc",
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_ids = await _company_user_ids(db, current_user)
+    if page_size > 100:
+        page_size = 100
+
+    base = (
+        select(AsmChangeModel)
+        .join(AsmDiscoveryModel, AsmChangeModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+    )
+    if discovery_id:
+        base = base.where(AsmChangeModel.asm_discovery_id == discovery_id)
+    if q:
+        like = f"%{q}%"
+        base = base.where(
+            or_(
+                AsmChangeModel.message.ilike(like),
+            )
+        )
+
+    sort_col = AsmChangeModel.created_at
+    if sort_by == "created_at":
+        sort_col = AsmChangeModel.created_at
+    sort_col = sort_col.desc() if (sort_dir or "desc").lower() == "desc" else sort_col.asc()
+
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+    rows = (await db.execute(
+        base.order_by(sort_col).offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    return AsmChangeListResponse(
+        items=[AsmChangeResponse(**r.to_dict()) for r in rows],
         total=total,
         page=page,
         page_size=page_size,
@@ -670,15 +1409,18 @@ async def list_discovery_runs(
     discovery_id: str,
     page: int = 1,
     page_size: int = 50,
+    q: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = "desc",
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    user_id = current_user["user_id"]
+    user_ids = await _company_user_ids(db, current_user)
 
     # Ensure user owns the discovery
     disc_q = select(AsmDiscoveryModel).where(
         AsmDiscoveryModel.id == discovery_id,
-        AsmDiscoveryModel.user_id == user_id
+        AsmDiscoveryModel.user_id.in_(user_ids)
     )
     disc_res = await db.execute(disc_q)
     disc = disc_res.scalar_one_or_none()
@@ -689,6 +1431,15 @@ async def list_discovery_runs(
     base_query = select(AsmDiscoveryRunModel).where(
         AsmDiscoveryRunModel.asm_discovery_id == discovery_id
     )
+    if q:
+        like = f"%{q}%"
+        base_query = base_query.where(
+            or_(
+                AsmDiscoveryRunModel.status.ilike(like),
+                AsmDiscoveryRunModel.run_mode.ilike(like),
+                AsmDiscoveryRunModel.triggered_by.ilike(like),
+            )
+        )
 
     # Total count
     total_query = select(func.count()).select_from(base_query.subquery())
@@ -696,9 +1447,18 @@ async def list_discovery_runs(
     total = total_result.scalar() or 0
 
     # Paginated results
+    sort_col = AsmDiscoveryRunModel.started_at
+    if sort_by == "completed_at":
+        sort_col = AsmDiscoveryRunModel.completed_at
+    elif sort_by == "status":
+        sort_col = AsmDiscoveryRunModel.status
+    elif sort_by == "created_at":
+        sort_col = AsmDiscoveryRunModel.created_at
+    sort_col = sort_col.desc() if (sort_dir or "desc").lower() == "desc" else sort_col.asc()
+
     paginated_query = (
         base_query
-        .order_by(AsmDiscoveryRunModel.started_at.desc())
+        .order_by(sort_col)
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
@@ -716,6 +1476,7 @@ async def list_discovery_runs(
             status=run.status,
             started_at=run.started_at.isoformat() if run.started_at else None,
             completed_at=run.completed_at.isoformat() if run.completed_at else None,
+            duration_seconds=_calc_duration_seconds(run),
             error_message=run.error_message,
             summary=run.summary,
             created_at=run.created_at.isoformat() if run.created_at else None,
@@ -733,14 +1494,17 @@ async def list_discovery_runs(
 async def list_all_discovery_runs(
     page: int = 1,
     page_size: int = 50,
+    q: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_dir: Optional[str] = "desc",
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    user_id = current_user["user_id"]
+    user_ids = await _company_user_ids(db, current_user)
 
     # Get all runs for discoveries owned by the user
     # First, get all discovery IDs owned by the user
-    disc_query = select(AsmDiscoveryModel.id).where(AsmDiscoveryModel.user_id == user_id)
+    disc_query = select(AsmDiscoveryModel.id).where(AsmDiscoveryModel.user_id.in_(user_ids))
     disc_result = await db.execute(disc_query)
     discovery_ids = [row[0] for row in disc_result.all()]
 
@@ -756,6 +1520,15 @@ async def list_all_discovery_runs(
     base_query = select(AsmDiscoveryRunModel).where(
         AsmDiscoveryRunModel.asm_discovery_id.in_(discovery_ids)
     )
+    if q:
+        like = f"%{q}%"
+        base_query = base_query.where(
+            or_(
+                AsmDiscoveryRunModel.status.ilike(like),
+                AsmDiscoveryRunModel.run_mode.ilike(like),
+                AsmDiscoveryRunModel.triggered_by.ilike(like),
+            )
+        )
 
     # Total count
     total_query = select(func.count()).select_from(base_query.subquery())
@@ -763,9 +1536,18 @@ async def list_all_discovery_runs(
     total = total_result.scalar() or 0
 
     # Paginated results
+    sort_col = AsmDiscoveryRunModel.started_at
+    if sort_by == "completed_at":
+        sort_col = AsmDiscoveryRunModel.completed_at
+    elif sort_by == "status":
+        sort_col = AsmDiscoveryRunModel.status
+    elif sort_by == "created_at":
+        sort_col = AsmDiscoveryRunModel.created_at
+    sort_col = sort_col.desc() if (sort_dir or "desc").lower() == "desc" else sort_col.asc()
+
     paginated_query = (
         base_query
-        .order_by(AsmDiscoveryRunModel.started_at.desc())
+        .order_by(sort_col)
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
@@ -783,6 +1565,7 @@ async def list_all_discovery_runs(
             status=run.status,
             started_at=run.started_at.isoformat() if run.started_at else None,
             completed_at=run.completed_at.isoformat() if run.completed_at else None,
+            duration_seconds=_calc_duration_seconds(run),
             error_message=run.error_message,
             summary=run.summary,
             created_at=run.created_at.isoformat() if run.created_at else None,
@@ -810,7 +1593,11 @@ async def get_run_detail(
         raise HTTPException(status_code=404, detail="Run not found")
 
     # Ensure user owns the discovery
-    disc_q = select(AsmDiscoveryModel).where(AsmDiscoveryModel.id == run.asm_discovery_id, AsmDiscoveryModel.user_id == current_user["user_id"])
+    user_ids = await _company_user_ids(db, current_user)
+    disc_q = select(AsmDiscoveryModel).where(
+        AsmDiscoveryModel.id == run.asm_discovery_id,
+        AsmDiscoveryModel.user_id.in_(user_ids),
+    )
     disc_res = await db.execute(disc_q)
     disc = disc_res.scalar_one_or_none()
     if not disc:
@@ -825,8 +1612,8 @@ async def get_run_detail(
         status=run.status,
         started_at=run.started_at.isoformat() if run.started_at else None,
         completed_at=run.completed_at.isoformat() if run.completed_at else None,
+        duration_seconds=_calc_duration_seconds(run),
         error_message=run.error_message,
         summary=run.summary,
         created_at=run.created_at.isoformat() if run.created_at else None,
     )
-

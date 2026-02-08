@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SeverityBadge } from "./SeverityBadge";
@@ -7,7 +6,6 @@ import {
   Download,
   Mail,
   Calendar,
-  Plus,
   Eye,
   MoreHorizontal,
   Clock,
@@ -22,22 +20,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion } from "framer-motion";
 
@@ -56,7 +38,6 @@ const scheduledReports = [
 ];
 
 export function ASMReports() {
-  const [isNewReportOpen, setIsNewReportOpen] = useState(false);
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -69,94 +50,7 @@ export function ASMReports() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold text-foreground">Reports</h2>
-          <p className="text-sm text-muted-foreground">Generate and schedule security reports</p>
-        </div>
-        <Dialog open={isNewReportOpen} onOpenChange={setIsNewReportOpen}>
-          <DialogTrigger asChild>
-            <Button variant="gradient">
-              <Plus className="w-4 h-4 mr-2" />
-              Generate Report
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Generate New Report</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Report Type</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select report type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="executive">Executive Summary</SelectItem>
-                    <SelectItem value="technical">Technical Report</SelectItem>
-                    <SelectItem value="compliance">Compliance Mapping</SelectItem>
-                    <SelectItem value="assets">Asset Inventory</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Date Range</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select date range" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="7d">Last 7 days</SelectItem>
-                    <SelectItem value="30d">Last 30 days</SelectItem>
-                    <SelectItem value="90d">Last 90 days</SelectItem>
-                    <SelectItem value="custom">Custom range</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Format</Label>
-                <Select>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select format" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pdf">PDF</SelectItem>
-                    <SelectItem value="csv">CSV</SelectItem>
-                    <SelectItem value="json">JSON</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-3">
-                <Label>Include Sections</Label>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Checkbox id="summary" defaultChecked />
-                    <label htmlFor="summary" className="text-sm">Executive Summary</label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Checkbox id="assets" defaultChecked />
-                    <label htmlFor="assets" className="text-sm">Asset Inventory</label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Checkbox id="vulns" defaultChecked />
-                    <label htmlFor="vulns" className="text-sm">Vulnerabilities</label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Checkbox id="recommendations" defaultChecked />
-                    <label htmlFor="recommendations" className="text-sm">Recommendations</label>
-                  </div>
-                </div>
-              </div>
-              <div className="flex justify-end gap-3 pt-4">
-                <Button variant="outline" onClick={() => setIsNewReportOpen(false)}>Cancel</Button>
-                <Button variant="gradient" onClick={() => setIsNewReportOpen(false)}>Generate</Button>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-      </div>
+      <div className="flex items-center justify-end" />
 
       {/* Quick Stats */}
       <div className="grid sm:grid-cols-3 gap-4">
@@ -186,7 +80,7 @@ export function ASMReports() {
       </div>
 
       <Tabs defaultValue="reports">
-        <TabsList>
+        <TabsList className="inline-flex gap-1.5 bg-card/80 border border-border p-1.5 rounded-2xl whitespace-nowrap shadow-sm">
           <TabsTrigger value="reports">Generated Reports</TabsTrigger>
           <TabsTrigger value="scheduled">Scheduled Reports</TabsTrigger>
           <TabsTrigger value="templates">Templates</TabsTrigger>
@@ -286,7 +180,6 @@ export function ASMReports() {
           ))}
 
           <Button variant="outline" className="w-full">
-            <Plus className="w-4 h-4 mr-2" />
             Add Scheduled Report
           </Button>
         </TabsContent>

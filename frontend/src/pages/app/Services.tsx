@@ -13,8 +13,9 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { getProfile } from "@/lib/services/profile";
 
 const services = [
   {
@@ -71,6 +72,34 @@ const services = [
 
 export default function Services() {
   const [email, setEmail] = useState("");
+  const [role, setRole] = useState<string>("reader");
+
+  useEffect(() => {
+    let mounted = true;
+    const loadProfile = async () => {
+      try {
+        const profile = await getProfile();
+        if (mounted) setRole(profile.role ?? "reader");
+      } catch {
+        if (mounted) setRole("reader");
+      }
+    };
+    loadProfile();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (role !== "admin") {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center space-y-2">
+          <h2 className="text-xl font-semibold text-foreground">Access Restricted</h2>
+          <p className="text-sm text-muted-foreground">This section is available to admins only.</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleNotify = (serviceName: string) => {
     if (!email) {

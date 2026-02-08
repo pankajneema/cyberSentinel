@@ -63,7 +63,11 @@ const slaConfig = {
   low: "30 days",
 };
 
-export function VSRemediation() {
+interface VSRemediationProps {
+  canWrite?: boolean;
+}
+
+export function VSRemediation({ canWrite = true }: VSRemediationProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedItem, setSelectedItem] = useState<RemediationItem | null>(null);
@@ -94,6 +98,10 @@ export function VSRemediation() {
   };
 
   const handleAddComment = () => {
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to add comments." });
+      return;
+    }
     if (newComment.trim()) {
       toast({ title: "Comment Added", description: "Your comment has been posted" });
       setNewComment("");
@@ -101,6 +109,10 @@ export function VSRemediation() {
   };
 
   const handleCreateTicket = (item: RemediationItem) => {
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to create tickets." });
+      return;
+    }
     toast({ title: "Ticket Created", description: `Jira ticket created for ${item.cve}` });
   };
 
@@ -257,16 +269,18 @@ export function VSRemediation() {
                 {/* Status & Actions */}
                 <div className="flex items-center justify-between">
                   {getStatusBadge(selectedItem.status)}
-                  <div className="flex gap-2">
-                    {!selectedItem.ticketId && (
-                      <Button variant="outline" size="sm" onClick={() => handleCreateTicket(selectedItem)}>
-                        <Link2 className="w-4 h-4 mr-1" />Create Ticket
+                  {canWrite && (
+                    <div className="flex gap-2">
+                      {!selectedItem.ticketId && (
+                        <Button variant="outline" size="sm" onClick={() => handleCreateTicket(selectedItem)}>
+                          <Link2 className="w-4 h-4 mr-1" />Create Ticket
+                        </Button>
+                      )}
+                      <Button variant="gradient" size="sm">
+                        <ArrowRight className="w-4 h-4 mr-1" />Update Status
                       </Button>
-                    )}
-                    <Button variant="gradient" size="sm">
-                      <ArrowRight className="w-4 h-4 mr-1" />Update Status
-                    </Button>
-                  </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Info */}
@@ -312,13 +326,16 @@ export function VSRemediation() {
                   </div>
                   <div className="flex gap-2">
                     <Textarea 
-                      placeholder="Add a comment..." 
+                      placeholder={canWrite ? "Add a comment..." : "Read-only access"}
                       value={newComment}
                       onChange={(e) => setNewComment(e.target.value)}
                       className="min-h-[60px]"
+                      disabled={!canWrite}
                     />
                   </div>
-                  <Button variant="outline" size="sm" onClick={handleAddComment}>Post Comment</Button>
+                  {canWrite && (
+                    <Button variant="outline" size="sm" onClick={handleAddComment}>Post Comment</Button>
+                  )}
                 </div>
               </div>
             </>

@@ -99,6 +99,7 @@ class AsmDiscoveryRunResponse(BaseModel):
     status: str
     started_at: Optional[str]
     completed_at: Optional[str]
+    duration_seconds: Optional[int] = None
     error_message: Optional[str]
     summary: Optional[dict]
     created_at: Optional[str]
@@ -131,6 +132,8 @@ class AsmSubdomainResponse(BaseModel):
     asm_discovery_id: str
     asset_id: str
     subdomain: str
+    status: Optional[str] = None  # active, inactive, archived
+    resolved: Optional[bool] = None  # DNS resolution status: true=resolved, false=unresolved, null=not checked
     created_at: Optional[str]
     asset_name: Optional[str] = None  # Parent domain/asset name
     asset_type: Optional[str] = None  # Parent asset type
@@ -160,6 +163,7 @@ class AsmIPResponse(BaseModel):
     exposure_score: Optional[int] = None  # 0-100, null if not calculated
     exposure_level: str = "not_calculated"  # low, medium, high, not_calculated
     reachable: Optional[bool] = None  # HTTP/HTTPS reachable
+    open_ports: Optional[int] = None
     created_at: Optional[str]
 
 
@@ -179,3 +183,154 @@ class AsmIPListResponse(BaseModel):
 class AsmSubdomainWithIPsResponse(AsmSubdomainResponse):
     ip_count: int = 0  # Number of IPs associated with this subdomain
     status: Optional[str] = None  # Subdomain status
+
+
+# ---------------------------------------------------
+# ASM Extended Data Responses
+# ---------------------------------------------------
+class AsmPortResponse(BaseModel):
+    id: str
+    asm_discovery_id: str
+    asset_id: str
+    ip_address: str
+    port: int
+    protocol: Optional[str] = None
+    status: Optional[str] = None
+    service: Optional[str] = None
+    banner: Optional[str] = None
+    created_at: Optional[str]
+
+
+class AsmServiceResponse(BaseModel):
+    id: str
+    asm_discovery_id: str
+    asset_id: str
+    ip_address: str
+    port: int
+    service_name: str
+    version: Optional[str] = None
+    product: Optional[str] = None
+    created_at: Optional[str]
+
+
+class AsmSSLCertResponse(BaseModel):
+    id: str
+    asm_discovery_id: str
+    asset_id: str
+    host: str
+    port: int
+    protocol: Optional[str] = None
+    cipher: Optional[str] = None
+    certificate_issuer: Optional[str] = None
+    certificate_subject: Optional[str] = None
+    valid_from: Optional[str] = None
+    valid_until: Optional[str] = None
+    created_at: Optional[str]
+
+
+class AsmAPIEndpointResponse(BaseModel):
+    id: str
+    asm_discovery_id: str
+    asset_id: str
+    url: str
+    method: Optional[str] = None
+    status_code: Optional[int] = None
+    endpoint_type: Optional[str] = None
+    created_at: Optional[str]
+
+
+class AsmCloudResourceResponse(BaseModel):
+    id: str
+    asm_discovery_id: str
+    asset_id: str
+    service: str
+    resource_type: str
+    resource_name: str
+    access_status: Optional[str] = None
+    region: Optional[str] = None
+    created_at: Optional[str]
+
+
+class AsmAdminEndpointResponse(BaseModel):
+    id: str
+    asm_discovery_id: str
+    asset_id: str
+    url: str
+    status_code: Optional[int] = None
+    endpoint_type: Optional[str] = None
+    created_at: Optional[str]
+
+
+class AsmBackupFileResponse(BaseModel):
+    id: str
+    asm_discovery_id: str
+    asset_id: str
+    file_url: str
+    file_extension: Optional[str] = None
+    status: Optional[str] = None
+    created_at: Optional[str]
+
+
+class AsmChangeResponse(BaseModel):
+    id: str
+    asm_discovery_id: str
+    asset_id: str
+    changes: Optional[list] = None
+    message: Optional[str] = None
+    created_at: Optional[str]
+
+
+class AsmPortListResponse(BaseModel):
+    items: List[AsmPortResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class AsmServiceListResponse(BaseModel):
+    items: List[AsmServiceResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class AsmSSLCertListResponse(BaseModel):
+    items: List[AsmSSLCertResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class AsmAPIEndpointListResponse(BaseModel):
+    items: List[AsmAPIEndpointResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class AsmCloudResourceListResponse(BaseModel):
+    items: List[AsmCloudResourceResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class AsmAdminEndpointListResponse(BaseModel):
+    items: List[AsmAdminEndpointResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class AsmBackupFileListResponse(BaseModel):
+    items: List[AsmBackupFileResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class AsmChangeListResponse(BaseModel):
+    items: List[AsmChangeResponse]
+    total: int
+    page: int
+    page_size: int

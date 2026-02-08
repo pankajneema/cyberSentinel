@@ -1,3 +1,12 @@
+import sys
+from pathlib import Path
+import uvicorn
+
+# Ensure backend root is on sys.path so sibling modules resolve (e.g., notificationservice)
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.append(str(BACKEND_ROOT))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config.settings import settings
@@ -7,7 +16,7 @@ from utils.queue import close_queue, get_queue_connection
 from utils.clickhouse_client import close_clickhouse, get_clickhouse
 
 # Import all routes
-from routes import auth, users, profile, accounts, billing, services, asm, vs, settings_route, activity, assets, tasks
+from routes import auth, users, profile, accounts, billing, services, asm, vs, settings_route, activity, assets, tasks, team
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -76,7 +85,7 @@ app.include_router(settings_route.router)
 app.include_router(activity.router)
 app.include_router(assets.router)
 app.include_router(tasks.router)
+app.include_router(team.router)
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

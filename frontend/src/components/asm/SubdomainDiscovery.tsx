@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/select";
 import {
   Search,
-  Download,
   Plus,
   Globe,
   Network,
@@ -56,6 +55,8 @@ interface SubdomainNode {
   ip?: string;
   ip_count?: number;
   status: "active" | "inactive";
+  resolved?: boolean | null;  // DNS resolution status
+  reachable?: boolean | null;  // HTTP reachability (for IPs)
   children?: SubdomainNode[];
 }
 
@@ -141,9 +142,27 @@ function SubdomainNodeComponent({
                 {node.ip_count} IP{node.ip_count !== 1 ? 's' : ''}
               </span>
             )}
+            {node.type === "subdomain" && node.resolved !== null && node.resolved !== undefined && (
+              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                node.resolved 
+                  ? "bg-green-500/20 text-green-600" 
+                  : "bg-red-500/20 text-red-600"
+              }`}>
+                {node.resolved ? "Resolved" : "Unresolved"}
+              </span>
+            )}
             {node.type === "ip" && (
               <span className="text-xs px-2 py-0.5 bg-muted text-muted-foreground rounded-full">
                 IP Address
+              </span>
+            )}
+            {node.type === "ip" && node.reachable !== null && node.reachable !== undefined && (
+              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                node.reachable 
+                  ? "bg-green-500/20 text-green-600" 
+                  : "bg-red-500/20 text-red-600"
+              }`}>
+                {node.reachable ? "Reachable" : "Not Reachable"}
               </span>
             )}
           </div>
@@ -225,6 +244,7 @@ function SubdomainNodeComponent({
                         risk: ip.exposure_level === "high" ? "high" : ip.exposure_level === "medium" ? "medium" : "low",
                         ip: ip.ip_address,
                         status: ip.status === "active" ? "active" : "inactive",
+                        reachable: ip.reachable ?? null,  // HTTP reachability status
                       }}
                       level={level + 1}
                       onDelete={onDelete}
@@ -248,6 +268,7 @@ function SubdomainNodeComponent({
 
 export function SubdomainDiscovery() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [resolvedFilter, setResolvedFilter] = useState<"all" | "resolved" | "unresolved">("all");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [newSubdomain, setNewSubdomain] = useState("");
@@ -327,6 +348,7 @@ export function SubdomainDiscovery() {
         risk: "medium", // Default risk, can be enhanced later
         status: (subdomain.status || "active") as "active" | "inactive",
         ip_count: subdomain.ip_count || 0,
+        resolved: subdomain.resolved ?? null,  // DNS resolution status
       };
 
       if (parentAsset) {
@@ -349,18 +371,31 @@ export function SubdomainDiscovery() {
     return [...result, ...subdomainNodes];
   }, [subdomains, assets]);
 
-  // Filter based on search query
+  // Filter based on search query and resolved status
   const filteredStructure = useMemo(() => {
-    if (!searchQuery) return hierarchicalStructure;
-    
     const query = searchQuery.toLowerCase();
+    
     const filterNode = (node: SubdomainNode): SubdomainNode | null => {
-      const matches = node.name.toLowerCase().includes(query);
+      // Filter by search query
+      const matchesQuery = !query || node.name.toLowerCase().includes(query);
+      
+      // Filter by resolved status (only for subdomains)
+      let matchesResolved = true;
+      if (resolvedFilter !== "all" && node.type === "subdomain") {
+        if (resolvedFilter === "resolved") {
+          matchesResolved = node.resolved === true;
+        } else if (resolvedFilter === "unresolved") {
+          matchesResolved = node.resolved === false;
+        }
+      }
+      
+      // Filter children recursively
       const filteredChildren = node.children
         ? node.children.map(filterNode).filter((n): n is SubdomainNode => n !== null)
         : [];
       
-      if (matches || filteredChildren.length > 0) {
+      // Include node if it matches filters OR has matching children
+      if ((matchesQuery && matchesResolved) || filteredChildren.length > 0) {
         return {
           ...node,
           children: filteredChildren.length > 0 ? filteredChildren : node.children,
@@ -370,7 +405,7 @@ export function SubdomainDiscovery() {
     };
 
     return hierarchicalStructure.map(filterNode).filter((n): n is SubdomainNode => n !== null);
-  }, [hierarchicalStructure, searchQuery]);
+  }, [hierarchicalStructure, searchQuery, resolvedFilter]);
 
   const handleAddSubdomain = () => {
     if (!newSubdomain || !parentDomain) {
@@ -396,27 +431,7 @@ export function SubdomainDiscovery() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold text-foreground flex items-center gap-2">
-            <Network className="w-5 h-5 text-primary" />
-            Subdomain Discovery
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Explore your domain hierarchy - subdomains are linked to parent domains from Asset Inventory
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <Button variant="outline">
-            <Download className="w-4 h-4 mr-2" />
-            Export
-          </Button>
-          <Button variant="gradient" onClick={() => setIsAddOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Subdomain
-          </Button>
-        </div>
-      </div>
+      <div className="flex items-center justify-end" />
 
       <div className="grid sm:grid-cols-4 gap-4">
         {[
@@ -445,14 +460,26 @@ export function SubdomainDiscovery() {
         ))}
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input 
-          placeholder="Search subdomains or domains..." 
-          className="pl-11 h-12 rounded-xl" 
-          value={searchQuery} 
-          onChange={(e) => setSearchQuery(e.target.value)} 
-        />
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input 
+            placeholder="Search subdomains or domains..." 
+            className="pl-11 h-12 rounded-xl" 
+            value={searchQuery} 
+            onChange={(e) => setSearchQuery(e.target.value)} 
+          />
+        </div>
+        <Select value={resolvedFilter} onValueChange={(v) => setResolvedFilter(v as "all" | "resolved" | "unresolved")}>
+          <SelectTrigger className="w-full sm:w-[200px] h-12 rounded-xl">
+            <SelectValue placeholder="Filter by DNS status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Subdomains</SelectItem>
+            <SelectItem value="resolved">Resolved Only</SelectItem>
+            <SelectItem value="unresolved">Unresolved Only</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="bg-card rounded-2xl border border-border overflow-hidden">

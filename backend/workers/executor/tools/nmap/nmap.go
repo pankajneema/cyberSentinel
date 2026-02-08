@@ -37,6 +37,8 @@ func RunServiceDetection(ctx context.Context, ips []string, ports []int) ([]Serv
 
 	var results []ServiceResult
 
+	utils.Logger.Debugf("nmap: scanning %d IPs with %d ports", len(ips), len(ports))
+
 	// Run nmap for each IP (or batch if possible)
 	for _, ip := range ips {
 		var portSpec string
@@ -50,6 +52,8 @@ func RunServiceDetection(ctx context.Context, ips []string, ports []int) ([]Serv
 			portSpec = "1-1000" // Default top ports
 		}
 
+		utils.Logger.Debugf("nmap: scanning %s with ports %s", ip, portSpec)
+
 		// Run nmap with service detection
 		cmd := exec.CommandContext(ctx, toolPath,
 			"-sV",
@@ -60,14 +64,17 @@ func RunServiceDetection(ctx context.Context, ips []string, ports []int) ([]Serv
 		)
 
 		output, err := cmd.CombinedOutput()
+		utils.Logger.Debugf("nmap: raw output for %s (first 500 chars): %s", ip, string(output)[:min(500, len(string(output)))])
+
 		if err != nil {
-			utils.Logger.Warnf("nmap scan failed for %s: %v", ip, err)
-			continue
+			utils.Logger.Warnf("nmap scan failed for %s: %v, output length: %d", ip, err, len(output))
+			// Continue even if error - might have partial results
 		}
 
 		// Parse nmap output (simplified - in production, use nmap XML parser)
 		outputStr := string(output)
 		lines := strings.Split(outputStr, "\n")
+		utils.Logger.Debugf("nmap: parsed %d lines from output for %s", len(lines), ip)
 
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
@@ -97,13 +104,14 @@ func RunServiceDetection(ctx context.Context, ips []string, ports []int) ([]Serv
 							Service: service,
 							Version: version,
 						})
+						utils.Logger.Debugf("nmap: found service %s on %s:%d", service, ip, port)
 					}
 				}
 			}
 		}
 	}
 
-	utils.Logger.Infof("service detection completed: found %d services", len(results))
+	utils.Logger.Infof("service detection completed: found %d services from %d IPs", len(results), len(ips))
 	return results, nil
 }
 
@@ -126,4 +134,11 @@ func getToolPath(toolName string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("tool '%s' not found in PATH or common locations", toolName)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

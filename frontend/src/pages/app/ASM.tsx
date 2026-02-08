@@ -1,30 +1,52 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Radar, LayoutDashboard, Network, Cloud, Users, GitBranch, FileSearch, FileText, Settings, Server } from "lucide-react";
+import { Radar, LayoutDashboard, GitBranch, FileSearch, FileText, Settings, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ASMOverview } from "@/components/asm/ASMOverview";
-import { SubdomainDiscovery } from "@/components/asm/SubdomainDiscovery";
-import { IPDiscovery } from "@/components/asm/IPDiscovery";
-import { CloudAttackSurface } from "@/components/asm/CloudAttackSurface";
-import { HumanAttackSurface } from "@/components/asm/HumanAttackSurface";
 import { AttackSurfaceGraph } from "@/components/asm/AttackSurfaceGraph";
 import { ScanManager } from "@/components/asm/DiscoveryManager";
 import { ASMSettings } from "@/components/asm/ASMSettings";
 import { DiscoveryRunsList } from "@/components/asm/DiscoveryRunsList";
+import { ASMFindings } from "@/components/asm/ASMFindings";
+import { ASMReports } from "@/components/asm/ASMReports";
 import { motion } from "framer-motion";
 
 const tabs = [
   { value: "overview", label: "Overview", icon: LayoutDashboard },
-  { value: "subdomains", label: "Subdomains", icon: Network },
-  { value: "ips", label: "IPs", icon: Server },
-  { value: "cloud", label: "Cloud", icon: Cloud },
-  { value: "human", label: "Human", icon: Users },
-  { value: "graph", label: "Graph", icon: GitBranch },
   { value: "scans", label: "Discovery", icon: FileSearch },
   { value: "reports", label: "Reports", icon: FileText },
+  { value: "findings", label: "Findings", icon: Shield },
+  { value: "graph", label: "Graph", icon: GitBranch },
   { value: "settings", label: "Settings", icon: Settings },
 ];
+
+const tabMeta: Record<string, { title: string; description: string }> = {
+  overview: {
+    title: "ASM Overview",
+    description: "Exposure summary across domains, IPs, cloud assets, and APIs",
+  },
+  scans: {
+    title: "Discovery Management",
+    description: "Create, run, and monitor discovery pipelines",
+  },
+  reports: {
+    title: "Discovery Reports",
+    description: "Review completed runs and export evidence",
+  },
+  findings: {
+    title: "ASM Findings",
+    description: "Explore subdomains, IPs, cloud assets, and deep scan results",
+  },
+  graph: {
+    title: "Attack Surface Graph",
+    description: "Visualize relationships across assets and discoveries",
+  },
+  settings: {
+    title: "ASM Settings",
+    description: "Tune exposure thresholds and workflow preferences",
+  },
+};
 
 export default function ASM() {
   const [activeTab, setActiveTab] = useState("overview");
@@ -37,81 +59,70 @@ export default function ASM() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-      >
-        <div>
-          <h1 className="text-2xl lg:text-3xl font-heading font-bold text-foreground flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-primary/10">
-              <Radar className="w-6 h-6 text-primary" />
-            </div>
-            Attack Surface Management
-          </h1>
-          <p className="text-muted-foreground mt-1">Discover and monitor your external attack surface</p>
-        </div>
-        <Button
-          variant="gradient"
-          size="lg"
-          onClick={handleGoToScans}
-          className="shrink-0"
-        >
-          <FileSearch className="w-4 h-4" />
-          Discovery Management
-        </Button>
-      </motion.div>
-
-      {/* Tabs Navigation */}
+      {/* Tabs Navigation + Header (Sticky) */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 pb-2">
-          <TabsList className="inline-flex h-auto p-1.5 bg-muted/50 rounded-2xl w-auto min-w-full sm:min-w-0 gap-1">
-            {tabs.map((tab) => (
-              <TabsTrigger
-                key={tab.value}
-                value={tab.value}
-                className="px-4 py-2.5 text-sm rounded-xl data-[state=active]:bg-background data-[state=active]:shadow-sm flex items-center gap-2 transition-all"
-              >
-                <tab.icon className="w-4 h-4" />
-                <span className="hidden sm:inline">{tab.label}</span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
+        <div className="sticky top-0 z-20 -mx-4 px-4 sm:mx-0 sm:px-0 pb-4 bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+          <div className="overflow-x-auto pb-2">
+            <TabsList className="inline-flex h-auto p-1.5 bg-card/80 border border-border rounded-2xl w-auto min-w-full sm:min-w-0 gap-1 shadow-sm">
+              {tabs.map((tab) => (
+                <TabsTrigger
+                  key={tab.value}
+                  value={tab.value}
+                  className="px-4 py-2.5 text-sm rounded-xl data-[state=active]:bg-background data-[state=active]:shadow-sm data-[state=active]:text-foreground text-muted-foreground flex items-center gap-2 transition-all"
+                >
+                  <tab.icon className="w-4 h-4" />
+                  <span className="hidden sm:inline">{tab.label}</span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
+
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-3xl border border-border bg-gradient-to-br from-primary/8 via-background to-background px-6 py-5 shadow-sm"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-primary/10">
+                <Radar className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-heading font-bold text-foreground">
+                  {tabMeta[activeTab]?.title || "Attack Surface Management"}
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  {tabMeta[activeTab]?.description || "Discover, monitor, and prioritize your external attack surface"}
+                </p>
+              </div>
+            </div>
+          </motion.div>
         </div>
 
         {/* Tab Contents */}
         <motion.div
-          key={activeTab}
-          initial={{ opacity: 0, y: 10 }}
+          initial={false}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2 }}
-          className="mt-6"
+          transition={{ duration: 0.15 }}
         >
-          <TabsContent value="overview" className="mt-0">
+          <TabsContent value="overview" forceMount className="mt-0 data-[state=inactive]:hidden">
             <ASMOverview onNavigateToScans={handleGoToScans} onNavigateToReports={() => navigate('/app/reports')} />
           </TabsContent>
-          <TabsContent value="subdomains" className="mt-0">
-            <SubdomainDiscovery />
-          </TabsContent>
-          <TabsContent value="ips" className="mt-0">
-            <IPDiscovery />
-          </TabsContent>
-          <TabsContent value="cloud" className="mt-0">
-            <CloudAttackSurface />
-          </TabsContent>
-          <TabsContent value="human" className="mt-0">
-            <HumanAttackSurface />
-          </TabsContent>
-          <TabsContent value="graph" className="mt-0">
+          <TabsContent value="graph" forceMount className="mt-0 data-[state=inactive]:hidden">
             <AttackSurfaceGraph />
           </TabsContent>
-          <TabsContent value="scans" className="mt-0">
+          <TabsContent value="scans" forceMount className="mt-0 data-[state=inactive]:hidden">
             <ScanManager />
           </TabsContent>
-          <TabsContent value="reports" className="mt-0">
-            <DiscoveryRunsList />
+          <TabsContent value="reports" forceMount className="mt-0 data-[state=inactive]:hidden">
+            <ASMReports />
+            <div className="mt-6">
+              <DiscoveryRunsList />
+            </div>
           </TabsContent>
-          <TabsContent value="settings" className="mt-0">
+          <TabsContent value="findings" forceMount className="mt-0 data-[state=inactive]:hidden">
+            <ASMFindings />
+          </TabsContent>
+          <TabsContent value="settings" forceMount className="mt-0 data-[state=inactive]:hidden">
             <ASMSettings />
           </TabsContent>
         </motion.div>

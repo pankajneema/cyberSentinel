@@ -1,11 +1,10 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -46,17 +45,27 @@ import {
   Target,
   Slack,
   Mail,
-  Filter,
-  ArrowUpRight,
   PlayCircle,
   PauseCircle,
-  XCircle,
   UserPlus,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
+import {
+  createInvite,
+  createRole,
+  deleteRole,
+  listInvites,
+  listMembers,
+  listRoles,
+  removeMember,
+  TeamInvite as ApiTeamInvite,
+  TeamMember as ApiTeamMember,
+  TeamRole as ApiTeamRole,
+} from "@/lib/services/team";
+import { getProfile } from "@/lib/services/profile";
 
-interface TeamMember {
+interface TaskMember {
   id: string;
   name: string;
   email: string;
@@ -74,7 +83,7 @@ interface Task {
   description: string;
   priority: "critical" | "high" | "medium" | "low";
   status: "pending" | "in_progress" | "completed" | "overdue";
-  assignee: TeamMember;
+  assignee: TaskMember;
   createdAt: string;
   dueDate: string;
   completedAt?: string;
@@ -90,7 +99,7 @@ interface TaskMessage {
   platform: "internal" | "slack" | "jira" | "email";
 }
 
-const mockTeamMembers: TeamMember[] = [
+const mockTaskMembers: TaskMember[] = [
   { id: "1", name: "John Smith", email: "john@company.com", role: "Admin", status: "active", tasksAssigned: 12, tasksCompleted: 8, lastActive: "Now" },
   { id: "2", name: "Sarah Johnson", email: "sarah@company.com", role: "Analyst", status: "active", tasksAssigned: 18, tasksCompleted: 15, lastActive: "5 min ago" },
   { id: "3", name: "Mike Chen", email: "mike@company.com", role: "Analyst", status: "offline", tasksAssigned: 10, tasksCompleted: 10, lastActive: "2 hours ago" },
@@ -104,7 +113,7 @@ const mockTasks: Task[] = [
     description: "Critical vulnerability requires immediate attention",
     priority: "critical",
     status: "in_progress",
-    assignee: mockTeamMembers[1],
+    assignee: mockTaskMembers[1],
     createdAt: "2024-01-10T10:00:00",
     dueDate: "2024-01-12T18:00:00",
     asset: "api.company.com",
@@ -119,7 +128,7 @@ const mockTasks: Task[] = [
     description: "Upgrade to TLS 1.3 across all endpoints",
     priority: "high",
     status: "pending",
-    assignee: mockTeamMembers[2],
+    assignee: mockTaskMembers[2],
     createdAt: "2024-01-09T14:00:00",
     dueDate: "2024-01-15T18:00:00",
     asset: "*.company.com",
@@ -133,7 +142,7 @@ const mockTasks: Task[] = [
     description: "Audit and optimize current firewall configuration",
     priority: "medium",
     status: "completed",
-    assignee: mockTeamMembers[0],
+    assignee: mockTaskMembers[0],
     createdAt: "2024-01-05T09:00:00",
     dueDate: "2024-01-08T18:00:00",
     completedAt: "2024-01-07T16:30:00",
@@ -147,7 +156,7 @@ const mockTasks: Task[] = [
     description: "Address SQLi in login form",
     priority: "critical",
     status: "overdue",
-    assignee: mockTeamMembers[3],
+    assignee: mockTaskMembers[3],
     createdAt: "2024-01-01T10:00:00",
     dueDate: "2024-01-05T18:00:00",
     messages: [],
@@ -169,6 +178,79 @@ export default function Team() {
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [newMessage, setNewMessage] = useState("");
   const [messagePlatform, setMessagePlatform] = useState<string>("internal");
+  const [teamMembers, setTeamMembers] = useState<ApiTeamMember[]>([]);
+  const [teamInvites, setTeamInvites] = useState<ApiTeamInvite[]>([]);
+  const [teamRoles, setTeamRoles] = useState<ApiTeamRole[]>([]);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("reader");
+  const [roleName, setRoleName] = useState("");
+  const [roleDescription, setRoleDescription] = useState("");
+  const [isLoadingTeam, setIsLoadingTeam] = useState(false);
+  const [currentRole, setCurrentRole] = useState("reader");
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
+
+  const currentUser = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || "null");
+    } catch {
+      return null;
+    }
+  }, []);
+  const currentUserId = currentUser?.id as string | undefined;
+  const isAdmin = currentRole === "admin";
+  const canInvite = isAdmin || isSuperadmin;
+  const isAnalystOrReader = currentRole === "analyst" || currentRole === "reader";
+
+  const pendingInvites = useMemo(
+    () => teamInvites.filter((invite) => invite.status === "pending"),
+    [teamInvites]
+  );
+
+  const roleOptions = useMemo(() => {
+    const defaults = ["admin", "analyst", "reader"];
+    const custom = teamRoles.map((role) => role.name.toLowerCase());
+    return Array.from(new Set([...defaults, ...custom]));
+  }, [teamRoles]);
+
+  const loadTeamData = async () => {
+    try {
+      setIsLoadingTeam(true);
+      const [members, invites, roles] = await Promise.all([
+        listMembers(),
+        listInvites(),
+        listRoles(),
+      ]);
+      setTeamMembers(members);
+      setTeamInvites(invites);
+      setTeamRoles(roles);
+    } catch (error) {
+      toast({
+        title: "Failed to load team data",
+        description: "Please refresh and try again.",
+      });
+    } finally {
+      setIsLoadingTeam(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadTeamData();
+  }, []);
+
+  useEffect(() => {
+    const loadRole = async () => {
+      try {
+        const profile = await getProfile();
+        if (profile?.role) {
+          setCurrentRole(profile.role);
+        }
+        setIsSuperadmin(Boolean(profile?.is_superadmin));
+      } catch {
+        // keep defaults
+      }
+    };
+    void loadRole();
+  }, []);
 
   const handleSendMessage = () => {
     if (!newMessage.trim() || !selectedTask) return;
@@ -186,6 +268,59 @@ export default function Team() {
       description: "Task has been assigned successfully",
     });
     setIsAssignTaskOpen(false);
+  };
+
+  const handleInviteMember = async () => {
+    if (!inviteEmail.trim()) {
+      toast({ title: "Email required", description: "Enter a valid email to invite." });
+      return;
+    }
+    try {
+      await createInvite({ email: inviteEmail.trim(), role: inviteRole });
+      toast({ title: "Invitation sent", description: "Invite email has been sent." });
+      setInviteEmail("");
+      setInviteRole("reader");
+      setIsInviteOpen(false);
+      await loadTeamData();
+    } catch (error) {
+      toast({ title: "Invite failed", description: "Could not send invite." });
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string) => {
+    try {
+      await removeMember(memberId);
+      toast({ title: "Member removed" });
+      await loadTeamData();
+    } catch (error) {
+      toast({ title: "Remove failed", description: "Could not remove member." });
+    }
+  };
+
+  const handleCreateRole = async () => {
+    if (!roleName.trim()) {
+      toast({ title: "Role name required", description: "Enter a role name to continue." });
+      return;
+    }
+    try {
+      await createRole({ name: roleName.trim(), description: roleDescription.trim() || undefined });
+      toast({ title: "Role created" });
+      setRoleName("");
+      setRoleDescription("");
+      await loadTeamData();
+    } catch (error) {
+      toast({ title: "Role creation failed", description: "Could not create role." });
+    }
+  };
+
+  const handleDeleteRole = async (roleId: string) => {
+    try {
+      await deleteRole(roleId);
+      toast({ title: "Role deleted" });
+      await loadTeamData();
+    } catch (error) {
+      toast({ title: "Delete failed", description: "Could not delete role." });
+    }
   };
 
   const filteredTasks = mockTasks.filter(task => {
@@ -241,44 +376,53 @@ export default function Team() {
           <p className="text-muted-foreground">Manage tasks, assignments, and team communication</p>
         </div>
         <div className="flex gap-2">
-          <Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline">
-                <UserPlus className="w-4 h-4 mr-2" />
-                Invite Member
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Invite Team Member</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label>Email Address</Label>
-                  <Input type="email" placeholder="colleague@company.com" />
+          {canInvite && (
+            <Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline">
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Invite Member
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Invite Team Member</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label>Email Address</Label>
+                    <Input
+                      type="email"
+                      placeholder="colleague@company.com"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Role</Label>
+                    <Select value={inviteRole} onValueChange={setInviteRole}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roleOptions.map((role) => (
+                          <SelectItem key={role} value={role}>
+                            {role.charAt(0).toUpperCase() + role.slice(1)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex justify-end gap-3 pt-4">
+                    <Button variant="outline" onClick={() => setIsInviteOpen(false)}>Cancel</Button>
+                    <Button variant="gradient" onClick={handleInviteMember}>
+                      Send Invitation
+                    </Button>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Role</Label>
-                  <Select defaultValue="analyst">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="admin">Admin - Full access</SelectItem>
-                      <SelectItem value="analyst">Analyst - View and edit</SelectItem>
-                      <SelectItem value="reader">Reader - View only</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex justify-end gap-3 pt-4">
-                  <Button variant="outline" onClick={() => setIsInviteOpen(false)}>Cancel</Button>
-                  <Button variant="gradient" onClick={() => { setIsInviteOpen(false); toast({ title: "Invitation Sent" }); }}>
-                    Send Invitation
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </DialogContent>
+            </Dialog>
+          )}
           <Dialog open={isAssignTaskOpen} onOpenChange={setIsAssignTaskOpen}>
             <DialogTrigger asChild>
               <Button variant="gradient">
@@ -307,7 +451,7 @@ export default function Team() {
                         <SelectValue placeholder="Select member" />
                       </SelectTrigger>
                       <SelectContent>
-                        {mockTeamMembers.map(member => (
+                        {teamMembers.map(member => (
                           <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
                         ))}
                       </SelectContent>
@@ -367,7 +511,8 @@ export default function Team() {
           <TabsTrigger value="tasks">Tasks</TabsTrigger>
           <TabsTrigger value="members">Team Members</TabsTrigger>
           <TabsTrigger value="history">Task History</TabsTrigger>
-          <TabsTrigger value="integrations">Integrations</TabsTrigger>
+          {!isAnalystOrReader && <TabsTrigger value="integrations">Integrations</TabsTrigger>}
+          <TabsTrigger value="roles">Roles</TabsTrigger>
         </TabsList>
 
         {/* Tasks Tab */}
@@ -602,46 +747,104 @@ export default function Team() {
         </TabsContent>
 
         {/* Team Members Tab */}
-        <TabsContent value="members" className="space-y-4">
+        <TabsContent value="members" className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">Team Members</h3>
+              <p className="text-sm text-muted-foreground">Active members in your organization</p>
+            </div>
+            <span className="text-sm text-muted-foreground">
+              {isLoadingTeam ? "Loading..." : `${teamMembers.length} members`}
+            </span>
+          </div>
+
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {mockTeamMembers.map((member, index) => (
+            {teamMembers.map((member, index) => (
               <motion.div
                 key={member.id}
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
+                transition={{ delay: index * 0.06 }}
                 className="card-elevated p-4"
               >
                 <div className="flex items-start justify-between mb-4">
                   <Avatar className="w-12 h-12">
+                    {member.avatar_url && <AvatarImage src={member.avatar_url} alt={member.name} />}
                     <AvatarFallback className="bg-primary/10 text-primary font-medium">
-                      {member.name.split(' ').map(n => n[0]).join('')}
+                      {member.name?.split(" ").map((n) => n[0]).join("") || "U"}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${
-                      member.status === 'active' ? 'bg-success' :
-                      member.status === 'pending' ? 'bg-warning' : 'bg-muted-foreground'
-                    }`} />
-                    {member.role === "Admin" && <Crown className="w-4 h-4 text-warning" />}
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        member.status === "active" ? "bg-success" : "bg-muted-foreground"
+                      }`}
+                    />
+                    {member.is_superadmin && <Crown className="w-4 h-4 text-warning" />}
+                    {member.role !== "admin" && member.id !== currentUserId && !member.is_superadmin && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon">
+                            <MoreVertical className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleRemoveMember(member.id)}>
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Remove Member
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </div>
                 </div>
                 <h4 className="font-semibold text-foreground">{member.name}</h4>
                 <p className="text-sm text-muted-foreground mb-3">{member.email}</p>
-                <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
-                  <span>{member.role}</span>
-                  <span>{member.lastActive}</span>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Task Progress</span>
-                    <span className="text-foreground font-medium">{member.tasksCompleted}/{member.tasksAssigned}</span>
-                  </div>
-                  <Progress value={(member.tasksCompleted / member.tasksAssigned) * 100} className="h-1.5" />
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="capitalize">{member.is_superadmin ? "Super Admin" : member.role}</span>
+                  <span className="capitalize">{member.status}</span>
                 </div>
               </motion.div>
             ))}
           </div>
+
+          {canInvite && (
+            <div className="card-elevated">
+              <div className="p-4 border-b border-border flex items-center justify-between">
+                <div>
+                  <h4 className="font-semibold text-foreground">Pending Invites</h4>
+                  <p className="text-sm text-muted-foreground">Awaiting acceptance</p>
+                </div>
+                <Badge variant="outline">{pendingInvites.length}</Badge>
+              </div>
+              <div className="divide-y divide-border">
+                {pendingInvites.length === 0 ? (
+                  <div className="p-4 text-sm text-muted-foreground">No pending invites.</div>
+                ) : (
+                  pendingInvites.map((invite) => (
+                    <div key={invite.id} className="p-4 flex items-center justify-between gap-4">
+                      <div>
+                        <p className="font-medium text-foreground">{invite.email}</p>
+                        <p className="text-xs text-muted-foreground capitalize">{invite.role}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="capitalize">
+                          {invite.status}
+                        </Badge>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigator.clipboard.writeText(invite.token)}
+                        >
+                          Copy Token
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </TabsContent>
 
         {/* Task History Tab */}
@@ -692,31 +895,97 @@ export default function Team() {
         </TabsContent>
 
         {/* Integrations Tab */}
-        <TabsContent value="integrations" className="space-y-4">
-          <div className="grid sm:grid-cols-3 gap-4">
-            {integrations.map((integration, index) => (
-              <motion.div
-                key={integration.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-                className="card-elevated p-4"
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-                    <integration.icon className="w-6 h-6 text-primary" />
+        {!isAnalystOrReader && (
+          <TabsContent value="integrations" className="space-y-4">
+            <div className="grid sm:grid-cols-3 gap-4">
+              {integrations.map((integration, index) => (
+                <motion.div
+                  key={integration.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.1 }}
+                  className="card-elevated p-4"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                      <integration.icon className="w-6 h-6 text-primary" />
+                    </div>
+                    <Badge variant={integration.connected ? "secondary" : "outline"}>
+                      {integration.connected ? "Connected" : "Not Connected"}
+                    </Badge>
                   </div>
-                  <Badge variant={integration.connected ? "secondary" : "outline"}>
-                    {integration.connected ? "Connected" : "Not Connected"}
-                  </Badge>
+                  <h4 className="font-semibold text-foreground mb-1">{integration.name}</h4>
+                  <p className="text-sm text-muted-foreground mb-4">{integration.workspace}</p>
+                  <Button variant="outline" size="sm" className="w-full">
+                    {integration.connected ? "Configure" : "Connect"}
+                  </Button>
+                </motion.div>
+              ))}
+            </div>
+          </TabsContent>
+        )}
+
+        <TabsContent value="roles" className="space-y-6">
+          {isAdmin && (
+            <div className="card-elevated p-4">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-semibold text-foreground">Create Role</h3>
+                  <p className="text-sm text-muted-foreground">Define custom roles for your team</p>
                 </div>
-                <h4 className="font-semibold text-foreground mb-1">{integration.name}</h4>
-                <p className="text-sm text-muted-foreground mb-4">{integration.workspace}</p>
-                <Button variant="outline" size="sm" className="w-full">
-                  {integration.connected ? "Configure" : "Connect"}
+              </div>
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="space-y-2 md:col-span-1">
+                  <Label>Role Name</Label>
+                  <Input
+                    placeholder="e.g., Auditor"
+                    value={roleName}
+                    onChange={(e) => setRoleName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Description</Label>
+                  <Input
+                    placeholder="Short description of access"
+                    value={roleDescription}
+                    onChange={(e) => setRoleDescription(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end mt-4">
+                <Button variant="gradient" onClick={handleCreateRole}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Role
                 </Button>
-              </motion.div>
-            ))}
+              </div>
+            </div>
+          )}
+
+          <div className="card-elevated">
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <h4 className="font-semibold text-foreground">Custom Roles</h4>
+              <Badge variant="outline">{teamRoles.length}</Badge>
+            </div>
+            <div className="divide-y divide-border">
+              {teamRoles.length === 0 ? (
+                <div className="p-4 text-sm text-muted-foreground">No custom roles created yet.</div>
+              ) : (
+                teamRoles.map((role) => (
+                  <div key={role.id} className="p-4 flex items-center justify-between gap-4">
+                    <div>
+                      <p className="font-medium text-foreground">{role.name}</p>
+                      <p className="text-sm text-muted-foreground">{role.description || "No description"}</p>
+                    </div>
+                    {isAdmin && (
+                      <Button variant="outline" size="sm" onClick={() => handleDeleteRole(role.id)}>
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete
+                      </Button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </TabsContent>
       </Tabs>

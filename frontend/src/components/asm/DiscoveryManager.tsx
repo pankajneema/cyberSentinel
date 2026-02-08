@@ -138,6 +138,11 @@ const scheduleOptions = [
 
 export function ScanManager() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [totalDiscoveries, setTotalDiscoveries] = useState(0);
+  const [sortBy, setSortBy] = useState("created_at");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [discoveries, setDiscoveries] = useState<AsmDiscovery[]>([]);
   const [inventoryAssets, setInventoryAssets] = useState<ApiAsset[]>([]);
   const [isNewDiscoveryOpen, setIsNewDiscoveryOpen] = useState(false);
@@ -168,13 +173,20 @@ export function ScanManager() {
   useEffect(() => {
     loadDiscoveries();
     loadInventoryAssets();
-  }, []);
+  }, [page, pageSize, searchQuery, sortBy, sortDir]);
 
   const loadDiscoveries = async () => {
     try {
       setIsLoading(true);
-      const data = await fetchDiscoveries();
+      const data = await fetchDiscoveries({
+        page,
+        page_size: pageSize,
+        q: searchQuery || undefined,
+        sort_by: sortBy,
+        sort_dir: sortDir,
+      });
       setDiscoveries(data.items);
+      setTotalDiscoveries(data.total);
     } catch (err: any) {
       console.error("Failed to load discoveries:", err);
       toast({
@@ -221,6 +233,11 @@ export function ScanManager() {
   const filteredDiscoveries = discoveries.filter((discovery) =>
     discovery.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const totalCount = totalDiscoveries;
+  const activeCount = discoveries.filter(d => d.status === "RUNNING").length;
+  const completedCount = discoveries.filter(d => d.status === "COMPLETED").length;
+  const failedCount = discoveries.filter(d => d.status === "FAILED").length;
 
   const getFilteredAssetsByType = () => {
     if (!newDiscovery.asset_type) return inventoryAssets;
@@ -926,47 +943,91 @@ export function ScanManager() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold text-foreground flex items-center gap-2">
-            <Radar className="w-5 h-5 text-primary" />
-            Discovery Management
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {isLoading ? "Loading discoveries..." : `${discoveries.length} discoveries configured`}
-          </p>
-        </div>
-        <Button variant="gradient" onClick={() => setIsNewDiscoveryOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          New Discovery
-        </Button>
-      </div>
-
+    <div className="">
       <Tabs defaultValue="all">
-        <TabsList>
-          <TabsTrigger value="all">All Discoveries</TabsTrigger>
-          <TabsTrigger value="active">Active</TabsTrigger>
-          <TabsTrigger value="running">Running</TabsTrigger>
-          <TabsTrigger value="paused">Paused</TabsTrigger>
-          <TabsTrigger value="pending">Pending</TabsTrigger>
-          <TabsTrigger value="completed">Completed</TabsTrigger>
-          <TabsTrigger value="failed">Failed</TabsTrigger>
-        </TabsList>
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <TabsList className="inline-flex gap-1.5 bg-card/80 border border-border p-1.5 rounded-2xl whitespace-nowrap shadow-sm">
+            <TabsTrigger value="all">All Discoveries</TabsTrigger>
+            <TabsTrigger value="active">Active</TabsTrigger>
+            <TabsTrigger value="running">Running</TabsTrigger>
+            <TabsTrigger value="paused">Paused</TabsTrigger>
+            <TabsTrigger value="pending">Pending</TabsTrigger>
+            <TabsTrigger value="completed">Completed</TabsTrigger>
+            <TabsTrigger value="failed">Failed</TabsTrigger>
+          </TabsList>
+          <Button variant="gradient" onClick={() => setIsNewDiscoveryOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            New Discovery
+          </Button>
+        </div>
 
-        <TabsContent value="all" className="space-y-4 mt-4">
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Search discoveries..."
-              className="pl-11 h-11 rounded-xl"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+          {[
+            { label: "Total", value: totalCount },
+            { label: "Active", value: activeCount },
+            { label: "Completed", value: completedCount },
+            { label: "Failed", value: failedCount },
+          ].map((stat) => (
+            <div key={stat.label} className="bg-card rounded-xl border border-border px-4 py-3">
+              <div className="text-xs text-muted-foreground">{stat.label}</div>
+              <div className="text-lg font-semibold text-foreground">{stat.value}</div>
+            </div>
+          ))}
+        </div>
+
+        <TabsContent value="all" forceMount className="space-y-4 mt-4 data-[state=inactive]:hidden">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search discoveries..."
+                className="pl-11 h-11 rounded-xl bg-card"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              />
+            </div>
+            <select
+              className="h-11 rounded-xl border border-border bg-card px-3 text-sm"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="created_at">Newest</option>
+              <option value="name">Name</option>
+              <option value="status">Status</option>
+              <option value="asset_type">Asset Type</option>
+            </select>
+            <Button variant="outline" size="icon" onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}>
+              <Activity className="w-4 h-4" />
+            </Button>
           </div>
 
           <div className="space-y-3">
             {filteredDiscoveries.map((discovery, index) => renderDiscoveryCard(discovery, index))}
+          </div>
+          <div className="flex items-center justify-between mt-4">
+            <div className="text-xs text-muted-foreground">
+              Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalDiscoveries)} of {totalDiscoveries}
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                className="h-9 rounded-md border border-border bg-background px-2 text-xs"
+                value={pageSize}
+                onChange={(e) => { setPageSize(parseInt(e.target.value, 10)); setPage(1); }}
+              >
+                {[10, 20, 50, 100].map((n) => (
+                  <option key={n} value={n}>{n}/page</option>
+                ))}
+              </select>
+              <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(1)}>
+                First
+              </Button>
+              <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>
+                Prev
+              </Button>
+              <Button variant="outline" size="sm" disabled={page * pageSize >= totalDiscoveries} onClick={() => setPage(page + 1)}>
+                Next
+              </Button>
+            </div>
           </div>
 
           {filteredDiscoveries.length === 0 && !isLoading && (
@@ -980,9 +1041,33 @@ export function ScanManager() {
           )}
         </TabsContent>
 
-        <TabsContent value="active" className="mt-4">
+        <TabsContent value="active" forceMount className="mt-4 data-[state=inactive]:hidden">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search discoveries..."
+                className="pl-11 h-11 rounded-xl bg-card"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              />
+            </div>
+            <select
+              className="h-11 rounded-xl border border-border bg-card px-3 text-sm"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="created_at">Newest</option>
+              <option value="name">Name</option>
+              <option value="status">Status</option>
+              <option value="asset_type">Asset Type</option>
+            </select>
+            <Button variant="outline" size="icon" onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}>
+              <Activity className="w-4 h-4" />
+            </Button>
+          </div>
           <div className="space-y-3">
-            {discoveries.filter(d => d.status === "RUNNING").map((discovery, index) => (
+            {filteredDiscoveries.filter(d => d.status === "RUNNING").map((discovery, index) => (
               <motion.div
                 key={discovery.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -1059,9 +1144,33 @@ export function ScanManager() {
           </div>
         </TabsContent>
 
-        <TabsContent value="running" className="mt-4">
+        <TabsContent value="running" forceMount className="mt-4 data-[state=inactive]:hidden">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search discoveries..."
+                className="pl-11 h-11 rounded-xl bg-card"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              />
+            </div>
+            <select
+              className="h-11 rounded-xl border border-border bg-card px-3 text-sm"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="created_at">Newest</option>
+              <option value="name">Name</option>
+              <option value="status">Status</option>
+              <option value="asset_type">Asset Type</option>
+            </select>
+            <Button variant="outline" size="icon" onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}>
+              <Activity className="w-4 h-4" />
+            </Button>
+          </div>
           <div className="space-y-3">
-            {discoveries.filter(d => d.status === "RUNNING").map((discovery, index) => (
+            {filteredDiscoveries.filter(d => d.status === "RUNNING").map((discovery, index) => (
               <motion.div
                 key={discovery.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -1110,9 +1219,33 @@ export function ScanManager() {
           </div>
         </TabsContent>
 
-        <TabsContent value="paused" className="mt-4">
+        <TabsContent value="paused" forceMount className="mt-4 data-[state=inactive]:hidden">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search discoveries..."
+                className="pl-11 h-11 rounded-xl bg-card"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              />
+            </div>
+            <select
+              className="h-11 rounded-xl border border-border bg-card px-3 text-sm"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="created_at">Newest</option>
+              <option value="name">Name</option>
+              <option value="status">Status</option>
+              <option value="asset_type">Asset Type</option>
+            </select>
+            <Button variant="outline" size="icon" onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}>
+              <Activity className="w-4 h-4" />
+            </Button>
+          </div>
           <div className="space-y-3">
-            {discoveries.filter(d => d.status === "PAUSED").map((discovery, index) => (
+            {filteredDiscoveries.filter(d => d.status === "PAUSED").map((discovery, index) => (
               <motion.div
                 key={discovery.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -1167,9 +1300,33 @@ export function ScanManager() {
           </div>
         </TabsContent>
 
-        <TabsContent value="pending" className="mt-4">
+        <TabsContent value="pending" forceMount className="mt-4 data-[state=inactive]:hidden">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search discoveries..."
+                className="pl-11 h-11 rounded-xl bg-card"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              />
+            </div>
+            <select
+              className="h-11 rounded-xl border border-border bg-card px-3 text-sm"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="created_at">Newest</option>
+              <option value="name">Name</option>
+              <option value="status">Status</option>
+              <option value="asset_type">Asset Type</option>
+            </select>
+            <Button variant="outline" size="icon" onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}>
+              <Activity className="w-4 h-4" />
+            </Button>
+          </div>
           <div className="space-y-3">
-            {discoveries.filter(d => d.status === "PENDING").map((discovery, index) => (
+            {filteredDiscoveries.filter(d => d.status === "PENDING").map((discovery, index) => (
               <motion.div
                 key={discovery.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -1222,9 +1379,33 @@ export function ScanManager() {
           </div>
         </TabsContent>
 
-        <TabsContent value="completed" className="mt-4">
+        <TabsContent value="completed" forceMount className="mt-4 data-[state=inactive]:hidden">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search discoveries..."
+                className="pl-11 h-11 rounded-xl bg-card"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              />
+            </div>
+            <select
+              className="h-11 rounded-xl border border-border bg-card px-3 text-sm"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="created_at">Newest</option>
+              <option value="name">Name</option>
+              <option value="status">Status</option>
+              <option value="asset_type">Asset Type</option>
+            </select>
+            <Button variant="outline" size="icon" onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}>
+              <Activity className="w-4 h-4" />
+            </Button>
+          </div>
           <div className="space-y-3">
-            {discoveries.filter(d => d.status === "COMPLETED").map((discovery, index) => (
+            {filteredDiscoveries.filter(d => d.status === "COMPLETED").map((discovery, index) => (
               <motion.div
                 key={discovery.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -1280,9 +1461,33 @@ export function ScanManager() {
           </div>
         </TabsContent>
 
-        <TabsContent value="failed" className="mt-4">
+        <TabsContent value="failed" forceMount className="mt-4 data-[state=inactive]:hidden">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search discoveries..."
+                className="pl-11 h-11 rounded-xl bg-card"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+              />
+            </div>
+            <select
+              className="h-11 rounded-xl border border-border bg-card px-3 text-sm"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="created_at">Newest</option>
+              <option value="name">Name</option>
+              <option value="status">Status</option>
+              <option value="asset_type">Asset Type</option>
+            </select>
+            <Button variant="outline" size="icon" onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}>
+              <Activity className="w-4 h-4" />
+            </Button>
+          </div>
           <div className="space-y-3">
-            {discoveries.filter(d => d.status === "FAILED").map((discovery, index) => (
+            {filteredDiscoveries.filter(d => d.status === "FAILED").map((discovery, index) => (
               <motion.div
                 key={discovery.id}
                 initial={{ opacity: 0, y: 10 }}

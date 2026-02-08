@@ -74,6 +74,7 @@ import {
   type CreateAssetPayload,
   type UpdateAssetPayload,
 } from "@/lib/api";
+import { getProfile } from "@/lib/services/profile";
 
 const typeIcons: Record<string, typeof Globe> = {
   domain: Globe,
@@ -119,6 +120,8 @@ export function AssetInventory() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [currentRole, setCurrentRole] = useState<string>("reader");
+  const canWrite = currentRole !== "reader";
 
   // Fetch assets with filters
   useEffect(() => {
@@ -156,6 +159,26 @@ export function AssetInventory() {
     return () => controller.abort();
   }, [searchQuery, typeFilter, exposureFilter]);
 
+  useEffect(() => {
+    let mounted = true;
+    const loadProfile = async () => {
+      try {
+        const profile = await getProfile();
+        if (mounted) {
+          setCurrentRole(profile.role ?? "reader");
+        }
+      } catch {
+        if (mounted) {
+          setCurrentRole("reader");
+        }
+      }
+    };
+    loadProfile();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const filteredAssets = assets;
 
   const toggleSelectAll = () => {
@@ -180,6 +203,10 @@ export function AssetInventory() {
   };
 
   const handleAddAsset = async () => {
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to add assets." });
+      return;
+    }
     if (!newAsset.name && !newAsset.bulkInput) {
       toast({ 
         title: "Validation Error", 
@@ -279,6 +306,10 @@ export function AssetInventory() {
 
   const handleUpdateAsset = async () => {
     if (!selectedAsset) return;
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to edit assets." });
+      return;
+    }
 
     setIsSubmitting(true);
 
@@ -319,6 +350,10 @@ export function AssetInventory() {
 
   const handleDeleteConfirm = async () => {
     if (!deleteConfirm) return;
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to delete assets." });
+      return;
+    }
 
     setIsSubmitting(true);
 
@@ -351,6 +386,10 @@ export function AssetInventory() {
 
   const handleBulkDelete = async () => {
     if (selectedAssets.length === 0) return;
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to delete assets." });
+      return;
+    }
 
     setIsSubmitting(true);
     let successCount = 0;
@@ -388,6 +427,10 @@ export function AssetInventory() {
   };
 
   const openEditDialog = (asset: ApiAsset) => {
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to edit assets." });
+      return;
+    }
     setSelectedAsset(asset);
     setEditForm({
       name: asset.name,
@@ -592,27 +635,19 @@ export function AssetInventory() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold text-foreground flex items-center gap-2">
-            <Server className="w-5 h-5 text-primary" />
-            Asset Inventory
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {isLoading ? "Loading assets..." : `${assets.length} assets discovered`}
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <Button variant="outline">
-            <Download className="w-4 h-4 mr-2" />
-            Export
-          </Button>
-          <Button variant="gradient" onClick={() => setIsAddOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Asset
-          </Button>
-        </div>
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { label: "Total Assets", value: assets.length },
+          { label: "Domains", value: assets.filter(a => a.type === "domain").length },
+          { label: "IPs", value: assets.filter(a => a.type === "ip").length },
+          { label: "Cloud", value: assets.filter(a => a.type === "cloud").length },
+        ].map((stat) => (
+          <div key={stat.label} className="bg-card rounded-xl border border-border px-4 py-3">
+            <div className="text-xs text-muted-foreground">{stat.label}</div>
+            <div className="text-lg font-semibold text-foreground">{stat.value}</div>
+          </div>
+        ))}
       </div>
 
       {/* Search & Filters */}
@@ -652,11 +687,23 @@ export function AssetInventory() {
             </SelectContent>
           </Select>
         </div>
+        <div className="flex gap-3">
+          <Button variant="outline">
+            <Download className="w-4 h-4 mr-2" />
+            Export
+          </Button>
+          {canWrite && (
+            <Button variant="gradient" onClick={() => setIsAddOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Asset
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Bulk Actions */}
       <AnimatePresence>
-        {selectedAssets.length > 0 && (
+        {canWrite && selectedAssets.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -707,7 +754,8 @@ export function AssetInventory() {
                 <th className="p-4 font-medium">
                   <Checkbox
                     checked={selectedAssets.length === filteredAssets.length && filteredAssets.length > 0}
-                    onCheckedChange={toggleSelectAll}
+                    onCheckedChange={canWrite ? toggleSelectAll : undefined}
+                    disabled={!canWrite}
                   />
                 </th>
                 <th className="p-4 font-medium">Asset Name</th>
@@ -733,7 +781,8 @@ export function AssetInventory() {
                     <td className="p-4" onClick={(e) => e.stopPropagation()}>
                       <Checkbox
                         checked={selectedAssets.includes(asset.id)}
-                        onCheckedChange={() => toggleSelect(asset.id)}
+                        onCheckedChange={canWrite ? () => toggleSelect(asset.id) : undefined}
+                        disabled={!canWrite}
                       />
                     </td>
                     <td className="p-4">
@@ -790,22 +839,26 @@ export function AssetInventory() {
                           <DropdownMenuItem onClick={() => setSelectedAsset(asset)}>
                             <Eye className="w-4 h-4 mr-2" />View Details
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openEditDialog(asset)}>
-                            <Edit className="w-4 h-4 mr-2" />Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <RefreshCw className="w-4 h-4 mr-2" />Re-discover
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <UserPlus className="w-4 h-4 mr-2" />Assign Owner
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem 
-                            className="text-destructive"
-                            onClick={() => setDeleteConfirm({ id: asset.id, name: asset.name })}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />Delete
-                          </DropdownMenuItem>
+                          {canWrite && (
+                            <>
+                              <DropdownMenuItem onClick={() => openEditDialog(asset)}>
+                                <Edit className="w-4 h-4 mr-2" />Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem>
+                                <RefreshCw className="w-4 h-4 mr-2" />Re-discover
+                              </DropdownMenuItem>
+                              <DropdownMenuItem>
+                                <UserPlus className="w-4 h-4 mr-2" />Assign Owner
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem 
+                                className="text-destructive"
+                                onClick={() => setDeleteConfirm({ id: asset.id, name: asset.name })}
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" />Delete
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </td>
@@ -820,8 +873,8 @@ export function AssetInventory() {
             icon={Server}
             title="No assets found"
             description="No assets match your current filters. Try adjusting your search or add new assets."
-            actionLabel="Add Asset"
-            onAction={() => setIsAddOpen(true)}
+            actionLabel={canWrite ? "Add Asset" : undefined}
+            onAction={canWrite ? () => setIsAddOpen(true) : undefined}
           />
         )}
       </div>
@@ -841,11 +894,13 @@ export function AssetInventory() {
                 </SheetTitle>
               </SheetHeader>
               <div className="mt-6 space-y-6">
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm"><RefreshCw className="w-4 h-4 mr-1" />Re-discover</Button>
-                  <Button variant="outline" size="sm"><UserPlus className="w-4 h-4 mr-1" />Assign</Button>
-                  <Button variant="outline" size="sm" onClick={() => openEditDialog(selectedAsset)}><Edit className="w-4 h-4 mr-1" />Edit</Button>
-                </div>
+                {canWrite && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" size="sm"><RefreshCw className="w-4 h-4 mr-1" />Re-discover</Button>
+                    <Button variant="outline" size="sm"><UserPlus className="w-4 h-4 mr-1" />Assign</Button>
+                    <Button variant="outline" size="sm" onClick={() => openEditDialog(selectedAsset)}><Edit className="w-4 h-4 mr-1" />Edit</Button>
+                  </div>
+                )}
 
                 <div className="space-y-4">
                   <h4 className="font-medium text-foreground">Asset Information</h4>

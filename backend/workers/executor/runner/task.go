@@ -567,7 +567,9 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 
 		case "top_ports_scanner", "naabu":
 			// Port scanning - needs IPs from previous dns_resolution or ip_mapping steps
+			// Collect IPs from ALL matching steps (not just the first one)
 			var ips []string
+			ipSet := make(map[string]bool) // Use map to avoid duplicates
 			if i > 0 {
 				for j := 0; j < i; j++ {
 					if (enhancedPipeline.Pipeline[j].Step == "dns_resolution" ||
@@ -580,24 +582,37 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 									if ipList, ok := itemMap["ips"].([]interface{}); ok {
 										for _, ip := range ipList {
 											if ipStr, ok := ip.(string); ok {
-												ips = append(ips, ipStr)
+												if !ipSet[ipStr] {
+													ips = append(ips, ipStr)
+													ipSet[ipStr] = true
+												}
 											}
 										}
 									}
 								}
 							}
 						}
-						break
+						// Don't break - continue checking other steps
 					}
 				}
 			}
 
+			utils.Logger.Debugf("top_ports_scanner: collected %d unique IPs for job=%s step=%d", len(ips), task.JobID, i)
 			if len(ips) == 0 {
-				utils.Logger.Warnf("no IPs found for port scan job=%s step=%d", task.JobID, i)
+				utils.Logger.Warnf("no IPs found for port scan job=%s step=%d - checking previous steps", task.JobID, i)
+				// Debug: log what we found in previous steps
+				for j := 0; j < i; j++ {
+					step := enhancedPipeline.Pipeline[j]
+					utils.Logger.Debugf("top_ports_scanner: step %d: %s status=%s", j, step.Step, step.Status)
+					if step.Step == "dns_resolution" || step.Step == "ip_mapping" {
+						utils.Logger.Debugf("top_ports_scanner: step %d result keys: %v", j, getMapKeys(step.Result))
+					}
+				}
 				output = map[string]interface{}{
 					"ports": []interface{}{},
 				}
 			} else {
+				utils.Logger.Infof("top_ports_scanner: scanning %d IPs for job=%s step=%d", len(ips), task.JobID, i)
 				portResults, err := naabu.RunTopPortsScan(ctx, ips)
 				if err != nil {
 					toolErr = err
@@ -615,17 +630,21 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 						"ports": portList,
 						"count": len(portList),
 					}
-					utils.Logger.Infof("top_ports_scanner completed job=%s step=%d found=%d ports", task.JobID, i, len(portList))
+					utils.Logger.Infof("top_ports_scanner completed job=%s step=%d found=%d ports from %d IPs", task.JobID, i, len(portList), len(ips))
 				}
 			}
 
 		case "service_detector":
 			// Service fingerprinting - needs IPs and ports from previous steps
+			// Collect IPs from ALL matching steps (dns_resolution and ip_mapping)
 			var ips []string
+			ipSet := make(map[string]bool) // Use map to avoid duplicates
 			var ports []int
 			if i > 0 {
 				for j := 0; j < i; j++ {
-					if enhancedPipeline.Pipeline[j].Step == "dns_resolution" &&
+					// Collect IPs from both dns_resolution and ip_mapping
+					if (enhancedPipeline.Pipeline[j].Step == "dns_resolution" ||
+						enhancedPipeline.Pipeline[j].Step == "ip_mapping") &&
 						enhancedPipeline.Pipeline[j].Status == "COMPLETED" {
 						result := enhancedPipeline.Pipeline[j].Result
 						if resolved, ok := result["resolved"].([]interface{}); ok {
@@ -634,7 +653,10 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 									if ipList, ok := itemMap["ips"].([]interface{}); ok {
 										for _, ip := range ipList {
 											if ipStr, ok := ip.(string); ok {
-												ips = append(ips, ipStr)
+												if !ipSet[ipStr] {
+													ips = append(ips, ipStr)
+													ipSet[ipStr] = true
+												}
 											}
 										}
 									}
@@ -642,6 +664,7 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 							}
 						}
 					}
+					// Collect ports from common_port_scan
 					if enhancedPipeline.Pipeline[j].Step == "common_port_scan" &&
 						enhancedPipeline.Pipeline[j].Status == "COMPLETED" {
 						result := enhancedPipeline.Pipeline[j].Result
@@ -1105,4 +1128,13 @@ func fail(jobID string, err error) executor.Result {
 		Error:   err.Error(),
 		EndAt:   time.Now(),
 	}
+}
+
+// getMapKeys returns keys from a map for debugging
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }

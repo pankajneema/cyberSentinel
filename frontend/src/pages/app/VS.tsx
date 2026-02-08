@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bug, LayoutDashboard, FileSearch, AlertTriangle, Server, Ticket, Settings } from "lucide-react";
 import { motion } from "framer-motion";
@@ -8,6 +8,7 @@ import { VSFindings } from "@/components/vs/VSFindings";
 import { VSAssetView } from "@/components/vs/VSAssetView";
 import { VSRemediation } from "@/components/vs/VSRemediation";
 import { VSSettings } from "@/components/vs/VSSettings";
+import { getProfile } from "@/lib/services/profile";
 
 const tabs = [
   { value: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -20,9 +21,31 @@ const tabs = [
 
 export default function VS() {
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [currentRole, setCurrentRole] = useState<string>("reader");
+  const canWrite = currentRole !== "reader";
 
   const handleNavigateToScans = () => setActiveTab("scans");
   const handleNavigateToFindings = () => setActiveTab("findings");
+
+  useEffect(() => {
+    let mounted = true;
+    const loadProfile = async () => {
+      try {
+        const profile = await getProfile();
+        if (mounted) {
+          setCurrentRole(profile.role ?? "reader");
+        }
+      } catch {
+        if (mounted) {
+          setCurrentRole("reader");
+        }
+      }
+    };
+    loadProfile();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -69,19 +92,23 @@ export default function VS() {
           className="mt-6"
         >
           <TabsContent value="dashboard" className="mt-0">
-            <VSDashboard onNavigateToScans={handleNavigateToScans} onNavigateToFindings={handleNavigateToFindings} />
+            <VSDashboard
+              onNavigateToScans={handleNavigateToScans}
+              onNavigateToFindings={handleNavigateToFindings}
+              canWrite={canWrite}
+            />
           </TabsContent>
           <TabsContent value="scans" className="mt-0">
-            <VSScanManager />
+            <VSScanManager canWrite={canWrite} />
           </TabsContent>
           <TabsContent value="findings" className="mt-0">
-            <VSFindings />
+            <VSFindings canWrite={canWrite} />
           </TabsContent>
           <TabsContent value="assets" className="mt-0">
             <VSAssetView />
           </TabsContent>
           <TabsContent value="remediation" className="mt-0">
-            <VSRemediation />
+            <VSRemediation canWrite={canWrite} />
           </TabsContent>
           <TabsContent value="settings" className="mt-0">
             <VSSettings />

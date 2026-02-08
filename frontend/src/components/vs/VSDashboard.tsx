@@ -25,6 +25,7 @@ import { fetchVsDashboard, VsDashboard } from "@/lib/api";
 interface VSDashboardProps {
   onNavigateToScans?: () => void;
   onNavigateToFindings?: () => void;
+  canWrite?: boolean;
 }
 
 const defaultSeverityData = {
@@ -55,7 +56,7 @@ const recentScans = [
   { name: "Database Servers", status: "scheduled", findings: 0, time: "In 4h" },
 ];
 
-export function VSDashboard({ onNavigateToScans, onNavigateToFindings }: VSDashboardProps) {
+export function VSDashboard({ onNavigateToScans, onNavigateToFindings, canWrite = true }: VSDashboardProps) {
   const [vs, setVs] = useState<VsDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -299,13 +300,19 @@ export function VSDashboard({ onNavigateToScans, onNavigateToFindings }: VSDashb
               <p className="text-sm text-white/70 mb-4">
                 Start a new vulnerability scan on your assets
               </p>
-              <Button 
-                className="w-full bg-white text-secondary hover:bg-white/90"
-                onClick={onNavigateToScans}
-              >
-                <Play className="w-4 h-4 mr-2" />
-                Start New Scan
-              </Button>
+              {canWrite ? (
+                <Button 
+                  className="w-full bg-white text-secondary hover:bg-white/90"
+                  onClick={onNavigateToScans}
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Start New Scan
+                </Button>
+              ) : (
+                <div className="text-xs text-white/70 bg-white/10 rounded-lg px-3 py-2">
+                  Read-only access. Ask an admin to start a scan.
+                </div>
+              )}
             </div>
           </motion.div>
 

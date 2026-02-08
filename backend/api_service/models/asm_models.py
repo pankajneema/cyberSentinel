@@ -1,7 +1,7 @@
 # models/asm_models.py
 
 import uuid
-from sqlalchemy import Column, String, DateTime, Enum, JSON, Integer, Boolean
+from sqlalchemy import Column, String, DateTime, Enum, JSON, Integer, Boolean, ForeignKey
 from sqlalchemy.sql import func
 
 from utils.database import Base
@@ -124,6 +124,9 @@ class AsmSubdomain(Base):
     # Status: active, inactive, archived
     status = Column(String(50), default="active", nullable=False)
     
+    # DNS Resolution status: true = resolved, false = unresolved, null = not checked
+    resolved = Column(Boolean, nullable=True, default=None)
+    
     created_at = Column(DateTime, server_default=func.now())
 
     __table_args__ = (
@@ -138,6 +141,7 @@ class AsmSubdomain(Base):
             "asset_id": self.asset_id,
             "subdomain": self.subdomain,
             "status": self.status,
+            "resolved": self.resolved,  # DNS resolution status
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -166,8 +170,8 @@ class AsmIP(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     __table_args__ = (
-        # Unique constraint: same IP per asset (but can belong to multiple subdomains)
-        __import__('sqlalchemy').UniqueConstraint('asset_id', 'ip_address', name='uq_ip_per_asset'),
+        # Unique constraint: same IP per asset+subdomain (allows shared IPs across subdomains)
+        __import__('sqlalchemy').UniqueConstraint('asset_id', 'ip_address', 'subdomain_id', name='uq_ip_per_asset_subdomain'),
     )
 
     def to_dict(self):
@@ -183,6 +187,32 @@ class AsmIP(Base):
             "exposure_level": self.exposure_level or "not_calculated",
             "reachable": self.reachable,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AsmSettings(Base):
+    __tablename__ = "asm_settings"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+
+    # Store ASM settings as JSON for flexibility
+    settings = Column(JSON, nullable=False, default=dict)
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(
+        DateTime,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "settings": self.settings or {},
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -496,5 +526,35 @@ class AsmBackupFile(Base):
             "file_size": self.file_size,
             "content_type": self.content_type,
             "extra_info": self.extra_info,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AsmChange(Base):
+    """Stores asset change detection results"""
+    __tablename__ = "asm_changes"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    asm_discovery_id = Column(String, nullable=False, index=True)
+    asset_id = Column(String, nullable=False, index=True)
+
+    # Raw change output from tool
+    changes = Column(JSON, nullable=True)  # list of changes
+    message = Column(String, nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        __import__('sqlalchemy').Index('idx_asm_changes_discovery', 'asm_discovery_id'),
+        __import__('sqlalchemy').Index('idx_asm_changes_asset', 'asset_id'),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asm_discovery_id": self.asm_discovery_id,
+            "asset_id": self.asset_id,
+            "changes": self.changes,
+            "message": self.message,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

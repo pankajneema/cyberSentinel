@@ -10,7 +10,7 @@ from datetime import datetime
 import uuid
 
 from utils.database import get_db
-from models.auth_models import User, Profile
+from models.auth_models import User, Profile, Company
 from utils.auth_utils import (
     hash_password,
     verify_password,
@@ -53,6 +53,16 @@ async def signup(
         )
 
     try:
+        # Create company
+        company = Company(
+            id=str(uuid.uuid4()),
+            name=user_data.company_name,
+            plan="starter",
+            created_at=datetime.utcnow(),
+        )
+        db.add(company)
+        await db.flush()
+
         # Create user
         user = User(
             id=str(uuid.uuid4()),
@@ -60,11 +70,15 @@ async def signup(
             name=user_data.full_name,
             hashed_password=hash_password(user_data.password),
             role=user_data.role,
+            company_id=company.id,
             is_active=True,
             created_at=datetime.utcnow(),
         )
         db.add(user)
         await db.flush()  # ensures user.id is available
+
+        # Set company owner (superadmin)
+        company.owner_user_id = user.id
 
         # Create profile
         profile = Profile(

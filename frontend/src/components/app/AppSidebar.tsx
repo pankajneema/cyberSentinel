@@ -1,4 +1,4 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   Radar,
@@ -18,6 +18,11 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSidebar } from "@/contexts/SidebarContext";
+import { logout } from "@/lib/services/auth";
+import { toast } from "@/hooks/use-toast";
+import { useEffect, useMemo, useState } from "react";
+import { getProfile } from "@/lib/services/profile";
+import { getCurrentPlan } from "@/lib/services/billing";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/app/dashboard" },
@@ -37,7 +42,34 @@ const bottomNavItems = [
 
 export function AppSidebar() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { collapsed, toggleCollapsed } = useSidebar();
+  const [profile, setProfile] = useState<{ full_name: string; email: string; role?: string; is_superadmin?: boolean } | null>(null);
+  const [plan, setPlan] = useState<string>("Pro Plan");
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const profileRes = await getProfile();
+        setProfile(profileRes);
+        if (profileRes?.is_superadmin) {
+          const planRes = await getCurrentPlan();
+          setPlan(planRes.plan || "Pro Plan");
+        }
+      } catch {
+        // silent fallback
+      }
+    };
+    load();
+  }, []);
+
+  const initials = useMemo(() => {
+    if (profile?.full_name) {
+      return profile.full_name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
+    }
+    if (profile?.email) return profile.email[0].toUpperCase();
+    return "U";
+  }, [profile]);
 
   const NavLink = ({ item, isActive }: { item: typeof navItems[0]; isActive: boolean }) => {
     const Icon = item.icon;
@@ -83,6 +115,16 @@ export function AppSidebar() {
     return content;
   };
 
+  const role = profile?.role || "reader";
+  const isSuperadmin = profile?.is_superadmin;
+
+  const filteredNavItems = navItems.filter((item) => {
+    if ((role === "analyst" || role === "reader") && (item.label === "Marketplace" || item.label === "Services")) {
+      return false;
+    }
+    return true;
+  });
+
   return (
     <aside
       className={cn(
@@ -125,7 +167,7 @@ export function AppSidebar() {
         <div className={cn("text-[11px] font-semibold uppercase tracking-wider mb-3 px-3", collapsed ? "text-center" : "", "text-sidebar-foreground/40")}>
           {!collapsed && "Main Menu"}
         </div>
-        {navItems.map((item) => {
+        {filteredNavItems.map((item) => {
           const isActive = location.pathname === item.href || (item.href !== "/app/dashboard" && location.pathname.startsWith(item.href));
           return <NavLink key={item.href} item={item} isActive={isActive} />;
         })}
@@ -138,13 +180,24 @@ export function AppSidebar() {
           return <NavLink key={item.href} item={item} isActive={isActive} />;
         })}
         
-        <Link
-          to="/"
-          className="sidebar-nav-item text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 mt-2"
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              await logout();
+            } catch (error) {
+              toast({ title: "Sign out failed", description: "Please try again." });
+            } finally {
+              localStorage.removeItem("access_token");
+              localStorage.removeItem("user");
+              navigate("/login");
+            }
+          }}
+          className="sidebar-nav-item text-sidebar-foreground/50 hover:text-destructive hover:bg-destructive/10 mt-2 w-full text-left"
         >
           <LogOut className="w-5 h-5 shrink-0" />
           {!collapsed && <span className="font-medium">Sign out</span>}
-        </Link>
+        </button>
       </div>
 
       {/* User info at bottom */}
@@ -153,11 +206,16 @@ export function AppSidebar() {
           <div className="p-3 rounded-xl bg-sidebar-accent/50 border border-sidebar-border/50">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
-                <span className="text-xs font-semibold text-primary">JS</span>
+                <span className="text-xs font-semibold text-primary">{initials}</span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-sidebar-foreground truncate">John Smith</p>
-                <p className="text-xs text-sidebar-foreground/50 truncate">Pro Plan</p>
+                <p className="text-sm font-medium text-sidebar-foreground truncate">{profile?.full_name || "User"}</p>
+                <p className="text-xs text-sidebar-foreground/50 truncate">
+                  {isSuperadmin ? "Super Admin" : (role ? role[0].toUpperCase() + role.slice(1) : "Reader")}
+                </p>
+                {isSuperadmin && (
+                  <p className="text-xs text-sidebar-foreground/50 truncate">{plan}</p>
+                )}
               </div>
             </div>
           </div>

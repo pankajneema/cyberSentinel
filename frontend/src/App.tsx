@@ -11,6 +11,7 @@ import About from "./pages/About";
 import Contact from "./pages/Contact";
 import ServicesPage from "./pages/Services";
 import NotFound from "./pages/NotFound";
+import Invite from "./pages/Invite";
 import { AppLayout } from "./layouts/AppLayout";
 import Dashboard from "./pages/app/Dashboard";
 import ASM from "./pages/app/ASM";
@@ -39,6 +40,7 @@ const App = () => (
           <Route path="/about" element={<About />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/services" element={<ServicesPage />} />
+          <Route path="/invite/:token" element={<Invite />} />
           
           {/* App routes */}
           <Route path="/app" element={<AppLayout />}>

@@ -8,6 +8,10 @@ import uuid
 router = APIRouter(prefix="/api/v1/scans", tags=["Vulnerability Scanning"])
 
 from utils.auth_utils import get_current_user
+from utils.database import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from models.auth_models import User
 
 # Mock databases
 scans_db: Dict[str, Dict[str, Any]] = {}
@@ -46,6 +50,16 @@ class VSDashboard(BaseModel):
 
 
 vs_router = APIRouter(prefix="/api/v1/vs", tags=["Vulnerability Scanning (VS)"])
+
+
+async def _require_write_access(db: AsyncSession, current_user: dict):
+    user_res = await db.execute(select(User).where(User.id == current_user["user_id"]))
+    user = user_res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.role == "reader":
+        raise HTTPException(status_code=403, detail="Read-only access")
+    return user
 
 
 @vs_router.get("/dashboard", response_model=VSDashboard)
@@ -128,7 +142,12 @@ async def get_vs_dashboard(current_user: dict = Depends(get_current_user)):
     )
 
 @router.post("")
-async def create_scan(request: ScanRequest, current_user: dict = Depends(get_current_user)):
+async def create_scan(
+    request: ScanRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    await _require_write_access(db, current_user)
     scan_id = str(uuid.uuid4())
     scans_db[scan_id] = {
         "id": scan_id,
@@ -174,7 +193,12 @@ async def get_scan(scan_id: str, current_user: dict = Depends(get_current_user))
     return ScanResult(**results_db[scan_id])
 
 @router.post("/{scan_id}/retest")
-async def retest_scan(scan_id: str, current_user: dict = Depends(get_current_user)):
+async def retest_scan(
+    scan_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    await _require_write_access(db, current_user)
     scan = scans_db.get(scan_id)
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
@@ -182,9 +206,13 @@ async def retest_scan(scan_id: str, current_user: dict = Depends(get_current_use
     return {"scan_id": scan_id, "status": "running"}
 
 @router.delete("/{scan_id}")
-async def delete_scan(scan_id: str, current_user: dict = Depends(get_current_user)):
+async def delete_scan(
+    scan_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    await _require_write_access(db, current_user)
     if scan_id not in scans_db:
         raise HTTPException(status_code=404, detail="Scan not found")
     del scans_db[scan_id]
     return {"message": "Scan deleted successfully"}
-

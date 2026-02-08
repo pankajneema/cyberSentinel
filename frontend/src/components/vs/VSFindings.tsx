@@ -91,7 +91,11 @@ const teamMembers = [
   { id: "4", name: "Emily Davis", email: "emily@company.com" },
 ];
 
-export function VSFindings() {
+interface VSFindingsProps {
+  canWrite?: boolean;
+}
+
+export function VSFindings({ canWrite = true }: VSFindingsProps) {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -156,6 +160,10 @@ export function VSFindings() {
   };
 
   const handleAssignTask = () => {
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to assign tasks." });
+      return;
+    }
     if (!assignVuln || !assignForm.assignee) {
       toast({ title: "Error", description: "Please select an assignee", variant: "destructive" });
       return;
@@ -175,6 +183,10 @@ export function VSFindings() {
   };
 
   const openAssignDialog = (vuln: Vulnerability) => {
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to assign tasks." });
+      return;
+    }
     setAssignVuln(vuln);
     setAssignForm({
       ...assignForm,
@@ -264,7 +276,7 @@ export function VSFindings() {
       </div>
 
       {/* Bulk Actions */}
-      {selectedItems.length > 0 && (
+      {canWrite && selectedItems.length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -297,7 +309,8 @@ export function VSFindings() {
                 <th className="p-4 font-medium w-10">
                   <Checkbox 
                     checked={selectedItems.length === filteredVulns.length && filteredVulns.length > 0}
-                    onCheckedChange={toggleSelectAll}
+                    onCheckedChange={canWrite ? toggleSelectAll : undefined}
+                    disabled={!canWrite}
                   />
                 </th>
                 <th className="p-4 font-medium">Severity</th>
@@ -325,11 +338,12 @@ export function VSFindings() {
                   <td className="p-4" onClick={(e) => e.stopPropagation()}>
                     <Checkbox 
                       checked={selectedItems.includes(vuln.id)}
-                      onCheckedChange={() => {
+                      onCheckedChange={canWrite ? () => {
                         setSelectedItems(prev => 
                           prev.includes(vuln.id) ? prev.filter(id => id !== vuln.id) : [...prev, vuln.id]
                         );
-                      }}
+                      } : undefined}
+                      disabled={!canWrite}
                     />
                   </td>
                   <td className="p-4">
@@ -385,11 +399,15 @@ export function VSFindings() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => setSelectedVuln(vuln)}><Eye className="w-4 h-4 mr-2" />View Details</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openAssignDialog(vuln)}><UserPlus className="w-4 h-4 mr-2" />Assign Task to Team</DropdownMenuItem>
-                        <DropdownMenuItem><CheckCircle2 className="w-4 h-4 mr-2" />Mark as Fixed</DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem><Link2 className="w-4 h-4 mr-2" />Create Jira Ticket</DropdownMenuItem>
-                        <DropdownMenuItem><RefreshCw className="w-4 h-4 mr-2" />Re-scan Asset</DropdownMenuItem>
+                        {canWrite && (
+                          <>
+                            <DropdownMenuItem onClick={() => openAssignDialog(vuln)}><UserPlus className="w-4 h-4 mr-2" />Assign Task to Team</DropdownMenuItem>
+                            <DropdownMenuItem><CheckCircle2 className="w-4 h-4 mr-2" />Mark as Fixed</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem><Link2 className="w-4 h-4 mr-2" />Create Jira Ticket</DropdownMenuItem>
+                            <DropdownMenuItem><RefreshCw className="w-4 h-4 mr-2" />Re-scan Asset</DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </td>
@@ -427,14 +445,16 @@ export function VSFindings() {
 
                 <TabsContent value="details" className="space-y-6 mt-4">
                   {/* Quick Actions */}
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="gradient" size="sm"><CheckCircle2 className="w-4 h-4 mr-1" />Mark Fixed</Button>
-                    <Button variant="outline" size="sm" onClick={() => { setSelectedVuln(null); openAssignDialog(selectedVuln); }}>
-                      <UserPlus className="w-4 h-4 mr-1" />Assign Task
-                    </Button>
-                    <Button variant="outline" size="sm"><Link2 className="w-4 h-4 mr-1" />Create Ticket</Button>
-                    <Button variant="outline" size="sm"><RefreshCw className="w-4 h-4 mr-1" />Re-scan</Button>
-                  </div>
+                  {canWrite && (
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="gradient" size="sm"><CheckCircle2 className="w-4 h-4 mr-1" />Mark Fixed</Button>
+                      <Button variant="outline" size="sm" onClick={() => { setSelectedVuln(null); openAssignDialog(selectedVuln); }}>
+                        <UserPlus className="w-4 h-4 mr-1" />Assign Task
+                      </Button>
+                      <Button variant="outline" size="sm"><Link2 className="w-4 h-4 mr-1" />Create Ticket</Button>
+                      <Button variant="outline" size="sm"><RefreshCw className="w-4 h-4 mr-1" />Re-scan</Button>
+                    </div>
+                  )}
 
                   {/* CVSS Meter */}
                   <div className="p-4 bg-muted/30 rounded-xl">

@@ -31,7 +31,9 @@ func RunAPIDetection(ctx context.Context, urls []string) ([]APIEndpoint, error) 
 		// Fallback to api_detector wrapper
 		toolPath, err = getToolPath("api_detector")
 		if err != nil {
-			return nil, fmt.Errorf("katana/api_detector not found: %v", err)
+			utils.Logger.Warnf("katana/api_detector not found: %v - API detection will be skipped", err)
+			// Return empty results instead of error to allow pipeline to continue
+			return []APIEndpoint{}, nil
 		}
 	}
 
@@ -44,6 +46,7 @@ func RunAPIDetection(ctx context.Context, urls []string) ([]APIEndpoint, error) 
 		}
 
 		// Run katana
+		utils.Logger.Debugf("katana: crawling %s", url)
 		cmd := exec.CommandContext(ctx, toolPath,
 			"-u", url,
 			"-silent",
@@ -52,14 +55,18 @@ func RunAPIDetection(ctx context.Context, urls []string) ([]APIEndpoint, error) 
 		)
 
 		output, err := cmd.CombinedOutput()
+		utils.Logger.Debugf("katana: raw output for %s (first 500 chars): %s", url, string(output)[:min(500, len(string(output)))])
+		
 		if err != nil {
-			utils.Logger.Warnf("katana failed for %s: %v", url, err)
-			continue
+			utils.Logger.Warnf("katana failed for %s: %v, output length: %d", url, err, len(output))
+			// Continue even if error - might have partial results
 		}
 
 		// Parse JSON output
 		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
+		utils.Logger.Debugf("katana: parsed %d lines from output for %s", len(lines), url)
+		
+		for idx, line := range lines {
 			line = strings.TrimSpace(line)
 			if line == "" {
 				continue
@@ -67,6 +74,7 @@ func RunAPIDetection(ctx context.Context, urls []string) ([]APIEndpoint, error) 
 
 			var result map[string]interface{}
 			if err := json.Unmarshal([]byte(line), &result); err != nil {
+				utils.Logger.Debugf("katana: failed to parse line %d for %s: %s, error: %v", idx, url, line, err)
 				continue
 			}
 
@@ -126,5 +134,12 @@ func getToolPath(toolName string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("tool '%s' not found in PATH or common locations", toolName)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 

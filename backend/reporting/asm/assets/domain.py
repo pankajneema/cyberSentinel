@@ -7,12 +7,13 @@ from typing import Any
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert
 from backend.api_service.models.asm_models import (
     AsmDiscoveryRun, AsmSubdomain, AsmDiscovery, AsmIP,
     AsmPort, AsmService, AsmSSLCert, AsmAPIEndpoint,
-    AsmCloudResource, AsmAdminEndpoint, AsmBackupFile
+    AsmCloudResource, AsmAdminEndpoint, AsmBackupFile, AsmChange
 )
 
 logger = logging.getLogger(__name__)
@@ -23,13 +24,14 @@ logger = logging.getLogger(__name__)
 # -------------------------
 
 def extract_ips(payload: dict[str, Any]) -> list[tuple[str, str, str | None]]:
-    """Return list of (asset_id, ip_address, subdomain) tuples extracted from pipeline.
+    """Return de-duplicated list of (asset_id, ip_address, subdomain) tuples extracted from pipeline.
     
     Extracts IPs from:
     - dns_resolution step results
     - ip_mapping step results
     """
     entries: list[tuple[str, str, str | None]] = []
+    seen: set[tuple[str, str, str | None]] = set()
     pipeline = payload.get("pipeline", [])
 
     for step in pipeline:
@@ -60,7 +62,10 @@ def extract_ips(payload: dict[str, Any]) -> list[tuple[str, str, str | None]]:
                             
                             for ip in ips:
                                 if ip:
-                                    entries.append((asset_id, str(ip).strip(), subdomain))
+                                    key = (asset_id, str(ip).strip(), subdomain)
+                                    if key not in seen:
+                                        seen.add(key)
+                                        entries.append(key)
             
             # Case 2: result.ips (array of objects with subdomain and ips) - ip_mapping format
             elif "ips" in result:
@@ -78,10 +83,16 @@ def extract_ips(payload: dict[str, Any]) -> list[tuple[str, str, str | None]]:
                             
                             for ip in ip_list:
                                 if ip:
-                                    entries.append((asset_id, str(ip).strip(), subdomain))
+                                    key = (asset_id, str(ip).strip(), subdomain)
+                                    if key not in seen:
+                                        seen.add(key)
+                                        entries.append(key)
                         elif isinstance(item, str):
                             # Direct IP string
-                            entries.append((asset_id, item.strip(), None))
+                            key = (asset_id, item.strip(), None)
+                            if key not in seen:
+                                seen.add(key)
+                                entries.append(key)
             
             # Case 3: result.data (array of IP strings or dicts)
             elif "data" in result:
@@ -89,12 +100,18 @@ def extract_ips(payload: dict[str, Any]) -> list[tuple[str, str, str | None]]:
                 if isinstance(data, list):
                     for item in data:
                         if isinstance(item, str):
-                            entries.append((asset_id, item.strip(), None))
+                            key = (asset_id, item.strip(), None)
+                            if key not in seen:
+                                seen.add(key)
+                                entries.append(key)
                         elif isinstance(item, dict):
                             ip = item.get("ip") or item.get("ip_address") or item.get("value")
                             subdomain = item.get("subdomain")
                             if ip:
-                                entries.append((asset_id, str(ip).strip(), subdomain))
+                                key = (asset_id, str(ip).strip(), subdomain)
+                                if key not in seen:
+                                    seen.add(key)
+                                    entries.append(key)
 
     return entries
 
@@ -256,7 +273,57 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         await db.refresh(run)
 
         # -------------------------
-        # Insert Subdomains (with duplicate handling)
+        # Build resolved/unresolved maps from DNS resolution steps
+        # -------------------------
+        resolved_subdomains = set()
+        unresolved_subdomains = set()
+        reachable_subdomains = set()
+        unreachable_subdomains = set()
+        
+        pipeline = payload.get("pipeline", [])
+        for step in pipeline:
+            if step.get("status") != "COMPLETED":
+                continue
+            
+            step_name = step.get("step", "")
+            result = step.get("result", {})
+            
+            # Track resolved subdomains from dns_resolution and ip_mapping
+            if step_name in ["dns_resolution", "ip_mapping"]:
+                if "resolved" in result:
+                    resolved_list = result.get("resolved", [])
+                    if isinstance(resolved_list, list):
+                        for item in resolved_list:
+                            if isinstance(item, dict):
+                                subdomain = item.get("subdomain")
+                                if subdomain:
+                                    resolved_subdomains.add(subdomain.lower().strip())
+                
+                if "unresolved" in result:
+                    unresolved_list = result.get("unresolved", [])
+                    if isinstance(unresolved_list, list):
+                        for subdomain in unresolved_list:
+                            if subdomain:
+                                unresolved_subdomains.add(str(subdomain).lower().strip())
+            
+            # Track reachable subdomains from reachability_check
+            if step_name == "reachability_check":
+                if "reachable" in result:
+                    reachable_list = result.get("reachable", [])
+                    if isinstance(reachable_list, list):
+                        for subdomain in reachable_list:
+                            if subdomain:
+                                reachable_subdomains.add(str(subdomain).lower().strip())
+                
+                if "unreachable" in result:
+                    unreachable_list = result.get("unreachable", [])
+                    if isinstance(unreachable_list, list):
+                        for subdomain in unreachable_list:
+                            if subdomain:
+                                unreachable_subdomains.add(str(subdomain).lower().strip())
+        
+        # -------------------------
+        # Insert Subdomains (with duplicate handling and resolved status)
         # -------------------------
         inserted = 0
         skipped = 0
@@ -267,25 +334,55 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                 skipped += 1
                 continue
 
+            # Determine resolved status
+            subdomain_lower = subdomain.lower().strip()
+            resolved_status = None
+            if subdomain_lower in resolved_subdomains:
+                resolved_status = True
+            elif subdomain_lower in unresolved_subdomains:
+                resolved_status = False
+            
+            # Determine active/inactive status based on reachability
+            subdomain_status = "active"
+            if subdomain_lower in unreachable_subdomains and subdomain_lower not in reachable_subdomains:
+                subdomain_status = "inactive"
+
             try:
-                obj = AsmSubdomain(
-                    asm_discovery_id=job_id,
-                    asset_id=asset_id,
-                    subdomain=subdomain.strip(),
-                    status="active"  # Default status
+                # Insert first; if exists, update and count as skipped (not new)
+                insert_stmt = (
+                    insert(AsmSubdomain)
+                    .values(
+                        asm_discovery_id=job_id,
+                        asset_id=asset_id,
+                        subdomain=subdomain.strip(),
+                        status=subdomain_status,
+                        resolved=resolved_status,
+                    )
+                    .on_conflict_do_nothing(index_elements=["asset_id", "subdomain"])
+                    .returning(AsmSubdomain.id)
                 )
-                db.add(obj)
-                await db.flush()  # Try to insert
-                inserted += 1
-            except IntegrityError:
-                # Duplicate subdomain - skip gracefully
-                await db.rollback()
-                skipped += 1
-                logger.debug(f"Skipping duplicate subdomain: {subdomain} for asset={asset_id}")
+                res = await db.execute(insert_stmt)
+                inserted_id = res.scalar_one_or_none()
+                if inserted_id:
+                    inserted += 1
+                else:
+                    update_stmt = (
+                        update(AsmSubdomain)
+                        .where(
+                            AsmSubdomain.asset_id == asset_id,
+                            AsmSubdomain.subdomain == subdomain.strip(),
+                        )
+                        .values(
+                            asm_discovery_id=job_id,
+                            status=subdomain_status,
+                            resolved=func.coalesce(resolved_status, AsmSubdomain.resolved),
+                        )
+                    )
+                    await db.execute(update_stmt)
+                    skipped += 1
             except Exception as e:
-                await db.rollback()
                 errors += 1
-                logger.warning(f"Error inserting subdomain {subdomain}: {e}")
+                logger.warning(f"Error upserting subdomain {subdomain}: {e}")
 
         # -------------------------
         # Insert IPs (from dns_resolution and ip_mapping steps)
@@ -298,17 +395,37 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         # This allows us to link IPs to their parent subdomains
         subdomain_lookup = {}
         if subdomain_entries:
-            # Query all subdomains for this discovery to build lookup
-            subdomain_query = select(AsmSubdomain).where(
-                AsmSubdomain.asm_discovery_id == job_id
-            )
-            subdomain_result = await db.execute(subdomain_query)
-            all_subdomains = subdomain_result.scalars().all()
-            
-            for sd in all_subdomains:
-                key = (sd.asset_id, sd.subdomain.lower().strip())
-                subdomain_lookup[key] = sd.id
+            # Query subdomains by asset + name (not just asm_discovery_id) to avoid missing links
+            asset_ids = {aid for aid, _ in subdomain_entries if aid}
+            sub_names = {sd.lower().strip() for _, sd in subdomain_entries if sd}
+            if asset_ids and sub_names:
+                subdomain_query = select(AsmSubdomain).where(
+                    AsmSubdomain.asset_id.in_(asset_ids),
+                    func.lower(AsmSubdomain.subdomain).in_(sub_names),
+                )
+                subdomain_result = await db.execute(subdomain_query)
+                all_subdomains = subdomain_result.scalars().all()
+                
+                for sd in all_subdomains:
+                    key = (sd.asset_id, sd.subdomain.lower().strip())
+                    subdomain_lookup[key] = sd.id
         
+        # -------------------------
+        # Build reachable IPs map from reachability_check step
+        # -------------------------
+        reachable_ips = set()
+        unreachable_ips = set()
+        
+        # Extract IPs from reachable subdomains (IPs are linked to subdomains)
+        # We'll determine IP reachability based on their parent subdomain's reachability
+        ip_to_subdomain_map = {}
+        for asset_id, ip_address, subdomain_name in ip_entries:
+            if subdomain_name:
+                ip_to_subdomain_map[ip_address.strip()] = subdomain_name.lower().strip()
+        
+        # -------------------------
+        # Insert IPs (with duplicate handling and reachable status)
+        # -------------------------
         ip_inserted = 0
         ip_skipped = 0
         ip_errors = 0
@@ -326,27 +443,66 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                 if not subdomain_id:
                     logger.debug(f"Could not find subdomain_id for '{subdomain_name}' (asset={asset_id}), IP will be inserted without parent link")
 
+            # Determine reachable status based on parent subdomain's reachability
+            reachable_status = None
+            if subdomain_name:
+                subdomain_lower = subdomain_name.lower().strip()
+                if subdomain_lower in reachable_subdomains:
+                    reachable_status = True
+                elif subdomain_lower in unreachable_subdomains:
+                    reachable_status = False
+            
+            # Determine active/inactive status
+            ip_status = "active"
+            if reachable_status is False:
+                ip_status = "inactive"
+
             try:
-                obj = AsmIP(
-                    asm_discovery_id=job_id,
-                    asset_id=asset_id,
-                    ip_address=ip_address.strip(),
-                    subdomain_id=subdomain_id,  # Hierarchy link to parent subdomain
-                    subdomain=subdomain_name.strip() if subdomain_name else None,  # Denormalized name
-                    status="active"  # Default status
+                # Insert first; if exists, update and count as skipped (not new)
+                insert_stmt = (
+                    insert(AsmIP)
+                    .values(
+                        asm_discovery_id=job_id,
+                        asset_id=asset_id,
+                        ip_address=ip_address.strip(),
+                        subdomain_id=subdomain_id,  # Hierarchy link to parent subdomain
+                        subdomain=subdomain_name.strip() if subdomain_name else None,  # Denormalized name
+                        status=ip_status,  # active/inactive based on reachability
+                        reachable=reachable_status,  # true/false/null based on HTTP reachability
+                    )
+                    .on_conflict_do_nothing(
+                        index_elements=["asset_id", "ip_address", "subdomain_id"]
+                    )
+                    .returning(AsmIP.id)
                 )
-                db.add(obj)
-                await db.flush()  # Try to insert
-                ip_inserted += 1
-            except IntegrityError:
-                # Duplicate IP - skip gracefully
-                await db.rollback()
-                ip_skipped += 1
-                logger.debug(f"Skipping duplicate IP: {ip_address} for asset={asset_id}")
+                res = await db.execute(insert_stmt)
+                inserted_id = res.scalar_one_or_none()
+                if inserted_id:
+                    ip_inserted += 1
+                else:
+                    update_stmt = (
+                        update(AsmIP)
+                        .where(
+                            AsmIP.asset_id == asset_id,
+                            AsmIP.ip_address == ip_address.strip(),
+                            AsmIP.subdomain_id == subdomain_id,
+                        )
+                        .values(
+                            asm_discovery_id=job_id,
+                            subdomain_id=func.coalesce(subdomain_id, AsmIP.subdomain_id),
+                            subdomain=func.coalesce(
+                                subdomain_name.strip() if subdomain_name else None,
+                                AsmIP.subdomain,
+                            ),
+                            status=ip_status,
+                            reachable=func.coalesce(reachable_status, AsmIP.reachable),
+                        )
+                    )
+                    await db.execute(update_stmt)
+                    ip_skipped += 1
             except Exception as e:
-                await db.rollback()
                 ip_errors += 1
-                logger.warning(f"Error inserting IP {ip_address}: {e}")
+                logger.warning(f"Error upserting IP {ip_address}: {e}")
 
         # Commit all successful inserts
         await db.commit()
@@ -372,6 +528,7 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         cloud_inserted = 0
         admin_inserted = 0
         backup_inserted = 0
+        changes_inserted = 0
         
         pipeline = payload.get("pipeline", [])
         logger.info(f"Processing {len(pipeline)} pipeline steps for job={job_id}")
@@ -425,11 +582,15 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                 count = await store_backup_files(db, job_id, result, step_asset_id, subdomain_lookup)
                 backup_inserted += count
                 logger.info(f"Stored {count} backup files from {step_name}")
+            elif step_name == "change_detection":
+                count = await store_changes(db, job_id, result, step_asset_id)
+                changes_inserted += count
+                logger.info(f"Stored {count} change records from {step_name}")
             else:
                 logger.debug(f"No storage handler for step: {step_name}")
         
         await db.commit()
-        logger.info(f"Completed storing additional data: ports={ports_inserted} services={services_inserted} ssl={ssl_inserted} api={api_inserted} cloud={cloud_inserted} admin={admin_inserted} backup={backup_inserted}")
+        logger.info(f"Completed storing additional data: ports={ports_inserted} services={services_inserted} ssl={ssl_inserted} api={api_inserted} cloud={cloud_inserted} admin={admin_inserted} backup={backup_inserted} changes={changes_inserted}")
 
         # -------------------------
         # Complete Run
@@ -443,6 +604,7 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         api_endpoints_found = 0
         cloud_resources_found = 0
         admin_endpoints_found = 0
+        changes_found = 0
         
         pipeline = payload.get("pipeline", [])
         for step in pipeline:
@@ -480,11 +642,15 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                 admin_data = result.get("admin_endpoints", [])
                 if isinstance(admin_data, list):
                     admin_endpoints_found = len(admin_data)
+            elif step_name == "change_detection":
+                changes_data = result.get("changes", [])
+                if isinstance(changes_data, list):
+                    changes_found = len(changes_data)
 
         run.summary = {
             "subdomains": {
-                "found": len(subdomain_entries),
-                "inserted": inserted,
+            "found": len(subdomain_entries),
+            "inserted": inserted,
                 "skipped": skipped,
                 "errors": errors,
             },
@@ -521,6 +687,10 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
             "backup_files": {
                 "inserted": backup_inserted,
             },
+            "changes": {
+                "found": changes_found,
+                "inserted": changes_inserted,
+            },
             "intensity": intensity,
             "pipeline_steps": len(pipeline)
         }
@@ -532,7 +702,7 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
             f"subdomains: inserted={inserted} skipped={skipped} errors={errors} | "
             f"IPs: inserted={ip_inserted} skipped={ip_skipped} errors={ip_errors} | "
             f"Ports: {ports_inserted} | Services: {services_inserted} | SSL: {ssl_inserted} | "
-            f"APIs: {api_inserted} | Cloud: {cloud_inserted} | Admin: {admin_inserted} | Backup: {backup_inserted}"
+            f"APIs: {api_inserted} | Cloud: {cloud_inserted} | Admin: {admin_inserted} | Backup: {backup_inserted} | Changes: {changes_inserted}"
         )
 
     except Exception as e:
@@ -576,6 +746,7 @@ async def store_step_data(
         "cloud_resources": 0,
         "admin_endpoints": 0,
         "backup_files": 0,
+        "changes": 0,
     }
     
     # Build lookups if not provided
@@ -612,6 +783,8 @@ async def store_step_data(
         counts["admin_endpoints"] = await store_admin_endpoints(db, job_id, result, asset_id, subdomain_lookup)
     elif step_name == "backup_file_check":
         counts["backup_files"] = await store_backup_files(db, job_id, result, asset_id, subdomain_lookup)
+    elif step_name == "change_detection":
+        counts["changes"] = await store_changes(db, job_id, result, asset_id)
     
     return counts
 
@@ -685,6 +858,38 @@ async def store_ports(
             await db.rollback()
             logger.warning(f"Error inserting port {ip_address}:{port}: {e}")
     
+    return inserted
+
+
+async def store_changes(
+    db: AsyncSession,
+    job_id: str,
+    result: dict[str, Any],
+    asset_id: str
+) -> int:
+    """Store change detection results from change_detection step."""
+    inserted = 0
+    changes_data = result.get("changes", [])
+    message = result.get("message")
+
+    if not isinstance(changes_data, list):
+        changes_data = []
+
+    try:
+        obj = AsmChange(
+            asm_discovery_id=job_id,
+            asset_id=asset_id,
+            changes=changes_data,
+            message=message,
+        )
+        db.add(obj)
+        await db.flush()
+        inserted += 1
+    except IntegrityError:
+        await db.rollback()
+    except Exception as e:
+        await db.rollback()
+        logger.warning(f"Error inserting change detection result: {e}")
     return inserted
 
 

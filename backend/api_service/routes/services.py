@@ -2,10 +2,24 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from utils.database import get_db
+from models.auth_models import User
 
 router = APIRouter(prefix="/api/v1/services", tags=["Services"])
 
 from utils.auth_utils import get_current_user
+
+
+async def _require_admin(db: AsyncSession, current_user: dict):
+    user_res = await db.execute(select(User).where(User.id == current_user["user_id"]))
+    user = user_res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
 
 # Mock services database
 services_db = {}
@@ -18,7 +32,11 @@ class ServiceInfo(BaseModel):
     price: Optional[float] = None
 
 @router.get("", response_model=List[ServiceInfo])
-async def list_services(current_user: dict = Depends(get_current_user)):
+async def list_services(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    await _require_admin(db, current_user)
     if not services_db:
         services_db["asm"] = {
             "id": "asm",
@@ -65,30 +83,49 @@ async def list_services(current_user: dict = Depends(get_current_user)):
     return [ServiceInfo(**s) for s in services_db.values()]
 
 @router.get("/{service_id}", response_model=ServiceInfo)
-async def get_service(service_id: str, current_user: dict = Depends(get_current_user)):
+async def get_service(
+    service_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    await _require_admin(db, current_user)
     service = services_db.get(service_id)
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
     return ServiceInfo(**service)
 
 @router.post("/{service_id}/purchase")
-async def purchase_service(service_id: str, current_user: dict = Depends(get_current_user)):
+async def purchase_service(
+    service_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    await _require_admin(db, current_user)
     service = services_db.get(service_id)
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
     return {"message": f"Service {service_id} purchased", "service_id": service_id}
 
 @router.post("/{service_id}/activate")
-async def activate_service(service_id: str, current_user: dict = Depends(get_current_user)):
+async def activate_service(
+    service_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    await _require_admin(db, current_user)
     service = services_db.get(service_id)
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
     return {"message": f"Service {service_id} activated", "service_id": service_id}
 
 @router.post("/{service_id}/deactivate")
-async def deactivate_service(service_id: str, current_user: dict = Depends(get_current_user)):
+async def deactivate_service(
+    service_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    await _require_admin(db, current_user)
     service = services_db.get(service_id)
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
     return {"message": f"Service {service_id} deactivated", "service_id": service_id}
-

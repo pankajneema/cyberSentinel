@@ -3,25 +3,22 @@ import { apiFetch } from "../api";
 // Types
 export interface Account {
   id: string;
-  company_name: string;
+  name: string;
   plan: string;
-  members_count: number;
-  created_at: string;
-  settings: Record<string, any>;
+  created_at?: string;
 }
 
 export interface UpdateAccountPayload {
-  company_name?: string;
-  settings?: Record<string, any>;
+  name?: string;
+  plan?: string;
 }
 
 export interface AccountMember {
   id: string;
-  full_name: string;
+  name: string;
   email: string;
   role: string;
-  joined_at: string;
-  is_active: boolean;
+  company_id?: string | null;
 }
 
 export interface InviteMemberPayload {
@@ -46,7 +43,7 @@ export function getAccountMembers(accountId: string) {
 }
 
 export function inviteMember(accountId: string, payload: InviteMemberPayload) {
-  return apiFetch<{ message: string; invite_id: string }>(`/accounts/${accountId}/invite`, {
+  return apiFetch<{ message: string; email: string; role: string }>(`/accounts/${accountId}/invite`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

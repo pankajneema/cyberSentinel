@@ -9,7 +9,9 @@ import {
   Zap,
   Calendar,
   FileText,
-  Search
+  Search,
+  Download,
+  ArrowUpDown
 } from "lucide-react";
 import {
   Dialog,
@@ -113,6 +115,14 @@ const formatDuration = (start?: string | null, end?: string | null) => {
   }
 };
 
+const formatDurationSeconds = (seconds?: number | null) => {
+  if (seconds == null) return "N/A";
+  if (seconds < 0) return "N/A";
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+};
+
 export function DiscoveryRunsList() {
   const [runs, setRuns] = useState<DiscoveryRunWithName[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,18 +131,20 @@ export function DiscoveryRunsList() {
   const [selectedRun, setSelectedRun] = useState<DiscoveryRunWithName | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState("started_at");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [discoveryCache, setDiscoveryCache] = useState<Record<string, string>>({});
 
   const pageSize = 50;
 
   useEffect(() => {
     fetchRuns();
-  }, [page]);
+  }, [page, searchQuery, sortBy, sortDir]);
 
   const fetchRuns = async () => {
     setLoading(true);
     try {
-      const data = await fetchAllRuns(page, pageSize);
+      const data = await fetchAllRuns(page, pageSize, searchQuery, sortBy, sortDir);
       setRuns(data.items);
       setTotalRuns(data.total);
 
@@ -162,6 +174,35 @@ export function DiscoveryRunsList() {
     }
   };
 
+  const exportRuns = () => {
+    if (!runs.length) return;
+    const rows = runs.map((r) => ({
+      id: r.id,
+      discovery_id: r.asm_discovery_id,
+      name: discoveryCache[r.asm_discovery_id] || "",
+      status: r.status,
+      run_mode: r.run_mode,
+      triggered_by: r.triggered_by,
+      started_at: r.started_at,
+      completed_at: r.completed_at,
+      duration_seconds: r.duration_seconds ?? "",
+    }));
+    const keys = Object.keys(rows[0] || {});
+    const lines = [
+      keys.join(","),
+      ...rows.map((row) => keys.map((k) => JSON.stringify((row as any)[k] ?? "")).join(",")),
+    ];
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "asm-runs-export.csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const handleViewDetails = async (run: DiscoveryRunWithName) => {
     try {
       const runDetail = await getRunDetail(run.id);
@@ -174,14 +215,8 @@ export function DiscoveryRunsList() {
     }
   };
 
-  const filteredRuns = runs.filter(run => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    const discoveryName = (discoveryCache[run.asm_discovery_id] || "").toLowerCase();
-    return discoveryName.includes(query) || run.id.toLowerCase().includes(query);
-  });
-
-  const completedRuns = filteredRuns.filter(r => r.status === "COMPLETED").length;
+  const filteredRuns = runs;
+  const completedRuns = runs.filter(r => r.status === "COMPLETED").length;
   const successRate = totalRuns > 0 ? Math.round((completedRuns / totalRuns) * 100) : 0;
 
   return (
@@ -214,17 +249,33 @@ export function DiscoveryRunsList() {
         ))}
       </div>
 
-      {/* Search */}
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+      {/* Search + Sort + Export */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Search by discovery name or run ID..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10"
+            onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+            className="pl-11 h-11 rounded-xl bg-card"
           />
         </div>
+        <select
+          className="h-11 rounded-xl border border-border bg-card px-3 text-sm"
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+        >
+          <option value="started_at">Newest</option>
+          <option value="completed_at">Completed</option>
+          <option value="status">Status</option>
+          <option value="created_at">Created</option>
+        </select>
+        <Button variant="outline" size="icon" onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}>
+          <ArrowUpDown className="w-4 h-4" />
+        </Button>
+        <Button variant="outline" size="icon" onClick={exportRuns} disabled={!runs.length} title="Export CSV">
+          <Download className="w-4 h-4" />
+        </Button>
       </div>
 
       {/* Runs Table */}
@@ -342,14 +393,16 @@ export function DiscoveryRunsList() {
                       )}
                     </td>
                     <td className="p-4">
-                      <div className="text-sm text-muted-foreground">
-                        {run.started_at && run.completed_at 
-                          ? formatDuration(run.started_at, run.completed_at)
-                          : run.started_at 
-                          ? formatDuration(run.started_at, null)
-                          : "N/A"
-                        }
-                      </div>
+                    <div className="text-sm text-muted-foreground">
+                      {run.duration_seconds != null
+                        ? formatDurationSeconds(run.duration_seconds)
+                        : run.started_at && run.completed_at 
+                        ? formatDuration(run.started_at, run.completed_at)
+                        : run.started_at 
+                        ? formatDuration(run.started_at, null)
+                        : "N/A"
+                      }
+                    </div>
                     </td>
                     <td className="p-4">
                       <Button
@@ -461,7 +514,9 @@ export function DiscoveryRunsList() {
                   <div className="space-y-1">
                     <div className="text-sm text-muted-foreground">Duration</div>
                     <div className="font-medium">
-                      {selectedRun.started_at && selectedRun.completed_at 
+                      {selectedRun.duration_seconds != null
+                        ? formatDurationSeconds(selectedRun.duration_seconds)
+                        : selectedRun.started_at && selectedRun.completed_at 
                         ? formatDuration(selectedRun.started_at, selectedRun.completed_at)
                         : selectedRun.started_at 
                         ? formatDuration(selectedRun.started_at, null)
