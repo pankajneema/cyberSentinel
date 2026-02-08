@@ -252,7 +252,14 @@ export function VSScanManager({ canWrite = true }: VSScanManagerProps) {
               </tr>
             </thead>
             <tbody>
-              {filteredScans.map((scan) => (
+              {filteredScans.map((scan) => {
+                const targets = Array.isArray(scan.targets)
+                  ? scan.targets
+                  : scan.target
+                    ? [scan.target]
+                    : [];
+                const findings = scan.findings || { critical: 0, high: 0, medium: 0 };
+                return (
                 <motion.tr
                   key={scan.id}
                   initial={{ opacity: 0 }}
@@ -267,11 +274,11 @@ export function VSScanManager({ canWrite = true }: VSScanManagerProps) {
                   </td>
                   <td className="p-4">
                     <div className="flex flex-wrap gap-1">
-                      {scan.targets.slice(0, 2).map((target, i) => (
+                      {targets.slice(0, 2).map((target, i) => (
                         <span key={i} className="text-xs px-2 py-0.5 bg-muted rounded-full font-mono">{target}</span>
                       ))}
-                      {scan.targets.length > 2 && (
-                        <span className="text-xs px-2 py-0.5 bg-muted rounded-full">+{scan.targets.length - 2}</span>
+                      {targets.length > 2 && (
+                        <span className="text-xs px-2 py-0.5 bg-muted rounded-full">+{targets.length - 2}</span>
                       )}
                     </div>
                   </td>
@@ -302,14 +309,14 @@ export function VSScanManager({ canWrite = true }: VSScanManagerProps) {
                   </td>
                   <td className="p-4">
                     <div className="flex gap-1">
-                      {scan.findings.critical > 0 && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">{scan.findings.critical}C</span>
+                      {findings.critical > 0 && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">{findings.critical}C</span>
                       )}
-                      {scan.findings.high > 0 && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-warning/10 text-warning">{scan.findings.high}H</span>
+                      {findings.high > 0 && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-warning/10 text-warning">{findings.high}H</span>
                       )}
-                      {scan.findings.medium > 0 && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent">{scan.findings.medium}M</span>
+                      {findings.medium > 0 && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent">{findings.medium}M</span>
                       )}
                     </div>
                   </td>
@@ -341,7 +348,7 @@ export function VSScanManager({ canWrite = true }: VSScanManagerProps) {
                     </DropdownMenu>
                   </td>
                 </motion.tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>

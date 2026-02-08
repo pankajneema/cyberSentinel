@@ -1,21 +1,15 @@
-FROM python:3.11-slim
+FROM python:3.10-slim
 
-WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app/backend/api_service
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/api_service/requirements.txt /app/backend/api_service/requirements.txt
+RUN pip install --no-cache-dir -r /app/backend/api_service/requirements.txt
 
-# Copy application code
-COPY . .
+COPY backend /app/backend
 
-# Expose port
-EXPOSE 8000
+ENV PYTHONPATH=/app/backend:/app/backend/api_service
 
-# Run the application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

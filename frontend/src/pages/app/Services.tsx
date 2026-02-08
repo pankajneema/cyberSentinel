@@ -73,15 +73,22 @@ const services = [
 export default function Services() {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<string>("reader");
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
 
   useEffect(() => {
     let mounted = true;
     const loadProfile = async () => {
       try {
         const profile = await getProfile();
-        if (mounted) setRole(profile.role ?? "reader");
+        if (mounted) {
+          setRole(profile.role ?? "reader");
+          setIsSuperadmin(Boolean(profile.is_superadmin));
+        }
       } catch {
-        if (mounted) setRole("reader");
+        if (mounted) {
+          setRole("reader");
+          setIsSuperadmin(false);
+        }
       }
     };
     loadProfile();
@@ -90,7 +97,7 @@ export default function Services() {
     };
   }, []);
 
-  if (role !== "admin") {
+  if (role !== "admin" && !isSuperadmin) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center space-y-2">

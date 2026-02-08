@@ -750,7 +750,12 @@ export default function Team() {
         <TabsContent value="members" className="space-y-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-foreground">Team Members</h3>
+              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                Team Members
+                {isSuperadmin && (
+                  <Badge variant="outline" className="text-xs">Owner</Badge>
+                )}
+              </h3>
               <p className="text-sm text-muted-foreground">Active members in your organization</p>
             </div>
             <span className="text-sm text-muted-foreground">
@@ -781,6 +786,7 @@ export default function Team() {
                       }`}
                     />
                     {member.is_superadmin && <Crown className="w-4 h-4 text-warning" />}
+                    {member.is_superadmin && <Badge variant="outline" className="text-xs">Owner</Badge>}
                     {member.role !== "admin" && member.id !== currentUserId && !member.is_superadmin && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>

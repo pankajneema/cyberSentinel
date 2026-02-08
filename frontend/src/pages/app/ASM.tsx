@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Radar, LayoutDashboard, GitBranch, FileSearch, FileText, Settings, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -49,18 +49,31 @@ const tabMeta: Record<string, { title: string; description: string }> = {
 };
 
 export default function ASM() {
-  const [activeTab, setActiveTab] = useState("overview");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const allowedTabs = useMemo(() => tabs.map((t) => t.value), []);
+  const initialTab = searchParams.get("tab") || "overview";
+  const [activeTab, setActiveTab] = useState(
+    allowedTabs.includes(initialTab) ? initialTab : "overview"
+  );
   const navigate = useNavigate();
 
   const handleGoToScans = () => {
     setActiveTab("scans");
+    setSearchParams({ tab: "scans" }, { replace: true });
   };
 
   return (
     <div className="space-y-6">
       {/* Header */}
       {/* Tabs Navigation + Header (Sticky) */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          setActiveTab(value);
+          setSearchParams({ tab: value }, { replace: true });
+        }}
+        className="w-full"
+      >
         <div className="sticky top-0 z-20 -mx-4 px-4 sm:mx-0 sm:px-0 pb-4 bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70">
           <div className="overflow-x-auto pb-2">
             <TabsList className="inline-flex h-auto p-1.5 bg-card/80 border border-border rounded-2xl w-auto min-w-full sm:min-w-0 gap-1 shadow-sm">
@@ -114,10 +127,7 @@ export default function ASM() {
             <ScanManager />
           </TabsContent>
           <TabsContent value="reports" forceMount className="mt-0 data-[state=inactive]:hidden">
-            <ASMReports />
-            <div className="mt-6">
               <DiscoveryRunsList />
-            </div>
           </TabsContent>
           <TabsContent value="findings" forceMount className="mt-0 data-[state=inactive]:hidden">
             <ASMFindings />

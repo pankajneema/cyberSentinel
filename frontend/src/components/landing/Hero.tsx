@@ -4,38 +4,6 @@ import { ArrowRight, Play, Shield, Radar, Bug, CheckCircle2, Zap, Terminal, Lock
 import { motion, AnimatePresence } from "framer-motion";
 import { useEffect, useState } from "react";
 
-// Typing effect hook
-const useTypingEffect = (texts: string[], typingSpeed = 100, deletingSpeed = 50, pauseTime = 2000) => {
-  const [displayText, setDisplayText] = useState("");
-  const [textIndex, setTextIndex] = useState(0);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  useEffect(() => {
-    const currentText = texts[textIndex];
-    
-    const timeout = setTimeout(() => {
-      if (!isDeleting) {
-        if (displayText.length < currentText.length) {
-          setDisplayText(currentText.slice(0, displayText.length + 1));
-        } else {
-          setTimeout(() => setIsDeleting(true), pauseTime);
-        }
-      } else {
-        if (displayText.length > 0) {
-          setDisplayText(displayText.slice(0, -1));
-        } else {
-          setIsDeleting(false);
-          setTextIndex((prev) => (prev + 1) % texts.length);
-        }
-      }
-    }, isDeleting ? deletingSpeed : typingSpeed);
-
-    return () => clearTimeout(timeout);
-  }, [displayText, isDeleting, textIndex, texts, typingSpeed, deletingSpeed, pauseTime]);
-
-  return displayText;
-};
-
 // Terminal animation component
 const TerminalAnimation = () => {
   const [lines, setLines] = useState<string[]>([]);
@@ -164,13 +132,6 @@ const Particles = () => {
 };
 
 export function Hero() {
-  const typedText = useTypingEffect([
-    "Attack Surface",
-    "Vulnerabilities", 
-    "Security Posture",
-    "Threat Landscape",
-  ], 80, 40, 2000);
-
   const [scanProgress, setScanProgress] = useState(0);
 
   useEffect(() => {
@@ -271,20 +232,17 @@ export function Hero() {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
               </span>
-              <span className="text-sm font-medium text-foreground">ASM & Vulnerability Scanning Now Live</span>
+              <span className="text-sm font-medium text-foreground">ASM + Vulnerability Scanning is live</span>
             </motion.div>
 
             {/* Headline with typing effect */}
             <h1 className="text-4xl sm:text-5xl lg:text-6xl xl:text-[68px] font-heading font-bold text-foreground leading-[1.1] mb-6 tracking-tight">
               Discover Your{" "}
-              <span className="gradient-text block sm:inline min-h-[1.2em]">
-                {typedText}
-                <span className="animate-pulse">|</span>
-              </span>
+              <span className="gradient-text block sm:inline">Attack Surface</span>
             </h1>
 
             <p className="text-lg sm:text-xl text-muted-foreground mb-10 max-w-xl mx-auto lg:mx-0 leading-relaxed">
-              CyberSentinel combines ASM, automated vulnerability scanning, adversary emulation, and compliance automation into a single cockpit.{" "}
+              CyberSentinel unifies ASM, automated vulnerability scanning, adversary emulation, and compliance workflows in a single cockpit.{" "}
               <span className="font-semibold text-foreground">Predict. Test. Remediate.</span>
             </p>
 

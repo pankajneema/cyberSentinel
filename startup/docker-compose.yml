@@ -31,30 +31,12 @@ services:
       timeout: 5s
       retries: 5
 
-  # clickhouse:
-  #   image: clickhouse/clickhouse-server:latest
-  #   container_name: cybersentinel-clickhouse
-  #   ports:
-  #     - "8123:8123"
-  #     - "9000:9000"
-  #   volumes:
-  #     - clickhouse_data:/var/lib/clickhouse
-  #   environment:
-  #     CLICKHOUSE_DB: cybersentinel
-  #     CLICKHOUSE_USER: default
-  #     CLICKHOUSE_PASSWORD: ""
-  #   healthcheck:
-  #     test: ["CMD", "wget", "--spider", "-q", "localhost:8123/ping"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-
   rabbitmq:
     image: rabbitmq:3.13-management
     container_name: cybersentinel-rabbitmq
     ports:
-      - "5672:5672"    # AMQP
-      - "15672:15672"  # Management UI
+      - "5672:5672"
+      - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
@@ -66,9 +48,78 @@ services:
       timeout: 5s
       retries: 5
 
+  api_service:
+    build:
+      context: ..
+      dockerfile: backend/api_service/Dockerfile
+    container_name: cybersentinel-api
+    env_file:
+      - ../backend/api_service/.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  reporting:
+    build:
+      context: ..
+      dockerfile: backend/reporting/Dockerfile
+    container_name: cybersentinel-reporting
+    env_file:
+      - ../backend/api_service/.env
+      - ../backend/workers/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  worker_control_plane:
+    build:
+      context: ..
+      dockerfile: backend/workers/Dockerfile
+    container_name: cybersentinel-control-plane
+    env_file:
+      - ../backend/workers/.env
+    command: ["go", "run", "./control-plane/cmd/"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  worker_consumer:
+    build:
+      context: ..
+      dockerfile: backend/workers/Dockerfile
+    container_name: cybersentinel-consumer
+    env_file:
+      - ../backend/workers/.env
+    command: ["go", "run", "./consumer/cmd/asm/"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+    container_name: cybersentinel-frontend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - api_service
 
 volumes:
   postgres_data:
   redis_data:
-  clickhouse_data:
   rabbitmq_data:

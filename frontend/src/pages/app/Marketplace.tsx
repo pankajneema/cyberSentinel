@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
+import { getProfile } from "@/lib/services/profile";
 
 const integrations = [
   { id: 1, name: "Slack", category: "notifications", description: "Get real-time security alerts in your Slack channels", icon: "💬", installed: true, rating: 4.8, downloads: "50K+" },
@@ -41,6 +42,29 @@ const expertServices = [
 export default function Marketplace() {
   const [searchQuery, setSearchQuery] = useState("");
   const [installedIntegrations, setInstalledIntegrations] = useState<number[]>([1, 2]);
+  const [role, setRole] = useState<string>("reader");
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    const loadProfile = async () => {
+      try {
+        const profile = await getProfile();
+        if (mounted) {
+          setRole(profile.role ?? "reader");
+          setIsSuperadmin(Boolean(profile.is_superadmin));
+        }
+      } catch {
+          setRole("reader");
+          setIsSuperadmin(false);
+        }
+    };
+    loadProfile();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+  
+  const isAdmin = role === "admin" || Boolean(isSuperadmin);
 
   const handleInstall = (id: number, name: string) => {
     setInstalledIntegrations([...installedIntegrations, id]);
@@ -63,6 +87,11 @@ export default function Marketplace() {
     i.description.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const visibleIntegrations = useMemo(() => {
+    if (isAdmin) return filteredIntegrations;
+    return filteredIntegrations.filter((i) => installedIntegrations.includes(i.id));
+  }, [filteredIntegrations, installedIntegrations, isAdmin]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -82,16 +111,17 @@ export default function Marketplace() {
         />
       </div>
 
-      <Tabs defaultValue="integrations">
+      <Tabs defaultValue={isAdmin ? "integrations" : "installed"}>
         <TabsList>
-          <TabsTrigger value="integrations">Integrations</TabsTrigger>
+          {isAdmin && <TabsTrigger value="integrations">Integrations</TabsTrigger>}
           <TabsTrigger value="installed">Installed ({installedIntegrations.length})</TabsTrigger>
-          <TabsTrigger value="services">Expert Services</TabsTrigger>
+          {isAdmin && <TabsTrigger value="services">Expert Services</TabsTrigger>}
         </TabsList>
 
+        {isAdmin && (
         <TabsContent value="integrations" className="mt-6">
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filteredIntegrations.map((integration, index) => {
+            {visibleIntegrations.map((integration, index) => {
               const isInstalled = installedIntegrations.includes(integration.id);
               return (
                 <motion.div
@@ -150,6 +180,7 @@ export default function Marketplace() {
             })}
           </div>
         </TabsContent>
+        )}
 
         <TabsContent value="installed" className="mt-6">
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -175,13 +206,15 @@ export default function Marketplace() {
                   <Button variant="outline" size="sm" className="flex-1">
                     Configure
                   </Button>
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    onClick={() => handleUninstall(integration.id, integration.name)}
-                  >
-                    Remove
-                  </Button>
+                  {isAdmin && (
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={() => handleUninstall(integration.id, integration.name)}
+                    >
+                      Remove
+                    </Button>
+                  )}
                 </div>
               </motion.div>
             ))}
@@ -196,6 +229,7 @@ export default function Marketplace() {
           )}
         </TabsContent>
 
+        {isAdmin && (
         <TabsContent value="services" className="mt-6">
           <div className="grid sm:grid-cols-2 gap-4">
             {expertServices.map((service, index) => (
@@ -247,6 +281,7 @@ export default function Marketplace() {
             ))}
           </div>
         </TabsContent>
+        )}
       </Tabs>
     </div>
   );
