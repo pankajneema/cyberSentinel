@@ -48,61 +48,61 @@ services:
       timeout: 5s
       retries: 5
 
-  reporting:
-    build:
-      context: ..
-      dockerfile: backend/reporting/Dockerfile
-    container_name: cybersentinel-reporting
-    env_file:
-      - ../backend/api_service/.env
-      - ../backend/workers/.env
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+  # reporting:
+  #   build:
+  #     context: ..
+  #     dockerfile: backend/reporting/Dockerfile
+  #   container_name: cybersentinel-reporting
+  #   env_file:
+  #     - ../backend/api_service/.env
+  #     - ../backend/workers/.env
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     rabbitmq:
+  #       condition: service_healthy
 
-  worker_control_plane:
-    build:
-      context: ..
-      dockerfile: backend/workers/Dockerfile
-    container_name: cybersentinel-control-plane
-    env_file:
-      - ../backend/workers/.env
-    command: ["go", "run", "./control-plane/cmd/"]
-    ports:
-      - "9003:9003"
-    environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      POSTGRESQL_URL: postgres://postgres:postgres@postgres:5432/cybersentinel?sslmode=disable
-      REDISADDR: redis:6379
-      ASM_SERVICE_ENDPOINTS: http://localhost:9003/asm/
-    depends_on:
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+  # worker_control_plane:
+  #   build:
+  #     context: ..
+  #     dockerfile: backend/workers/Dockerfile
+  #   container_name: cybersentinel-control-plane
+  #   env_file:
+  #     - ../backend/workers/.env
+  #   command: ["go", "run", "./control-plane/cmd/"]
+  #   ports:
+  #     - "9003:9003"
+  #   environment:
+  #     RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+  #     POSTGRESQL_URL: postgres://postgres:postgres@postgres:5432/cybersentinel?sslmode=disable
+  #     REDISADDR: redis:6379
+  #     ASM_SERVICE_ENDPOINTS: http://localhost:9003/asm/
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #     rabbitmq:
+  #       condition: service_healthy
 
-  asm_consumer:
-    build:
-      context: ..
-      dockerfile: backend/workers/Dockerfile
-    container_name: asmConsumer
-    env_file:
-      - ../backend/workers/.env
-    command: ["go", "run", "./consumer/cmd/asm/"]
-    environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      POSTGRESQL_URL: postgres://postgres:postgres@postgres:5432/cybersentinel?sslmode=disable
-      REDISADDR: redis:6379
-      ASM_SERVICE_ENDPOINTS: http://localhost:9003/asm/
-    depends_on:
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+  # asm_consumer:
+  #   build:
+  #     context: ..
+  #     dockerfile: backend/workers/Dockerfile
+  #   container_name: asmConsumer
+  #   env_file:
+  #     - ../backend/workers/.env
+  #   command: ["go", "run", "./consumer/cmd/asm/"]
+  #   environment:
+  #     RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+  #     POSTGRESQL_URL: postgres://postgres:postgres@postgres:5432/cybersentinel?sslmode=disable
+  #     REDISADDR: redis:6379
+  #     ASM_SERVICE_ENDPOINTS: http://localhost:9003/asm/
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #     rabbitmq:
+  #       condition: service_healthy
 
 volumes:
   postgres_data:
