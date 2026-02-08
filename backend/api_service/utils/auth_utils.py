@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict
+import hashlib
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -27,13 +28,17 @@ security = HTTPBearer(auto_error=True)
 
 # -------------------------------------------------------------------
 # Password utils (CPU only → safe in async)
+def _prehash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
 # -------------------------------------------------------------------
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return pwd_context.hash(_prehash_password(password))
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    return pwd_context.verify(_prehash_password(plain_password), hashed_password)
 
 # -------------------------------------------------------------------
 # JWT utils
