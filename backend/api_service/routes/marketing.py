@@ -6,7 +6,7 @@ from typing import Optional
 
 from utils.database import get_db
 from models.marketing_models import NewsletterLead
-from notificationservice.email import send_contact_notification, send_early_access_notification
+from utils.emailer import send_contact_notification, send_early_access_notification
 
 router = APIRouter(prefix="/api/v1/marketing", tags=["Marketing"])
 

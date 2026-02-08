@@ -14,7 +14,7 @@ from utils.database import get_db
 from utils.auth_utils import get_current_user
 from utils.auth_utils import hash_password, create_access_token
 from models.auth_models import User, Profile, Company, TeamInvite, TeamRole
-from notificationservice.email import send_group_invite_notification, send_member_removed_notification
+from utils.emailer import send_group_invite_notification, send_member_removed_notification
 
 router = APIRouter(prefix="/api/v1/team", tags=["Team"])
 
