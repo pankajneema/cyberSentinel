@@ -7,7 +7,7 @@ from typing import List, Optional, Literal
 # ---------------------------------------------------
 class AsmDiscoveryCreateRequest(BaseModel):
     name: str
-    asset_type: Literal["domain", "cloud", "saas"]
+    asset_type: Literal["domain", "ip", "cloud"]
     target_source: Literal["FROM_ASSET", "MANUAL_ENTRY"]
     asset_ids: Optional[List[str]] = None
     manual_targets: Optional[List[str]] = None
@@ -163,6 +163,15 @@ class AsmIPResponse(BaseModel):
     exposure_score: Optional[int] = None  # 0-100, null if not calculated
     exposure_level: str = "not_calculated"  # low, medium, high, not_calculated
     reachable: Optional[bool] = None  # HTTP/HTTPS reachable
+    country: Optional[str] = None
+    country_code: Optional[str] = None
+    region: Optional[str] = None
+    city: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    asn: Optional[str] = None
+    asn_org: Optional[str] = None
+    isp: Optional[str] = None
     open_ports: Optional[int] = None
     created_at: Optional[str]
 

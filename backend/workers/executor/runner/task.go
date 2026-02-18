@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"workers/database"
@@ -937,25 +938,63 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 					"backup_files": []interface{}{},
 				}
 			} else {
-				// Simple backup file detection (placeholder - can be enhanced)
-				var backupFiles []map[string]interface{}
+				// Build realistic backup candidates and keep only reachable ones.
 				extensions := []string{".bak", ".backup", ".old", ".orig", ".save", ".swp", ".tmp", ".zip", ".tar.gz", ".sql"}
+				basePaths := []string{"/backup", "/db", "/database", "/dump", "/site", "/website", "/www"}
+				client := &http.Client{Timeout: 4 * time.Second}
 
-				for _, url := range urls {
-					for _, ext := range extensions {
-						backupFiles = append(backupFiles, map[string]interface{}{
-							"url":       url + ext,
-							"extension": ext,
-							"status":    "checked",
-						})
+				seen := map[string]bool{}
+				var backupFiles []map[string]interface{}
+				checked := 0
+
+				for _, host := range urls {
+					if host == "" {
+						continue
+					}
+					for _, scheme := range []string{"https://", "http://"} {
+						baseURL := scheme + host
+						for _, path := range basePaths {
+							for _, ext := range extensions {
+								candidate := baseURL + path + ext
+								if seen[candidate] {
+									continue
+								}
+								seen[candidate] = true
+								checked++
+
+								req, reqErr := http.NewRequestWithContext(ctx, http.MethodHead, candidate, nil)
+								if reqErr != nil {
+									continue
+								}
+								resp, err := client.Do(req)
+								if err != nil {
+									continue
+								}
+								_ = resp.Body.Close()
+
+								// Keep only likely exposed artifacts.
+								if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+									backupFiles = append(backupFiles, map[string]interface{}{
+										"url":         candidate,
+										"extension":   ext,
+										"status":      "accessible",
+										"status_code": resp.StatusCode,
+									})
+								}
+							}
+						}
 					}
 				}
 
 				output = map[string]interface{}{
 					"backup_files": backupFiles,
 					"count":        len(backupFiles),
+					"checked":      checked,
 				}
-				utils.Logger.Infof("backup_detector completed job=%s step=%d checked=%d files", task.JobID, i, len(backupFiles))
+				utils.Logger.Infof(
+					"backup_detector completed job=%s step=%d checked=%d exposed=%d",
+					task.JobID, i, checked, len(backupFiles),
+				)
 			}
 
 		case "asset_diff_engine":

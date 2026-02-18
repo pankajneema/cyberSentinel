@@ -23,9 +23,6 @@ import {
   Shield,
   Zap,
   Target,
-  Code,
-  Box,
-  Users,
   Cloud,
   FileText,
   Activity,
@@ -104,27 +101,6 @@ const discoveryTypes = [
     icon: Cloud, 
     description: "AWS, Azure, GCP resources",
     color: "bg-success/10 text-success"
-  },
-  { 
-    value: "repo", 
-    label: "Repository", 
-    icon: Code, 
-    description: "GitHub, GitLab, Bitbucket repos",
-    color: "bg-warning/10 text-warning"
-  },
-  { 
-    value: "saas", 
-    label: "SaaS App", 
-    icon: Box, 
-    description: "Third-party SaaS applications",
-    color: "bg-accent/10 text-accent"
-  },
-  { 
-    value: "user", 
-    label: "User Account", 
-    icon: Users, 
-    description: "Employee or service accounts",
-    color: "bg-secondary/10 text-secondary"
   },
 ];
 
@@ -709,7 +685,7 @@ export function ScanManager() {
       case 3:
         const selectedSchedule = scheduleOptions.find(opt => 
           opt.value === newDiscovery.schedule_type && opt.intervalValue === newDiscovery.schedule_value
-        ) || scheduleOptions.find(opt => opt.value === "NONE");
+        ) || scheduleOptions.find(opt => opt.value === "QUICK");
         
         return (
           <motion.div

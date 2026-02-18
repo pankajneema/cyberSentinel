@@ -105,6 +105,12 @@ async def _require_write_access(
     return user
 
 
+async def _user_discovery_ids(db: AsyncSession, user_ids: list[str]) -> list[str]:
+    disc_query = select(AsmDiscoveryModel.id).where(AsmDiscoveryModel.user_id.in_(user_ids))
+    disc_result = await db.execute(disc_query)
+    return [row[0] for row in disc_result.all()]
+
+
 # ---------------------------------------------------
 # ASM Settings
 # ---------------------------------------------------
@@ -863,10 +869,7 @@ async def list_all_ips(
     if page_size > 100:
         page_size = 100
     
-    # Get all discovery IDs owned by the user
-    disc_query = select(AsmDiscoveryModel.id).where(AsmDiscoveryModel.user_id.in_(user_ids))
-    disc_result = await db.execute(disc_query)
-    discovery_ids = [row[0] for row in disc_result.all()]
+    discovery_ids = await _user_discovery_ids(db, user_ids)
     
     if not discovery_ids:
         return AsmIPListResponse(
@@ -925,6 +928,80 @@ async def list_all_ips(
         page=page,
         page_size=page_size,
     )
+
+
+# ---------------------------------------------------
+# IP Geolocation Map Data
+# ---------------------------------------------------
+@router.get("/ips/geo-map", response_model=dict)
+async def list_ip_geo_map(
+    discovery_id: Optional[str] = None,
+    max_points: int = 3000,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Geo points for discovered IPs.
+
+    Returns a bounded set of geocoded IP points and a country distribution
+    for map and graph views in the UI.
+    """
+    user_ids = await _company_user_ids(db, current_user)
+    discovery_ids = await _user_discovery_ids(db, user_ids)
+    if discovery_id:
+        if discovery_id not in discovery_ids:
+            raise HTTPException(status_code=404, detail="Discovery not found")
+        discovery_ids = [discovery_id]
+
+    if not discovery_ids:
+        return {"items": [], "countries": [], "total": 0}
+
+    if max_points < 1:
+        max_points = 1
+    if max_points > 10000:
+        max_points = 10000
+
+    base = (
+        select(AsmIPModel)
+        .where(
+            AsmIPModel.asm_discovery_id.in_(discovery_ids),
+            AsmIPModel.latitude.is_not(None),
+            AsmIPModel.longitude.is_not(None),
+        )
+        .order_by(AsmIPModel.created_at.desc())
+    )
+
+    rows = (await db.execute(base.limit(max_points))).scalars().all()
+
+    items = []
+    country_counts: dict[str, int] = {}
+    for row in rows:
+        country = row.country or "Unknown"
+        country_counts[country] = country_counts.get(country, 0) + 1
+        items.append(
+            {
+                "id": row.id,
+                "ip_address": row.ip_address,
+                "subdomain": row.subdomain,
+                "asset_id": row.asset_id,
+                "asm_discovery_id": row.asm_discovery_id,
+                "country": row.country,
+                "country_code": row.country_code,
+                "region": row.region,
+                "city": row.city,
+                "latitude": row.latitude,
+                "longitude": row.longitude,
+                "asn": row.asn,
+                "asn_org": row.asn_org,
+                "isp": row.isp,
+            }
+        )
+
+    countries = [
+        {"country": country, "count": count}
+        for country, count in sorted(country_counts.items(), key=lambda x: x[1], reverse=True)
+    ]
+    return {"items": items, "countries": countries, "total": len(items)}
 
 
 # ---------------------------------------------------

@@ -18,20 +18,19 @@ export interface AsmDiscovery {
 
 export interface CreateDiscoveryPayload {
   name: string;
-  asset_type: "domain" | "ip" | "cloud" | "repo" | "saas" | "user";
+  asset_type: "domain" | "ip" | "cloud";
   target_source: "FROM_ASSET" | "MANUAL_ENTRY";
   asset_ids?: string[] | null;
   manual_targets?: string[] | null;
-  discovery_type: "QUICK" | "MANUAL" | "SCHEDULED";
   intensity: "LIGHT" | "NORMAL" | "DEEP";
-  schedule_type: "NONE" | "INTERVAL" | "CRON";
+  schedule_type: "QUICK" | "INTERVAL" | "CRON";
   schedule_value?: string | null;
 }
 
 export interface UpdateDiscoveryPayload {
   name?: string;
   intensity?: "LIGHT" | "NORMAL" | "DEEP";
-  schedule_type?: "NONE" | "INTERVAL" | "CRON";
+  schedule_type?: "QUICK" | "INTERVAL" | "CRON";
   schedule_value?: string | null;
   status?: "RUNNING" | "PAUSED" | "FAILED" | "COMPLETED";
 }
@@ -109,8 +108,40 @@ export interface AsmIP {
   exposure_score?: number | null;
   exposure_level: string;  // low, medium, high, not_calculated
   reachable?: boolean | null;
+  country?: string | null;
+  country_code?: string | null;
+  region?: string | null;
+  city?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  asn?: string | null;
+  asn_org?: string | null;
+  isp?: string | null;
   open_ports?: number | null;
   created_at?: string | null;
+}
+
+export interface AsmIPGeoPoint {
+  id: string;
+  ip_address: string;
+  subdomain?: string | null;
+  asset_id: string;
+  asm_discovery_id: string;
+  country?: string | null;
+  country_code?: string | null;
+  region?: string | null;
+  city?: string | null;
+  latitude: number;
+  longitude: number;
+  asn?: string | null;
+  asn_org?: string | null;
+  isp?: string | null;
+}
+
+export interface AsmIPGeoMapResponse {
+  items: AsmIPGeoPoint[];
+  countries: Array<{ country: string; count: number }>;
+  total: number;
 }
 
 export interface AsmPort {
@@ -491,4 +522,11 @@ export function fetchAllIPs(page = 1, page_size = 50) {
   qs.set("page", String(page));
   qs.set("page_size", String(page_size));
   return apiFetch<Paginated<AsmIP>>(`/asm/ips?${qs.toString()}`);
+}
+
+export function fetchIPGeoMap(discovery_id?: string, max_points = 3000) {
+  const qs = new URLSearchParams();
+  qs.set("max_points", String(max_points));
+  if (discovery_id) qs.set("discovery_id", discovery_id);
+  return apiFetch<AsmIPGeoMapResponse>(`/asm/ips/geo-map?${qs.toString()}`);
 }

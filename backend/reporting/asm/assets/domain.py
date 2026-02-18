@@ -3,12 +3,14 @@ Domain ASM Reporting - Process discovered subdomains from pipeline results
 """
 
 import logging
+import asyncio
+import ipaddress
 from typing import Any
 from datetime import datetime
+import httpx
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert
 from backend.api_service.models.asm_models import (
     AsmDiscoveryRun, AsmSubdomain, AsmDiscovery, AsmIP,
@@ -116,6 +118,97 @@ def extract_ips(payload: dict[str, Any]) -> list[tuple[str, str, str | None]]:
     return entries
 
 
+def _is_public_ip(ip: str) -> bool:
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return not (
+        ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_multicast
+        or ip_obj.is_link_local
+        or ip_obj.is_reserved
+        or ip_obj.is_unspecified
+    )
+
+
+def _parse_asn(asn_raw: str | None) -> tuple[str | None, str | None]:
+    if not asn_raw:
+        return None, None
+    parts = asn_raw.strip().split(" ", 1)
+    asn = parts[0] if parts else None
+    asn_org = parts[1] if len(parts) > 1 else None
+    return asn, asn_org
+
+
+async def _fetch_ip_geo(client: httpx.AsyncClient, ip_address: str) -> dict[str, Any] | None:
+    if not _is_public_ip(ip_address):
+        return None
+    try:
+        response = await client.get(
+            f"http://ip-api.com/json/{ip_address}",
+            params={"fields": "status,country,countryCode,regionName,city,lat,lon,as,isp"},
+        )
+        response.raise_for_status()
+        data = response.json()
+        if data.get("status") != "success":
+            return None
+        asn, asn_org = _parse_asn(data.get("as"))
+        return {
+            "country": data.get("country"),
+            "country_code": data.get("countryCode"),
+            "region": data.get("regionName"),
+            "city": data.get("city"),
+            "latitude": data.get("lat"),
+            "longitude": data.get("lon"),
+            "asn": asn,
+            "asn_org": asn_org,
+            "isp": data.get("isp"),
+        }
+    except Exception as exc:
+        logger.debug("Geo lookup failed for ip=%s error=%s", ip_address, exc)
+        return None
+
+
+async def build_ip_geo_lookup(ip_addresses: list[str], intensity: str) -> dict[str, dict[str, Any]]:
+    """
+    Fetch geolocation only for NORMAL/DEEP scans.
+    LIGHT keeps discovery fast and low-noise.
+    """
+    if intensity not in {"NORMAL", "DEEP"}:
+        return {}
+
+    unique_ips: list[str] = []
+    seen = set()
+    for ip in ip_addresses:
+        ip_norm = ip.strip()
+        if not ip_norm or ip_norm in seen:
+            continue
+        seen.add(ip_norm)
+        unique_ips.append(ip_norm)
+
+    if not unique_ips:
+        return {}
+
+    timeout = httpx.Timeout(connect=2.0, read=2.5, write=2.0, pool=2.0)
+    limits = httpx.Limits(max_connections=20, max_keepalive_connections=10)
+    geo_lookup: dict[str, dict[str, Any]] = {}
+
+    async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
+        semaphore = asyncio.Semaphore(12)
+
+        async def _lookup(ip: str) -> None:
+            async with semaphore:
+                geo = await _fetch_ip_geo(client, ip)
+                if geo:
+                    geo_lookup[ip] = geo
+
+        await asyncio.gather(*[_lookup(ip) for ip in unique_ips])
+
+    return geo_lookup
+
+
 def extract_subdomains(payload: dict[str, Any]) -> list[tuple[str, str]]:
     """Return list of (asset_id, subdomain) pairs extracted from completed steps.
     
@@ -178,6 +271,202 @@ def extract_subdomains(payload: dict[str, Any]) -> list[tuple[str, str]]:
                     logger.warning(f"Skipping subdomain '{subdomain}' - no asset_id found")
 
     return entries
+
+
+def _normalize_host(value: str | None) -> str | None:
+    if not value:
+        return None
+    host = str(value).strip().lower()
+    if host.startswith("http://"):
+        host = host[len("http://"):]
+    elif host.startswith("https://"):
+        host = host[len("https://"):]
+    host = host.split("/", 1)[0].split(":", 1)[0]
+    return host or None
+
+
+async def load_previous_snapshot(
+    db: AsyncSession,
+    discovery_id: str,
+) -> dict[str, set[tuple]]:
+    """Load current persisted discovery state as baseline snapshot for diffing."""
+    snapshot: dict[str, set[tuple]] = {
+        "subdomains": set(),
+        "ips": set(),
+        "ports": set(),
+        "services": set(),
+        "api_endpoints": set(),
+        "admin_endpoints": set(),
+        "backup_files": set(),
+        "cloud_resources": set(),
+    }
+
+    subdomains = (await db.execute(select(AsmSubdomain).where(AsmSubdomain.asm_discovery_id == discovery_id))).scalars().all()
+    for row in subdomains:
+        snapshot["subdomains"].add((row.asset_id, row.subdomain.strip().lower()))
+
+    ips = (await db.execute(select(AsmIP).where(AsmIP.asm_discovery_id == discovery_id))).scalars().all()
+    for row in ips:
+        sub = row.subdomain.strip().lower() if row.subdomain else None
+        snapshot["ips"].add((row.asset_id, row.ip_address.strip(), sub))
+
+    ports = (await db.execute(select(AsmPort).where(AsmPort.asm_discovery_id == discovery_id))).scalars().all()
+    for row in ports:
+        snapshot["ports"].add((row.asset_id, row.ip_address.strip(), int(row.port), (row.protocol or "tcp").lower()))
+
+    services = (await db.execute(select(AsmService).where(AsmService.asm_discovery_id == discovery_id))).scalars().all()
+    for row in services:
+        snapshot["services"].add((row.asset_id, row.ip_address.strip(), int(row.port), row.service_name.strip().lower()))
+
+    apis = (await db.execute(select(AsmAPIEndpoint).where(AsmAPIEndpoint.asm_discovery_id == discovery_id))).scalars().all()
+    for row in apis:
+        snapshot["api_endpoints"].add((row.asset_id, row.url.strip().lower()))
+
+    admins = (await db.execute(select(AsmAdminEndpoint).where(AsmAdminEndpoint.asm_discovery_id == discovery_id))).scalars().all()
+    for row in admins:
+        snapshot["admin_endpoints"].add((row.asset_id, row.url.strip().lower()))
+
+    backups = (await db.execute(select(AsmBackupFile).where(AsmBackupFile.asm_discovery_id == discovery_id))).scalars().all()
+    for row in backups:
+        snapshot["backup_files"].add((row.asset_id, row.file_url.strip().lower()))
+
+    clouds = (await db.execute(select(AsmCloudResource).where(AsmCloudResource.asm_discovery_id == discovery_id))).scalars().all()
+    for row in clouds:
+        snapshot["cloud_resources"].add((row.asset_id, row.resource_name.strip().lower()))
+
+    return snapshot
+
+
+def build_current_snapshot_from_payload(payload: dict[str, Any]) -> dict[str, set[tuple]]:
+    """Build current scan snapshot from pipeline payload (completed steps only)."""
+    snapshot: dict[str, set[tuple]] = {
+        "subdomains": set(),
+        "ips": set(),
+        "ports": set(),
+        "services": set(),
+        "api_endpoints": set(),
+        "admin_endpoints": set(),
+        "backup_files": set(),
+        "cloud_resources": set(),
+    }
+
+    for asset_id, subdomain in extract_subdomains(payload):
+        if asset_id and subdomain:
+            snapshot["subdomains"].add((asset_id, subdomain.strip().lower()))
+
+    for asset_id, ip_address, subdomain in extract_ips(payload):
+        if asset_id and ip_address:
+            sub = subdomain.strip().lower() if subdomain else None
+            snapshot["ips"].add((asset_id, ip_address.strip(), sub))
+
+    pipeline = payload.get("pipeline", [])
+    for step in pipeline:
+        if step.get("status") != "COMPLETED":
+            continue
+        step_name = step.get("step", "")
+        result = step.get("result", {}) or {}
+        asset_id = step.get("asset_id") or payload.get("asset_id") or ""
+        if not asset_id or not isinstance(result, dict):
+            continue
+
+        if step_name == "common_port_scan":
+            for item in result.get("ports", []) if isinstance(result.get("ports"), list) else []:
+                if not isinstance(item, dict):
+                    continue
+                ip_address = str(item.get("ip", "")).strip()
+                port = item.get("port")
+                if not ip_address or port is None:
+                    continue
+                protocol = str(item.get("protocol", "tcp")).strip().lower()
+                snapshot["ports"].add((asset_id, ip_address, int(port), protocol))
+
+        elif step_name == "service_fingerprint":
+            for item in result.get("services", []) if isinstance(result.get("services"), list) else []:
+                if not isinstance(item, dict):
+                    continue
+                ip_address = str(item.get("ip", "")).strip()
+                port = item.get("port")
+                service = str(item.get("service", "")).strip().lower()
+                if not ip_address or port is None or not service:
+                    continue
+                snapshot["services"].add((asset_id, ip_address, int(port), service))
+
+        elif step_name == "api_surface_hint":
+            for item in result.get("endpoints", []) if isinstance(result.get("endpoints"), list) else []:
+                if not isinstance(item, dict):
+                    continue
+                url = str(item.get("url", "")).strip().lower()
+                if url:
+                    snapshot["api_endpoints"].add((asset_id, url))
+
+        elif step_name == "admin_endpoint_check":
+            for item in result.get("admin_endpoints", []) if isinstance(result.get("admin_endpoints"), list) else []:
+                if not isinstance(item, dict):
+                    continue
+                url = str(item.get("url", "")).strip().lower()
+                if url:
+                    snapshot["admin_endpoints"].add((asset_id, url))
+
+        elif step_name == "backup_file_check":
+            for item in result.get("backup_files", []) if isinstance(result.get("backup_files"), list) else []:
+                if not isinstance(item, dict):
+                    continue
+                url = str(item.get("url", "")).strip().lower()
+                if url:
+                    snapshot["backup_files"].add((asset_id, url))
+
+        elif step_name == "cloud_exposure_detect":
+            for item in result.get("resources", []) if isinstance(result.get("resources"), list) else []:
+                if not isinstance(item, dict):
+                    continue
+                resource_name = str(item.get("name", "")).strip().lower()
+                if resource_name:
+                    snapshot["cloud_resources"].add((asset_id, resource_name))
+
+    return snapshot
+
+
+def _snapshot_tuple_to_str(item: tuple) -> str:
+    return " | ".join("" if v is None else str(v) for v in item)
+
+
+def compute_discovery_changes(
+    previous_snapshot: dict[str, set[tuple]],
+    current_snapshot: dict[str, set[tuple]],
+    max_items_per_change: int = 200,
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, int]]]:
+    """Compute added/removed entities between snapshots."""
+    changes: list[dict[str, Any]] = []
+    summary: dict[str, dict[str, int]] = {}
+    for entity, current_values in current_snapshot.items():
+        previous_values = previous_snapshot.get(entity, set())
+        added = sorted(current_values - previous_values)
+        removed = sorted(previous_values - current_values)
+
+        summary[entity] = {
+            "added": len(added),
+            "removed": len(removed),
+        }
+
+        if added:
+            changes.append(
+                {
+                    "entity": entity,
+                    "action": "added",
+                    "count": len(added),
+                    "items": [_snapshot_tuple_to_str(item) for item in added[:max_items_per_change]],
+                }
+            )
+        if removed:
+            changes.append(
+                {
+                    "entity": entity,
+                    "action": "removed",
+                    "count": len(removed),
+                    "items": [_snapshot_tuple_to_str(item) for item in removed[:max_items_per_change]],
+                }
+            )
+    return changes, summary
 
 
 async def get_user_id_from_discovery(db: AsyncSession, discovery_id: str) -> str | None:
@@ -271,6 +560,9 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
 
         await db.commit()
         await db.refresh(run)
+
+        # Baseline snapshot before applying this run's results.
+        previous_snapshot = await load_previous_snapshot(db, job_id)
 
         # -------------------------
         # Build resolved/unresolved maps from DNS resolution steps
@@ -390,6 +682,12 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         # -------------------------
         ip_entries = extract_ips(payload)
         logger.info(f"Extracted {len(ip_entries)} IP entries from pipeline")
+        geo_lookup = await build_ip_geo_lookup(
+            [entry[1] for entry in ip_entries],
+            intensity,
+        )
+        if geo_lookup:
+            logger.info("Geo enrichment ready for %d IPs", len(geo_lookup))
         
         # Build a lookup map: (asset_id, subdomain_name) -> subdomain_id
         # This allows us to link IPs to their parent subdomains
@@ -413,16 +711,6 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         # -------------------------
         # Build reachable IPs map from reachability_check step
         # -------------------------
-        reachable_ips = set()
-        unreachable_ips = set()
-        
-        # Extract IPs from reachable subdomains (IPs are linked to subdomains)
-        # We'll determine IP reachability based on their parent subdomain's reachability
-        ip_to_subdomain_map = {}
-        for asset_id, ip_address, subdomain_name in ip_entries:
-            if subdomain_name:
-                ip_to_subdomain_map[ip_address.strip()] = subdomain_name.lower().strip()
-        
         # -------------------------
         # Insert IPs (with duplicate handling and reachable status)
         # -------------------------
@@ -457,6 +745,8 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
             if reachable_status is False:
                 ip_status = "inactive"
 
+            geo = geo_lookup.get(ip_address.strip(), {})
+
             try:
                 # Insert first; if exists, update and count as skipped (not new)
                 insert_stmt = (
@@ -469,6 +759,15 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                         subdomain=subdomain_name.strip() if subdomain_name else None,  # Denormalized name
                         status=ip_status,  # active/inactive based on reachability
                         reachable=reachable_status,  # true/false/null based on HTTP reachability
+                        country=geo.get("country"),
+                        country_code=geo.get("country_code"),
+                        region=geo.get("region"),
+                        city=geo.get("city"),
+                        latitude=geo.get("latitude"),
+                        longitude=geo.get("longitude"),
+                        asn=geo.get("asn"),
+                        asn_org=geo.get("asn_org"),
+                        isp=geo.get("isp"),
                     )
                     .on_conflict_do_nothing(
                         index_elements=["asset_id", "ip_address", "subdomain_id"]
@@ -496,6 +795,15 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                             ),
                             status=ip_status,
                             reachable=func.coalesce(reachable_status, AsmIP.reachable),
+                            country=func.coalesce(geo.get("country"), AsmIP.country),
+                            country_code=func.coalesce(geo.get("country_code"), AsmIP.country_code),
+                            region=func.coalesce(geo.get("region"), AsmIP.region),
+                            city=func.coalesce(geo.get("city"), AsmIP.city),
+                            latitude=func.coalesce(geo.get("latitude"), AsmIP.latitude),
+                            longitude=func.coalesce(geo.get("longitude"), AsmIP.longitude),
+                            asn=func.coalesce(geo.get("asn"), AsmIP.asn),
+                            asn_org=func.coalesce(geo.get("asn_org"), AsmIP.asn_org),
+                            isp=func.coalesce(geo.get("isp"), AsmIP.isp),
                         )
                     )
                     await db.execute(update_stmt)
@@ -583,12 +891,36 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                 backup_inserted += count
                 logger.info(f"Stored {count} backup files from {step_name}")
             elif step_name == "change_detection":
-                count = await store_changes(db, job_id, result, step_asset_id)
-                changes_inserted += count
-                logger.info(f"Stored {count} change records from {step_name}")
+                # Change detection is computed from persisted snapshots below for accuracy.
+                logger.debug("Skipping raw change_detection payload storage for job=%s", job_id)
             else:
                 logger.debug(f"No storage handler for step: {step_name}")
-        
+
+        changes_found = 0
+        if intensity == "DEEP":
+            current_snapshot = build_current_snapshot_from_payload(payload)
+            computed_changes, change_summary = compute_discovery_changes(previous_snapshot, current_snapshot)
+            changes_found = sum(item.get("count", 0) for item in computed_changes)
+
+            if computed_changes:
+                try:
+                    db.add(
+                        AsmChange(
+                            asm_discovery_id=job_id,
+                            asset_id=asset_id,
+                            changes=computed_changes,
+                            message="Snapshot diff computed from previous to current DEEP discovery run",
+                        )
+                    )
+                    await db.flush()
+                    changes_inserted += 1
+                except Exception as diff_err:
+                    logger.warning("Failed to persist computed DEEP changes for job=%s: %s", job_id, diff_err)
+            else:
+                change_summary = {}
+        else:
+            change_summary = {}
+
         await db.commit()
         logger.info(f"Completed storing additional data: ports={ports_inserted} services={services_inserted} ssl={ssl_inserted} api={api_inserted} cloud={cloud_inserted} admin={admin_inserted} backup={backup_inserted} changes={changes_inserted}")
 
@@ -604,7 +936,7 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         api_endpoints_found = 0
         cloud_resources_found = 0
         admin_endpoints_found = 0
-        changes_found = 0
+        step_changes_found = 0
         
         pipeline = payload.get("pipeline", [])
         for step in pipeline:
@@ -645,7 +977,7 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
             elif step_name == "change_detection":
                 changes_data = result.get("changes", [])
                 if isinstance(changes_data, list):
-                    changes_found = len(changes_data)
+                    step_changes_found = len(changes_data)
 
         run.summary = {
             "subdomains": {
@@ -688,8 +1020,9 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                 "inserted": backup_inserted,
             },
             "changes": {
-                "found": changes_found,
+                "found": changes_found if intensity == "DEEP" else step_changes_found,
                 "inserted": changes_inserted,
+                "diff_summary": change_summary if intensity == "DEEP" else None,
             },
             "intensity": intensity,
             "pipeline_steps": len(pipeline)
@@ -837,25 +1170,27 @@ async def store_ports(
                 subdomain_id = ip_obj.subdomain_id
         
         try:
-            obj = AsmPort(
-                asm_discovery_id=job_id,
-                asset_id=asset_id,
-                ip_address=ip_address.strip(),
-                ip_id=ip_id,
-                subdomain_id=subdomain_id,
-                port=int(port),
-                protocol=protocol,
-                status="open",
-                service=port_item.get("service"),
-                banner=port_item.get("banner"),
+            stmt = (
+                insert(AsmPort)
+                .values(
+                    asm_discovery_id=job_id,
+                    asset_id=asset_id,
+                    ip_address=ip_address.strip(),
+                    ip_id=ip_id,
+                    subdomain_id=subdomain_id,
+                    port=int(port),
+                    protocol=protocol,
+                    status="open",
+                    service=port_item.get("service"),
+                    banner=port_item.get("banner"),
+                )
+                .on_conflict_do_nothing(index_elements=["ip_address", "port", "protocol"])
+                .returning(AsmPort.id)
             )
-            db.add(obj)
-            await db.flush()
-            inserted += 1
-        except IntegrityError:
-            await db.rollback()
+            res = await db.execute(stmt)
+            if res.scalar_one_or_none():
+                inserted += 1
         except Exception as e:
-            await db.rollback()
             logger.warning(f"Error inserting port {ip_address}:{port}: {e}")
     
     return inserted
@@ -885,10 +1220,7 @@ async def store_changes(
         db.add(obj)
         await db.flush()
         inserted += 1
-    except IntegrityError:
-        await db.rollback()
     except Exception as e:
-        await db.rollback()
         logger.warning(f"Error inserting change detection result: {e}")
     return inserted
 
@@ -934,6 +1266,8 @@ async def store_services(
         port_id = None
         if ip_id:
             port_query = select(AsmPort).where(
+                AsmPort.asm_discovery_id == job_id,
+                AsmPort.asset_id == asset_id,
                 AsmPort.ip_address == ip_address.strip(),
                 AsmPort.port == int(port)
             ).limit(1)
@@ -943,25 +1277,27 @@ async def store_services(
                 port_id = port_obj.id
         
         try:
-            obj = AsmService(
-                asm_discovery_id=job_id,
-                asset_id=asset_id,
-                ip_address=ip_address.strip(),
-                port=int(port),
-                port_id=port_id,
-                ip_id=ip_id,
-                service_name=service_name,
-                version=service_item.get("version"),
-                product=service_item.get("product"),
-                extra_info=service_item.get("extra_info"),
+            stmt = (
+                insert(AsmService)
+                .values(
+                    asm_discovery_id=job_id,
+                    asset_id=asset_id,
+                    ip_address=ip_address.strip(),
+                    port=int(port),
+                    port_id=port_id,
+                    ip_id=ip_id,
+                    service_name=service_name,
+                    version=service_item.get("version"),
+                    product=service_item.get("product"),
+                    extra_info=service_item.get("extra_info"),
+                )
+                .on_conflict_do_nothing(index_elements=["ip_address", "port", "service_name"])
+                .returning(AsmService.id)
             )
-            db.add(obj)
-            await db.flush()
-            inserted += 1
-        except IntegrityError:
-            await db.rollback()
+            res = await db.execute(stmt)
+            if res.scalar_one_or_none():
+                inserted += 1
         except Exception as e:
-            await db.rollback()
             logger.warning(f"Error inserting service {ip_address}:{port}:{service_name}: {e}")
     
     return inserted
@@ -1005,26 +1341,28 @@ async def store_ssl_certs(
         subdomain_id = subdomain_lookup.get(lookup_key)
         
         try:
-            obj = AsmSSLCert(
-                asm_discovery_id=job_id,
-                asset_id=asset_id,
-                host=host.strip(),
-                port=int(port),
-                subdomain_id=subdomain_id,
-                protocol=ssl_item.get("protocol"),
-                cipher=ssl_item.get("cipher"),
-                certificate_issuer=ssl_item.get("issuer"),
-                certificate_subject=ssl_item.get("certificate"),
-                valid_until=ssl_item.get("valid_until"),
-                certificate_details=ssl_item,
+            stmt = (
+                insert(AsmSSLCert)
+                .values(
+                    asm_discovery_id=job_id,
+                    asset_id=asset_id,
+                    host=host.strip(),
+                    port=int(port),
+                    subdomain_id=subdomain_id,
+                    protocol=ssl_item.get("protocol"),
+                    cipher=ssl_item.get("cipher"),
+                    certificate_issuer=ssl_item.get("issuer"),
+                    certificate_subject=ssl_item.get("certificate"),
+                    valid_until=ssl_item.get("valid_until"),
+                    certificate_details=ssl_item,
+                )
+                .on_conflict_do_nothing(index_elements=["host", "port"])
+                .returning(AsmSSLCert.id)
             )
-            db.add(obj)
-            await db.flush()
-            inserted += 1
-        except IntegrityError:
-            await db.rollback()
+            res = await db.execute(stmt)
+            if res.scalar_one_or_none():
+                inserted += 1
         except Exception as e:
-            await db.rollback()
             logger.warning(f"Error inserting SSL cert {host}:{port}: {e}")
     
     return inserted
@@ -1071,23 +1409,25 @@ async def store_api_endpoints(
             pass
         
         try:
-            obj = AsmAPIEndpoint(
-                asm_discovery_id=job_id,
-                asset_id=asset_id,
-                url=url.strip(),
-                subdomain_id=subdomain_id,
-                method=endpoint_item.get("method"),
-                status_code=endpoint_item.get("status"),
-                endpoint_type=endpoint_item.get("type", "api"),
-                extra_info=endpoint_item,
+            stmt = (
+                insert(AsmAPIEndpoint)
+                .values(
+                    asm_discovery_id=job_id,
+                    asset_id=asset_id,
+                    url=url.strip(),
+                    subdomain_id=subdomain_id,
+                    method=endpoint_item.get("method"),
+                    status_code=endpoint_item.get("status"),
+                    endpoint_type=endpoint_item.get("type", "api"),
+                    extra_info=endpoint_item,
+                )
+                .on_conflict_do_nothing(index_elements=["asm_discovery_id", "url"])
+                .returning(AsmAPIEndpoint.id)
             )
-            db.add(obj)
-            await db.flush()
-            inserted += 1
-        except IntegrityError:
-            await db.rollback()
+            res = await db.execute(stmt)
+            if res.scalar_one_or_none():
+                inserted += 1
         except Exception as e:
-            await db.rollback()
             logger.warning(f"Error inserting API endpoint {url}: {e}")
     
     return inserted
@@ -1118,22 +1458,24 @@ async def store_cloud_resources(
             continue
         
         try:
-            obj = AsmCloudResource(
-                asm_discovery_id=job_id,
-                asset_id=asset_id,
-                service=service,
-                resource_type=resource_type,
-                resource_name=resource_name.strip(),
-                access_status=resource_item.get("status"),
-                extra_info=resource_item,
+            stmt = (
+                insert(AsmCloudResource)
+                .values(
+                    asm_discovery_id=job_id,
+                    asset_id=asset_id,
+                    service=service,
+                    resource_type=resource_type,
+                    resource_name=resource_name.strip(),
+                    access_status=resource_item.get("status"),
+                    extra_info=resource_item,
+                )
+                .on_conflict_do_nothing(index_elements=["asm_discovery_id", "resource_name"])
+                .returning(AsmCloudResource.id)
             )
-            db.add(obj)
-            await db.flush()
-            inserted += 1
-        except IntegrityError:
-            await db.rollback()
+            res = await db.execute(stmt)
+            if res.scalar_one_or_none():
+                inserted += 1
         except Exception as e:
-            await db.rollback()
             logger.warning(f"Error inserting cloud resource {resource_name}: {e}")
     
     return inserted
@@ -1173,23 +1515,25 @@ async def store_admin_endpoints(
             pass
         
         try:
-            obj = AsmAdminEndpoint(
-                asm_discovery_id=job_id,
-                asset_id=asset_id,
-                url=url.strip(),
-                subdomain_id=subdomain_id,
-                status_code=admin_item.get("status"),
-                response_size=admin_item.get("size"),
-                endpoint_type="admin",
-                extra_info=admin_item,
+            stmt = (
+                insert(AsmAdminEndpoint)
+                .values(
+                    asm_discovery_id=job_id,
+                    asset_id=asset_id,
+                    url=url.strip(),
+                    subdomain_id=subdomain_id,
+                    status_code=admin_item.get("status"),
+                    response_size=admin_item.get("size"),
+                    endpoint_type="admin",
+                    extra_info=admin_item,
+                )
+                .on_conflict_do_nothing(index_elements=["asm_discovery_id", "url"])
+                .returning(AsmAdminEndpoint.id)
             )
-            db.add(obj)
-            await db.flush()
-            inserted += 1
-        except IntegrityError:
-            await db.rollback()
+            res = await db.execute(stmt)
+            if res.scalar_one_or_none():
+                inserted += 1
         except Exception as e:
-            await db.rollback()
             logger.warning(f"Error inserting admin endpoint {url}: {e}")
     
     return inserted
@@ -1229,22 +1573,24 @@ async def store_backup_files(
             pass
         
         try:
-            obj = AsmBackupFile(
-                asm_discovery_id=job_id,
-                asset_id=asset_id,
-                file_url=file_url.strip(),
-                subdomain_id=subdomain_id,
-                file_extension=backup_item.get("extension"),
-                status=backup_item.get("status", "checked"),
-                extra_info=backup_item,
+            stmt = (
+                insert(AsmBackupFile)
+                .values(
+                    asm_discovery_id=job_id,
+                    asset_id=asset_id,
+                    file_url=file_url.strip(),
+                    subdomain_id=subdomain_id,
+                    file_extension=backup_item.get("extension"),
+                    status=backup_item.get("status", "checked"),
+                    extra_info=backup_item,
+                )
+                .on_conflict_do_nothing(index_elements=["asm_discovery_id", "file_url"])
+                .returning(AsmBackupFile.id)
             )
-            db.add(obj)
-            await db.flush()
-            inserted += 1
-        except IntegrityError:
-            await db.rollback()
+            res = await db.execute(stmt)
+            if res.scalar_one_or_none():
+                inserted += 1
         except Exception as e:
-            await db.rollback()
             logger.warning(f"Error inserting backup file {file_url}: {e}")
     
     return inserted

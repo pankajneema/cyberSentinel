@@ -1,7 +1,7 @@
 # models/asm_models.py
 
 import uuid
-from sqlalchemy import Column, String, DateTime, Enum, JSON, Integer, Boolean, ForeignKey
+from sqlalchemy import Column, String, DateTime, Enum, JSON, Integer, Boolean, ForeignKey, Float
 from sqlalchemy.sql import func
 
 from utils.database import Base
@@ -15,7 +15,7 @@ class AsmDiscovery(Base):
 
     name = Column(String, nullable=False)
     asset_type = Column(
-        Enum("domain", "cloud", "saas", name="asm_asset_type"),
+        Enum("domain", "ip", "cloud", "repo", "saas", "user", name="asm_asset_type"),
         nullable=False,
     )
     target_source = Column(
@@ -166,6 +166,17 @@ class AsmIP(Base):
     exposure_score = Column(Integer, nullable=True)  # 0-100 exposure score
     exposure_level = Column(String(20), nullable=True)  # low, medium, high, not_calculated
     reachable = Column(Boolean, nullable=True)  # HTTP/HTTPS reachable
+
+    # Geo + network enrichment (primarily NORMAL/DEEP)
+    country = Column(String, nullable=True)
+    country_code = Column(String(8), nullable=True)
+    region = Column(String, nullable=True)
+    city = Column(String, nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    asn = Column(String, nullable=True)
+    asn_org = Column(String, nullable=True)
+    isp = Column(String, nullable=True)
     
     created_at = Column(DateTime, server_default=func.now())
 
@@ -186,6 +197,15 @@ class AsmIP(Base):
             "exposure_score": self.exposure_score,
             "exposure_level": self.exposure_level or "not_calculated",
             "reachable": self.reachable,
+            "country": self.country,
+            "country_code": self.country_code,
+            "region": self.region,
+            "city": self.city,
+            "latitude": self.latitude,
+            "longitude": self.longitude,
+            "asn": self.asn,
+            "asn_org": self.asn_org,
+            "isp": self.isp,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 

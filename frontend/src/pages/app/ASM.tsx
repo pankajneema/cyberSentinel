@@ -9,6 +9,7 @@ import { ScanManager } from "@/components/asm/DiscoveryManager";
 import { ASMSettings } from "@/components/asm/ASMSettings";
 import { DiscoveryRunsList } from "@/components/asm/DiscoveryRunsList";
 import { ASMFindings } from "@/components/asm/ASMFindings";
+import { IPGeoMap } from "@/components/asm/IPGeoMap";
 import { ASMReports } from "@/components/asm/ASMReports";
 import { motion } from "framer-motion";
 
@@ -18,6 +19,7 @@ const tabs = [
   { value: "reports", label: "Reports", icon: FileText },
   { value: "findings", label: "Findings", icon: Shield },
   { value: "graph", label: "Graph", icon: GitBranch },
+  { value: "geo_map", label: "Geo Map", icon: Radar },
   { value: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -41,6 +43,10 @@ const tabMeta: Record<string, { title: string; description: string }> = {
   graph: {
     title: "Attack Surface Graph",
     description: "Visualize relationships across assets and discoveries",
+  },
+  geo_map: {
+    title: "IP Geolocation Map",
+    description: "Map discovered IP addresses by country, city, and ASN",
   },
   settings: {
     title: "ASM Settings",
@@ -122,6 +128,9 @@ export default function ASM() {
           </TabsContent>
           <TabsContent value="graph" forceMount className="mt-0 data-[state=inactive]:hidden">
             <AttackSurfaceGraph />
+          </TabsContent>
+          <TabsContent value="geo_map" forceMount className="mt-0 data-[state=inactive]:hidden">
+            <IPGeoMap />
           </TabsContent>
           <TabsContent value="scans" forceMount className="mt-0 data-[state=inactive]:hidden">
             <ScanManager />
