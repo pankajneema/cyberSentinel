@@ -172,6 +172,19 @@ class AsmIPResponse(BaseModel):
     asn: Optional[str] = None
     asn_org: Optional[str] = None
     isp: Optional[str] = None
+    owner_org: Optional[str] = None
+    rdap_country: Optional[str] = None
+    ptr_record: Optional[str] = None
+    attribution_source: Optional[str] = None
+    attribution_confidence: Optional[int] = None
+    cloud_provider: Optional[str] = None
+    is_cloud: Optional[bool] = None
+    is_cdn: Optional[bool] = None
+    cdn_provider: Optional[str] = None
+    last_scanned_at: Optional[str] = None
+    last_scan_duration_ms: Optional[int] = None
+    scan_metadata: Optional[dict] = None
+    score_explanation: Optional[list] = None
     open_ports: Optional[int] = None
     created_at: Optional[str]
 

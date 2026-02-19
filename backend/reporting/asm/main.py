@@ -11,6 +11,7 @@ import logging
 import json
 from typing import Any
 from backend.reporting.asm.assets.domain import process_domain_asm, store_step_data
+from backend.reporting.asm.assets.ip import process_ip_asm
 from backend.api_service.utils.database import AsyncSessionLocal
 from backend.api_service.utils.queue import consume_messages, close_queue
 from backend.api_service.utils.redis_client import get_redis, close_redis
@@ -115,7 +116,10 @@ async def handle_final_event(event: dict[str, Any], redis_client=None) -> None:
         try:
             if asset_type == "domain":
                 await process_domain_asm(db, job_detail)
-                logger.info(f"✅ Pipeline processing completed for job={job_id}")
+                logger.info(f"✅ Domain pipeline processing completed for job={job_id}")
+            elif asset_type == "ip":
+                await process_ip_asm(db, job_detail)
+                logger.info(f"✅ IP pipeline processing completed for job={job_id}")
             else:
                 logger.warning(f"Unsupported asset type: {asset_type} for job={job_id}")
         except Exception as e:
@@ -140,6 +144,8 @@ async def handle_pipeline_event(event: dict[str, Any]) -> None:
         try:
             if asset_type == "domain":
                 await process_domain_asm(db, event)
+            elif asset_type == "ip":
+                await process_ip_asm(db, event)
             else:
                 logger.warning(f"Unsupported asset type: {asset_type} for job={job_id}")
         except Exception as e:

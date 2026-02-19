@@ -177,6 +177,25 @@ class AsmIP(Base):
     asn = Column(String, nullable=True)
     asn_org = Column(String, nullable=True)
     isp = Column(String, nullable=True)
+
+    # IP ownership / attribution
+    owner_org = Column(String, nullable=True)
+    rdap_country = Column(String, nullable=True)
+    ptr_record = Column(String, nullable=True)
+    attribution_source = Column(String, nullable=True)
+    attribution_confidence = Column(Integer, nullable=True)
+
+    # Cloud/CDN attribution
+    cloud_provider = Column(String, nullable=True)
+    is_cloud = Column(Boolean, nullable=True)
+    is_cdn = Column(Boolean, nullable=True)
+    cdn_provider = Column(String, nullable=True)
+
+    # Scan lifecycle metadata
+    last_scanned_at = Column(DateTime, nullable=True)
+    last_scan_duration_ms = Column(Integer, nullable=True)
+    scan_metadata = Column(JSON, nullable=True)
+    score_explanation = Column(JSON, nullable=True)
     
     created_at = Column(DateTime, server_default=func.now())
 
@@ -206,6 +225,19 @@ class AsmIP(Base):
             "asn": self.asn,
             "asn_org": self.asn_org,
             "isp": self.isp,
+            "owner_org": self.owner_org,
+            "rdap_country": self.rdap_country,
+            "ptr_record": self.ptr_record,
+            "attribution_source": self.attribution_source,
+            "attribution_confidence": self.attribution_confidence,
+            "cloud_provider": self.cloud_provider,
+            "is_cloud": self.is_cloud,
+            "is_cdn": self.is_cdn,
+            "cdn_provider": self.cdn_provider,
+            "last_scanned_at": self.last_scanned_at.isoformat() if self.last_scanned_at else None,
+            "last_scan_duration_ms": self.last_scan_duration_ms,
+            "scan_metadata": self.scan_metadata,
+            "score_explanation": self.score_explanation,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 

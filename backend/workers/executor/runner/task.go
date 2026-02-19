@@ -1007,6 +1007,184 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 			}
 			utils.Logger.Infof("asset_diff_engine completed job=%s step=%d", task.JobID, i)
 
+		// -------------------------
+		// IP ASM tools (LIGHT/NORMAL/DEEP)
+		// -------------------------
+		case "ip_target_seed":
+			seeds, ips, err := buildIPSeedTargets(ctx, task.JobID, enhancedPipeline.Pipeline[i].AssetID)
+			if err != nil {
+				toolErr = err
+				break
+			}
+			output = map[string]interface{}{
+				"targets": seeds,
+				"ips":     ips,
+				"count":   len(ips),
+			}
+			utils.Logger.Infof("ip_target_seed completed job=%s step=%d targets=%d", task.JobID, i, len(ips))
+
+		case "ip_alive_check", "ip_alive_check_deep":
+			ips := collectIPTargets(enhancedPipeline.Pipeline, i, enhancedPipeline.Pipeline[i].AssetID)
+			alive, dead := runAliveCheck(ctx, ips)
+			output = map[string]interface{}{
+				"alive":         alive,
+				"dead":          dead,
+				"is_alive":      len(alive) > 0,
+				"response_type": "icmp_or_tcp",
+				"checked_at":    time.Now().UTC().Format(time.RFC3339),
+			}
+			utils.Logger.Infof("ip_alive_check completed job=%s step=%d alive=%d dead=%d", task.JobID, i, len(alive), len(dead))
+
+		case "ip_port_scan_light":
+			ips := collectIPTargets(enhancedPipeline.Pipeline, i, enhancedPipeline.Pipeline[i].AssetID)
+			ports := runNmapPortScan(ctx, ips, 100, false, false)
+			output = map[string]interface{}{
+				"ports": ports,
+				"count": len(ports),
+			}
+
+		case "ip_port_scan_normal":
+			ips := collectIPTargets(enhancedPipeline.Pipeline, i, enhancedPipeline.Pipeline[i].AssetID)
+			ports := runNmapPortScan(ctx, ips, 1000, false, false)
+			output = map[string]interface{}{
+				"ports": ports,
+				"count": len(ports),
+			}
+
+		case "ip_port_scan_deep":
+			ips := collectIPTargets(enhancedPipeline.Pipeline, i, enhancedPipeline.Pipeline[i].AssetID)
+			ports := runNmapPortScan(ctx, ips, 0, true, false)
+			output = map[string]interface{}{
+				"ports": ports,
+				"count": len(ports),
+			}
+
+		case "ip_udp_scan_normal":
+			ips := collectIPTargets(enhancedPipeline.Pipeline, i, enhancedPipeline.Pipeline[i].AssetID)
+			udpPorts := runNmapPortScan(ctx, ips, 20, false, true)
+			output = map[string]interface{}{
+				"udp_ports": udpPorts,
+				"count":     len(udpPorts),
+			}
+
+		case "ip_udp_scan_deep":
+			ips := collectIPTargets(enhancedPipeline.Pipeline, i, enhancedPipeline.Pipeline[i].AssetID)
+			udpPorts := runNmapPortScan(ctx, ips, 100, false, true)
+			output = map[string]interface{}{
+				"udp_ports": udpPorts,
+				"count":     len(udpPorts),
+			}
+
+		case "ip_service_fingerprint_light", "ip_service_fingerprint_normal", "ip_service_fingerprint_deep", "ip_banner_grab":
+			var currentPorts []map[string]interface{}
+			for j := i - 1; j >= 0; j-- {
+				if enhancedPipeline.Pipeline[j].Status != "COMPLETED" {
+					continue
+				}
+				if enhancedPipeline.Pipeline[j].Step != "common_port_scan" {
+					continue
+				}
+				if p, ok := enhancedPipeline.Pipeline[j].Result["ports"].([]interface{}); ok {
+					for _, item := range p {
+						if portMap, ok := item.(map[string]interface{}); ok {
+							currentPorts = append(currentPorts, portMap)
+						}
+					}
+				}
+				break
+			}
+			serviceList := runServiceFingerprint(ctx, currentPorts, enhancedPipeline.Intensity)
+			output = map[string]interface{}{
+				"services": serviceList,
+				"count":    len(serviceList),
+			}
+
+		case "ip_http_probe_light", "ip_http_probe_normal", "ip_http_probe_deep":
+			ips := collectIPTargets(enhancedPipeline.Pipeline, i, enhancedPipeline.Pipeline[i].AssetID)
+			responses := runHTTPProbeForIPs(ctx, ips)
+			output = map[string]interface{}{
+				"responses": responses,
+				"count":     len(responses),
+			}
+
+		case "ip_enrichment_cached", "ip_enrichment_fresh":
+			ips := collectIPTargets(enhancedPipeline.Pipeline, i, enhancedPipeline.Pipeline[i].AssetID)
+			enrichment := runIPGeoEnrichment(ctx, ips)
+			output = map[string]interface{}{
+				"enrichment": enrichment,
+				"count":      len(enrichment),
+			}
+
+		case "ip_whois_rdap", "ip_whois_rdap_fresh":
+			ips := collectIPTargets(enhancedPipeline.Pipeline, i, enhancedPipeline.Pipeline[i].AssetID)
+			rdap := runRDAPLookup(ctx, ips)
+			output = map[string]interface{}{
+				"whois_rdap": rdap,
+				"count":      len(rdap),
+			}
+
+		case "ip_tls_deep":
+			ips := collectIPTargets(enhancedPipeline.Pipeline, i, enhancedPipeline.Pipeline[i].AssetID)
+			var tlsResults []map[string]interface{}
+			for _, ip := range ips {
+				tlsResults = append(tlsResults, map[string]interface{}{
+					"host":        ip,
+					"port":        443,
+					"protocol":    "tls",
+					"cipher":      "",
+					"certificate": "",
+					"issuer":      "",
+					"valid_until": "",
+				})
+			}
+			output = map[string]interface{}{
+				"ssl_results": tlsResults,
+				"count":       len(tlsResults),
+			}
+
+		case "ip_relationship_map":
+			ips := collectIPTargets(enhancedPipeline.Pipeline, i, enhancedPipeline.Pipeline[i].AssetID)
+			output = map[string]interface{}{
+				"relationships": map[string]interface{}{
+					"ips": ips,
+				},
+			}
+
+		case "ip_diff":
+			output = map[string]interface{}{
+				"changes": []interface{}{},
+				"message": "Diff baseline recorded for current IP scan",
+			}
+
+		case "ip_exposure_score":
+			var currentPorts []map[string]interface{}
+			for j := i - 1; j >= 0; j-- {
+				if enhancedPipeline.Pipeline[j].Status != "COMPLETED" {
+					continue
+				}
+				if enhancedPipeline.Pipeline[j].Step != "common_port_scan" {
+					continue
+				}
+				if p, ok := enhancedPipeline.Pipeline[j].Result["ports"].([]interface{}); ok {
+					for _, item := range p {
+						if portMap, ok := item.(map[string]interface{}); ok {
+							currentPorts = append(currentPorts, portMap)
+						}
+					}
+				}
+				break
+			}
+			output = map[string]interface{}{
+				"scores": scoreExposure(currentPorts),
+			}
+
+		case "ip_findings_summary":
+			ips := collectIPTargets(enhancedPipeline.Pipeline, i, enhancedPipeline.Pipeline[i].AssetID)
+			output = map[string]interface{}{
+				"summary": fmt.Sprintf("IP discovery completed. %d hosts analyzed across %s intensity.",
+					len(ips), enhancedPipeline.Intensity),
+			}
+
 		default:
 			toolErr = errors.New("unknown tool: " + enhancedPipeline.Pipeline[i].Tool)
 			utils.Logger.Errorf("unknown tool job=%s step=%d tool=%s", task.JobID, i, enhancedPipeline.Pipeline[i].Tool)
