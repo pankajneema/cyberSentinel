@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"workers/utils"
 )
@@ -14,13 +15,13 @@ import (
 func VerifyTools() error {
 	// LIGHT intensity tools (required)
 	lightTools := []string{"subfinder", "dnsx", "httpx", "httprobe"}
-	
+
 	// MEDIUM (NORMAL) intensity tools (optional but recommended)
-	mediumTools := []string{"top_ports_scanner", "service_detector", "ssl_analyzer", "api_detector"}
-	
+	mediumTools := []string{"amass", "asnmap", "top_ports_scanner", "service_detector", "ssl_analyzer", "api_detector"}
+
 	// HIGH (DEEP) intensity tools (optional)
-	deepTools := []string{"cloud_osint", "admin_finder", "backup_detector", "asset_diff_engine"}
-	
+	deepTools := []string{"bbot", "dnsgen", "nuclei", "cloud_osint", "admin_finder", "backup_detector", "asset_diff_engine"}
+
 	missing := []string{}
 	warnings := []string{}
 
@@ -88,13 +89,26 @@ func findToolPath(toolName string) (string, error) {
 		}
 	}
 
-	// Try common Go bin locations
+	// Try common Go/Python user bin locations
 	homeDir, _ := os.UserHomeDir()
 	commonPaths := []string{
 		filepath.Join(homeDir, "go", "bin", toolName),
+		filepath.Join(homeDir, ".local", "bin", toolName),
+		filepath.Join(homeDir, ".local", "pipx", "venvs", toolName, "bin", toolName),
 		filepath.Join("/home", "anonymous", "go", "bin", toolName),
+		filepath.Join("/opt", "homebrew", "bin", toolName),
 		filepath.Join("/usr", "local", "bin", toolName),
 		filepath.Join("/usr", "bin", toolName),
+	}
+
+	if pyUserBase := os.Getenv("PYTHONUSERBASE"); pyUserBase != "" {
+		commonPaths = append(commonPaths, filepath.Join(pyUserBase, "bin", toolName))
+	}
+
+	if homeDir != "" {
+		if matches, err := filepath.Glob(filepath.Join(homeDir, "Library", "Python", "*", "bin", toolName)); err == nil {
+			commonPaths = append(commonPaths, matches...)
+		}
 	}
 
 	for _, path := range commonPaths {
@@ -112,41 +126,63 @@ func findToolPath(toolName string) (string, error) {
 func SetupPath() {
 	goPath := os.Getenv("GOPATH")
 	homeDir, _ := os.UserHomeDir()
-	
+
 	pathsToAdd := []string{}
-	
+
 	if goPath != "" {
 		goBin := filepath.Join(goPath, "bin")
 		if _, err := os.Stat(goBin); err == nil {
 			pathsToAdd = append(pathsToAdd, goBin)
 		}
 	}
-	
+
 	if homeDir != "" {
 		userGoBin := filepath.Join(homeDir, "go", "bin")
 		if _, err := os.Stat(userGoBin); err == nil {
 			pathsToAdd = append(pathsToAdd, userGoBin)
 		}
+
+		userLocalBin := filepath.Join(homeDir, ".local", "bin")
+		if _, err := os.Stat(userLocalBin); err == nil {
+			pathsToAdd = append(pathsToAdd, userLocalBin)
+		}
+
+		if matches, err := filepath.Glob(filepath.Join(homeDir, "Library", "Python", "*", "bin")); err == nil {
+			pathsToAdd = append(pathsToAdd, matches...)
+		}
 	}
-	
+
 	// Also check explicit path
 	explicitGoBin := "/home/anonymous/go/bin"
 	if _, err := os.Stat(explicitGoBin); err == nil {
 		pathsToAdd = append(pathsToAdd, explicitGoBin)
 	}
-	
+
+	if pyUserBase := os.Getenv("PYTHONUSERBASE"); pyUserBase != "" {
+		pyUserBin := filepath.Join(pyUserBase, "bin")
+		if _, err := os.Stat(pyUserBin); err == nil {
+			pathsToAdd = append(pathsToAdd, pyUserBin)
+		}
+	}
+
+	if _, err := os.Stat("/opt/homebrew/bin"); err == nil {
+		pathsToAdd = append(pathsToAdd, "/opt/homebrew/bin")
+	}
+
 	currentPath := os.Getenv("PATH")
 	for _, path := range pathsToAdd {
+		if path == "" || strings.Contains(currentPath, path) {
+			continue
+		}
 		if currentPath == "" {
 			currentPath = path
 		} else {
 			currentPath = path + ":" + currentPath
 		}
 	}
-	
+
 	if len(pathsToAdd) > 0 {
 		os.Setenv("PATH", currentPath)
 		utils.Logger.Infof("updated PATH to include: %v", pathsToAdd)
 	}
 }
-

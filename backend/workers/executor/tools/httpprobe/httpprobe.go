@@ -86,6 +86,7 @@ func RunReachabilityCheck(ctx context.Context, subdomains []string) ([]string, e
 	}
 
 	var reachable []string
+	seen := make(map[string]bool)
 	scanner := bufio.NewScanner(stdout)
 
 	for scanner.Scan() {
@@ -102,7 +103,10 @@ func RunReachabilityCheck(ctx context.Context, subdomains []string) ([]string, e
 			if idx := strings.Index(url, "/"); idx != -1 {
 				url = url[:idx]
 			}
-			reachable = append(reachable, url)
+			if !seen[url] {
+				reachable = append(reachable, url)
+				seen[url] = true
+			}
 		}
 	}
 
@@ -114,4 +118,3 @@ func RunReachabilityCheck(ctx context.Context, subdomains []string) ([]string, e
 	utils.Logger.Infof("httprobe found %d/%d reachable subdomains", len(reachable), len(subdomains))
 	return reachable, nil
 }
-

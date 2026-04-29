@@ -22,6 +22,11 @@ else
     GO_INSTALLED=false
 fi
 
+USER_PYTHON_BIN="$(python3 -m site --user-base 2>/dev/null)/bin"
+if [ -n "$USER_PYTHON_BIN" ]; then
+    export PATH="$PATH:$USER_PYTHON_BIN"
+fi
+
 # Function to install tool
 install_tool() {
     local tool_name=$1
@@ -46,6 +51,7 @@ install_tool() {
 
 # Install subfinder
 if [ "$GO_INSTALLED" = true ]; then
+    #install_tool "subfinder" "go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"
     install_tool "subfinder" "go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"
 else
     echo -e "${YELLOW}Installing subfinder via curl...${NC}"
@@ -79,6 +85,14 @@ else
     wget -qO- https://github.com/tomnomnom/httprobe/releases/latest/download/httprobe-linux-amd64 -O /tmp/httprobe && \
     sudo mv /tmp/httprobe /usr/local/bin/httprobe && \
     sudo chmod +x /usr/local/bin/httprobe
+fi
+
+# PDF-aligned NORMAL mode helpers
+if [ "$GO_INSTALLED" = true ]; then
+    install_tool "amass" "go install github.com/owasp-amass/amass/v4/...@master"
+    install_tool "asnmap" "go install github.com/projectdiscovery/asnmap/cmd/asnmap@latest"
+else
+    echo -e "${YELLOW}Skipping amass/asnmap auto-install because Go is unavailable.${NC}"
 fi
 
 # ============================================
@@ -165,6 +179,16 @@ katana -u "$1" -silent -json 2>/dev/null | grep -i "api\|endpoint" || katana -u 
 EOF
     sudo chmod +x /usr/local/bin/api_detector
     echo -e "${GREEN}✓ api_detector created${NC}"
+fi
+
+# PDF-aligned DEEP mode helpers
+install_tool "bbot" "python3 -m pip install --user --break-system-packages bbot"
+install_tool "dnsgen" "python3 -m pip install --user --break-system-packages dnsgen"
+
+if [ "$GO_INSTALLED" = true ]; then
+    install_tool "nuclei" "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
+else
+    echo -e "${YELLOW}Skipping nuclei auto-install because Go is unavailable.${NC}"
 fi
 
 # ============================================
@@ -278,10 +302,10 @@ echo ""
 TOOLS=("subfinder" "dnsx" "httpx" "httprobe")
 
 # MEDIUM (NORMAL) intensity tools
-MEDIUM_TOOLS=("top_ports_scanner" "service_detector" "ssl_analyzer" "api_detector")
+MEDIUM_TOOLS=("amass" "asnmap" "top_ports_scanner" "service_detector" "ssl_analyzer" "api_detector")
 
 # HIGH (DEEP) intensity tools
-DEEP_TOOLS=("cloud_osint" "admin_finder" "backup_detector" "asset_diff_engine")
+DEEP_TOOLS=("bbot" "dnsgen" "nuclei" "cloud_osint" "admin_finder" "backup_detector" "asset_diff_engine")
 
 ALL_INSTALLED=true
 
@@ -333,15 +357,19 @@ else
     echo "    - httpx: https://github.com/projectdiscovery/httpx"
     echo "    - httprobe: https://github.com/tomnomnom/httprobe"
     echo "  MEDIUM (NORMAL):"
+    echo "    - amass: https://github.com/owasp-amass/amass"
+    echo "    - asnmap: https://github.com/projectdiscovery/asnmap"
     echo "    - naabu (top_ports_scanner): https://github.com/projectdiscovery/naabu"
     echo "    - nmap (service_detector): https://nmap.org"
     echo "    - sslscan (ssl_analyzer): https://github.com/rbsec/sslscan"
     echo "    - katana (api_detector): https://github.com/projectdiscovery/katana"
     echo "  HIGH (DEEP):"
+    echo "    - bbot: https://github.com/blacklanternsecurity/bbot"
+    echo "    - dnsgen: https://github.com/ProjectAnte/dnsgen"
+    echo "    - nuclei: https://github.com/projectdiscovery/nuclei"
     echo "    - cloud_enum (cloud_osint): https://github.com/initstring/cloud_enum"
     echo "    - gobuster (admin_finder): https://github.com/OJ/gobuster"
     echo "    - backup_detector: Custom script (created by install script)"
     echo "    - asset_diff_engine: Custom script (created by install script)"
     exit 1
 fi
-

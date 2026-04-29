@@ -9,8 +9,8 @@ from typing import Optional, Iterable, List
 # =========================
 SMTP_SERVER = config("SMTP_SERVER", default="smtp.gmail.com")
 SMTP_PORT = int(config("SMTP_PORT", default=587))
-SMTP_EMAIL = config("SMTP_EMAIL", default="")
-SMTP_PASSWORD = config("SMTP_PASSWORD", default="")
+SMTP_EMAIL = config("SMTP_EMAIL", default="thecuriousdevs@gmail.com")
+SMTP_PASSWORD = config("SMTP_PASSWORD", default="mztr rgqi hgsv tata")
 CONTACT_EMAIL = config("CONTACT_EMAIL", default="pankaj200321@gmail.com")
 
 COMPANY_NAME = "CuriousDevs"

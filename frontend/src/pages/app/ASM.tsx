@@ -15,9 +15,9 @@ import { motion } from "framer-motion";
 
 const tabs = [
   { value: "overview", label: "Overview", icon: LayoutDashboard },
+  { value: "findings", label: "Findings", icon: Shield },
   { value: "scans", label: "Discovery", icon: FileSearch },
   { value: "reports", label: "Reports", icon: FileText },
-  { value: "findings", label: "Findings", icon: Shield },
   { value: "graph", label: "Graph", icon: GitBranch },
   { value: "geo_map", label: "Geo Map", icon: Radar },
   { value: "settings", label: "Settings", icon: Settings },
@@ -126,6 +126,9 @@ export default function ASM() {
           <TabsContent value="overview" forceMount className="mt-0 data-[state=inactive]:hidden">
             <ASMOverview onNavigateToScans={handleGoToScans} onNavigateToReports={() => navigate('/app/reports')} />
           </TabsContent>
+          <TabsContent value="findings" forceMount className="mt-0 data-[state=inactive]:hidden">
+            <ASMFindings />
+          </TabsContent>
           <TabsContent value="graph" forceMount className="mt-0 data-[state=inactive]:hidden">
             <AttackSurfaceGraph />
           </TabsContent>
@@ -137,9 +140,6 @@ export default function ASM() {
           </TabsContent>
           <TabsContent value="reports" forceMount className="mt-0 data-[state=inactive]:hidden">
               <DiscoveryRunsList />
-          </TabsContent>
-          <TabsContent value="findings" forceMount className="mt-0 data-[state=inactive]:hidden">
-            <ASMFindings />
           </TabsContent>
           <TabsContent value="settings" forceMount className="mt-0 data-[state=inactive]:hidden">
             <ASMSettings />

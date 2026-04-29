@@ -10,7 +10,11 @@ import (
 
 	"workers/database"
 	"workers/executor"
+	amass "workers/executor/tools/amass"
+	bbot "workers/executor/tools/bbot"
 	cloudenum "workers/executor/tools/cloudenum"
+	"workers/executor/tools/crtsh"
+	dnsgen "workers/executor/tools/dnsgen"
 	"workers/executor/tools/dnsx"
 	gobuster "workers/executor/tools/gobuster"
 	"workers/executor/tools/httpprobe"
@@ -18,6 +22,7 @@ import (
 	katana "workers/executor/tools/katana"
 	naabu "workers/executor/tools/naabu"
 	nmap "workers/executor/tools/nmap"
+	"workers/executor/tools/nuclei"
 	sslscan "workers/executor/tools/sslscan"
 	"workers/executor/tools/subfinder"
 	"workers/utils"
@@ -328,34 +333,72 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 				utils.Logger.Infof("subfinder completed job=%s step=%d domain=%s", task.JobID, i, domainName)
 			}
 
-		case "dnsx":
-			// DNS resolution - needs subdomains from previous subdomain_discovery step
-			var subdomains []string
-			if i > 0 {
-				// Look for subdomain_discovery step result
-				for j := 0; j < i; j++ {
-					if enhancedPipeline.Pipeline[j].Step == "subdomain_discovery" &&
-						enhancedPipeline.Pipeline[j].Status == "COMPLETED" {
-						result := enhancedPipeline.Pipeline[j].Result
-						if subdomainsData, ok := result["subdomains"].([]interface{}); ok {
-							for _, sd := range subdomainsData {
-								if sdStr, ok := sd.(string); ok {
-									subdomains = append(subdomains, sdStr)
-								}
-							}
-						} else if data, ok := result["data"].([]interface{}); ok {
-							for _, item := range data {
-								if sdStr, ok := item.(string); ok {
-									subdomains = append(subdomains, sdStr)
-								}
-							}
-						} else if data, ok := result["data"].([]string); ok {
-							subdomains = data
-						}
-						break
-					}
+		case "crtsh":
+			domainName := enhancedPipeline.AssetName
+			if domainName == "" {
+				domainName = enhancedPipeline.AssetType
+			}
+			subdomains, err := crtsh.RunCertificateDiscovery(ctx, domainName)
+			if err != nil {
+				toolErr = err
+				utils.Logger.Errorf("crtsh failed job=%s step=%d domain=%s error=%v", task.JobID, i, domainName, err)
+			} else {
+				output = map[string]interface{}{
+					"subdomains": subdomains,
+					"count":      len(subdomains),
+					"source":     "crt.sh",
 				}
 			}
+
+		case "amass":
+			domainName := enhancedPipeline.AssetName
+			if domainName == "" {
+				domainName = enhancedPipeline.AssetType
+			}
+			subdomains, err := amass.RunDeepDiscovery(ctx, domainName)
+			if err != nil {
+				toolErr = err
+				utils.Logger.Errorf("amass failed job=%s step=%d domain=%s error=%v", task.JobID, i, domainName, err)
+			} else {
+				output = map[string]interface{}{
+					"subdomains": subdomains,
+					"count":      len(subdomains),
+				}
+			}
+
+		case "bbot":
+			domainName := enhancedPipeline.AssetName
+			if domainName == "" {
+				domainName = enhancedPipeline.AssetType
+			}
+			subdomains, err := bbot.RunRecursiveDiscovery(ctx, domainName)
+			if err != nil {
+				toolErr = err
+				utils.Logger.Errorf("bbot failed job=%s step=%d domain=%s error=%v", task.JobID, i, domainName, err)
+			} else {
+				output = map[string]interface{}{
+					"subdomains": subdomains,
+					"count":      len(subdomains),
+				}
+			}
+
+		case "dnsgen":
+			seeds := collectSubdomainsFromPipeline(enhancedPipeline.Pipeline, i)
+			candidates, err := dnsgen.RunExpansion(ctx, seeds)
+			if err != nil {
+				toolErr = err
+				utils.Logger.Errorf("dnsgen failed job=%s step=%d error=%v", task.JobID, i, err)
+			} else {
+				output = map[string]interface{}{
+					"subdomains": candidates,
+					"candidates": candidates,
+					"count":      len(candidates),
+				}
+			}
+
+		case "dnsx":
+			// DNS resolution - needs subdomains from previous subdomain_discovery step
+			subdomains := collectSubdomainsFromPipeline(enhancedPipeline.Pipeline, i)
 
 			if len(subdomains) == 0 {
 				utils.Logger.Warnf("no subdomains found for dnsx resolution job=%s step=%d", task.JobID, i)
@@ -394,32 +437,7 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 
 		case "http_probe":
 			// HTTP reachability check - needs subdomains from previous steps
-			var subdomains []string
-			if i > 0 {
-				// Look for subdomain_discovery step result
-				for j := 0; j < i; j++ {
-					if enhancedPipeline.Pipeline[j].Step == "subdomain_discovery" &&
-						enhancedPipeline.Pipeline[j].Status == "COMPLETED" {
-						result := enhancedPipeline.Pipeline[j].Result
-						if subdomainsData, ok := result["subdomains"].([]interface{}); ok {
-							for _, sd := range subdomainsData {
-								if sdStr, ok := sd.(string); ok {
-									subdomains = append(subdomains, sdStr)
-								}
-							}
-						} else if data, ok := result["data"].([]interface{}); ok {
-							for _, item := range data {
-								if sdStr, ok := item.(string); ok {
-									subdomains = append(subdomains, sdStr)
-								}
-							}
-						} else if data, ok := result["data"].([]string); ok {
-							subdomains = data
-						}
-						break
-					}
-				}
-			}
+			subdomains := collectSubdomainsFromPipeline(enhancedPipeline.Pipeline, i)
 
 			if len(subdomains) == 0 {
 				utils.Logger.Warnf("no subdomains found for http_probe job=%s step=%d", task.JobID, i)
@@ -455,32 +473,7 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 
 		case "httpx":
 			// HTTP status check - needs subdomains from previous steps
-			var subdomains []string
-			if i > 0 {
-				// Look for subdomain_discovery step result
-				for j := 0; j < i; j++ {
-					if enhancedPipeline.Pipeline[j].Step == "subdomain_discovery" &&
-						enhancedPipeline.Pipeline[j].Status == "COMPLETED" {
-						result := enhancedPipeline.Pipeline[j].Result
-						if subdomainsData, ok := result["subdomains"].([]interface{}); ok {
-							for _, sd := range subdomainsData {
-								if sdStr, ok := sd.(string); ok {
-									subdomains = append(subdomains, sdStr)
-								}
-							}
-						} else if data, ok := result["data"].([]interface{}); ok {
-							for _, item := range data {
-								if sdStr, ok := item.(string); ok {
-									subdomains = append(subdomains, sdStr)
-								}
-							}
-						} else if data, ok := result["data"].([]string); ok {
-							subdomains = data
-						}
-						break
-					}
-				}
-			}
+			subdomains := collectSubdomainsFromPipeline(enhancedPipeline.Pipeline, i)
 
 			if len(subdomains) == 0 {
 				utils.Logger.Warnf("no subdomains found for httpx job=%s step=%d", task.JobID, i)
@@ -514,31 +507,7 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 
 		case "ip_mapping":
 			// IP mapping - uses dnsx to map subdomains to IPs (same as dns_resolution)
-			var subdomains []string
-			if i > 0 {
-				for j := 0; j < i; j++ {
-					if enhancedPipeline.Pipeline[j].Step == "subdomain_discovery" &&
-						enhancedPipeline.Pipeline[j].Status == "COMPLETED" {
-						result := enhancedPipeline.Pipeline[j].Result
-						if subdomainsData, ok := result["subdomains"].([]interface{}); ok {
-							for _, sd := range subdomainsData {
-								if sdStr, ok := sd.(string); ok {
-									subdomains = append(subdomains, sdStr)
-								}
-							}
-						} else if data, ok := result["data"].([]interface{}); ok {
-							for _, item := range data {
-								if sdStr, ok := item.(string); ok {
-									subdomains = append(subdomains, sdStr)
-								}
-							}
-						} else if data, ok := result["data"].([]string); ok {
-							subdomains = data
-						}
-						break
-					}
-				}
-			}
+			subdomains := collectSubdomainsFromPipeline(enhancedPipeline.Pipeline, i)
 
 			if len(subdomains) == 0 {
 				utils.Logger.Warnf("no subdomains found for ip_mapping job=%s step=%d", task.JobID, i)
@@ -566,37 +535,85 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 				}
 			}
 
-		case "top_ports_scanner", "naabu":
-			// Port scanning - needs IPs from previous dns_resolution or ip_mapping steps
-			// Collect IPs from ALL matching steps (not just the first one)
-			var ips []string
-			ipSet := make(map[string]bool) // Use map to avoid duplicates
-			if i > 0 {
-				for j := 0; j < i; j++ {
-					if (enhancedPipeline.Pipeline[j].Step == "dns_resolution" ||
-						enhancedPipeline.Pipeline[j].Step == "ip_mapping") &&
-						enhancedPipeline.Pipeline[j].Status == "COMPLETED" {
-						result := enhancedPipeline.Pipeline[j].Result
-						if resolved, ok := result["resolved"].([]interface{}); ok {
-							for _, item := range resolved {
-								if itemMap, ok := item.(map[string]interface{}); ok {
-									if ipList, ok := itemMap["ips"].([]interface{}); ok {
-										for _, ip := range ipList {
-											if ipStr, ok := ip.(string); ok {
-												if !ipSet[ipStr] {
-													ips = append(ips, ipStr)
-													ipSet[ipStr] = true
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-						// Don't break - continue checking other steps
+		case "ipinfo":
+			ips := collectIPsFromResolutionSteps(enhancedPipeline.Pipeline, i)
+			enrichment := runIPGeoEnrichment(ctx, ips)
+			if enrichment == nil {
+				enrichment = []map[string]interface{}{}
+			}
+			output = map[string]interface{}{
+				"enrichment": enrichment,
+				"count":      len(enrichment),
+			}
+
+		case "asnmap":
+			ips := collectIPsFromResolutionSteps(enhancedPipeline.Pipeline, i)
+			enrichment := runIPGeoEnrichment(ctx, ips)
+			rdap := runRDAPLookup(ctx, ips)
+			type asnAggregate struct {
+				asn       string
+				asnOrg    string
+				ipCount   int
+				countries map[string]bool
+			}
+			aggregates := make(map[string]*asnAggregate)
+			for _, item := range enrichment {
+				asn, _ := item["asn"].(string)
+				if asn == "" {
+					continue
+				}
+				agg, exists := aggregates[asn]
+				if !exists {
+					agg = &asnAggregate{
+						asn:       asn,
+						asnOrg:    fmt.Sprint(item["asn_org"]),
+						countries: make(map[string]bool),
 					}
+					aggregates[asn] = agg
+				}
+				agg.ipCount++
+				if country, ok := item["country"].(string); ok && country != "" {
+					agg.countries[country] = true
 				}
 			}
+			var ranges []map[string]interface{}
+			for _, item := range rdap {
+				ranges = append(ranges, map[string]interface{}{
+					"ip":            item["ip"],
+					"name":          item["name"],
+					"country":       item["country"],
+					"start_address": item["startAddress"],
+					"end_address":   item["endAddress"],
+					"handle":        item["handle"],
+				})
+			}
+			var asns []map[string]interface{}
+			for _, agg := range aggregates {
+				countries := make([]string, 0, len(agg.countries))
+				for country := range agg.countries {
+					countries = append(countries, country)
+				}
+				asns = append(asns, map[string]interface{}{
+					"asn":       agg.asn,
+					"asn_org":   agg.asnOrg,
+					"ip_count":  agg.ipCount,
+					"countries": countries,
+				})
+			}
+			if asns == nil {
+				asns = []map[string]interface{}{}
+			}
+			if ranges == nil {
+				ranges = []map[string]interface{}{}
+			}
+			output = map[string]interface{}{
+				"asns":   asns,
+				"ranges": ranges,
+				"count":  len(asns),
+			}
+
+		case "top_ports_scanner", "naabu":
+			ips := collectIPsFromResolutionSteps(enhancedPipeline.Pipeline, i)
 
 			utils.Logger.Debugf("top_ports_scanner: collected %d unique IPs for job=%s step=%d", len(ips), task.JobID, i)
 			if len(ips) == 0 {
@@ -636,51 +653,8 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 			}
 
 		case "service_detector":
-			// Service fingerprinting - needs IPs and ports from previous steps
-			// Collect IPs from ALL matching steps (dns_resolution and ip_mapping)
-			var ips []string
-			ipSet := make(map[string]bool) // Use map to avoid duplicates
-			var ports []int
-			if i > 0 {
-				for j := 0; j < i; j++ {
-					// Collect IPs from both dns_resolution and ip_mapping
-					if (enhancedPipeline.Pipeline[j].Step == "dns_resolution" ||
-						enhancedPipeline.Pipeline[j].Step == "ip_mapping") &&
-						enhancedPipeline.Pipeline[j].Status == "COMPLETED" {
-						result := enhancedPipeline.Pipeline[j].Result
-						if resolved, ok := result["resolved"].([]interface{}); ok {
-							for _, item := range resolved {
-								if itemMap, ok := item.(map[string]interface{}); ok {
-									if ipList, ok := itemMap["ips"].([]interface{}); ok {
-										for _, ip := range ipList {
-											if ipStr, ok := ip.(string); ok {
-												if !ipSet[ipStr] {
-													ips = append(ips, ipStr)
-													ipSet[ipStr] = true
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-					// Collect ports from common_port_scan
-					if enhancedPipeline.Pipeline[j].Step == "common_port_scan" &&
-						enhancedPipeline.Pipeline[j].Status == "COMPLETED" {
-						result := enhancedPipeline.Pipeline[j].Result
-						if portList, ok := result["ports"].([]interface{}); ok {
-							for _, p := range portList {
-								if portMap, ok := p.(map[string]interface{}); ok {
-									if port, ok := portMap["port"].(float64); ok {
-										ports = append(ports, int(port))
-									}
-								}
-							}
-						}
-					}
-				}
-			}
+			ips := collectIPsFromResolutionSteps(enhancedPipeline.Pipeline, i)
+			ports := collectPortsFromCommonScan(enhancedPipeline.Pipeline, i)
 
 			if len(ips) == 0 {
 				utils.Logger.Warnf("no IPs found for service detection job=%s step=%d", task.JobID, i)
@@ -713,29 +687,7 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 
 		case "ssl_analyzer":
 			// SSL/TLS analysis - needs subdomains from previous steps
-			var hosts []string
-			if i > 0 {
-				for j := 0; j < i; j++ {
-					if enhancedPipeline.Pipeline[j].Step == "subdomain_discovery" &&
-						enhancedPipeline.Pipeline[j].Status == "COMPLETED" {
-						result := enhancedPipeline.Pipeline[j].Result
-						if subdomainsData, ok := result["subdomains"].([]interface{}); ok {
-							for _, sd := range subdomainsData {
-								if sdStr, ok := sd.(string); ok {
-									hosts = append(hosts, sdStr)
-								}
-							}
-						} else if data, ok := result["data"].([]interface{}); ok {
-							for _, item := range data {
-								if sdStr, ok := item.(string); ok {
-									hosts = append(hosts, sdStr)
-								}
-							}
-						}
-						break
-					}
-				}
-			}
+			hosts := collectSubdomainsFromPipeline(enhancedPipeline.Pipeline, i)
 
 			if len(hosts) == 0 {
 				utils.Logger.Warnf("no hosts found for SSL analysis job=%s step=%d", task.JobID, i)
@@ -770,29 +722,7 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 
 		case "api_detector":
 			// API endpoint discovery - needs subdomains from previous steps
-			var urls []string
-			if i > 0 {
-				for j := 0; j < i; j++ {
-					if enhancedPipeline.Pipeline[j].Step == "subdomain_discovery" &&
-						enhancedPipeline.Pipeline[j].Status == "COMPLETED" {
-						result := enhancedPipeline.Pipeline[j].Result
-						if subdomainsData, ok := result["subdomains"].([]interface{}); ok {
-							for _, sd := range subdomainsData {
-								if sdStr, ok := sd.(string); ok {
-									urls = append(urls, sdStr)
-								}
-							}
-						} else if data, ok := result["data"].([]interface{}); ok {
-							for _, item := range data {
-								if sdStr, ok := item.(string); ok {
-									urls = append(urls, sdStr)
-								}
-							}
-						}
-						break
-					}
-				}
-			}
+			urls := collectSubdomainsFromPipeline(enhancedPipeline.Pipeline, i)
 
 			if len(urls) == 0 {
 				utils.Logger.Warnf("no URLs found for API detection job=%s step=%d", task.JobID, i)
@@ -805,7 +735,7 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 					toolErr = err
 					utils.Logger.Errorf("api_detector failed job=%s step=%d error=%v", task.JobID, i, err)
 				} else {
-					var endpointList []map[string]interface{}
+					endpointList := make([]map[string]interface{}, 0, len(apiResults))
 					for _, ar := range apiResults {
 						endpointList = append(endpointList, map[string]interface{}{
 							"url":    ar.URL,
@@ -819,6 +749,35 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 						"count":     len(endpointList),
 					}
 					utils.Logger.Infof("api_detector completed job=%s step=%d found=%d endpoints", task.JobID, i, len(endpointList))
+				}
+			}
+
+		case "nuclei":
+			hosts := collectSubdomainsFromPipeline(enhancedPipeline.Pipeline, i)
+			if len(hosts) == 0 {
+				output = map[string]interface{}{
+					"findings": []interface{}{},
+				}
+			} else {
+				findings, err := nuclei.Run(ctx, hosts)
+				if err != nil {
+					toolErr = err
+					utils.Logger.Errorf("nuclei failed job=%s step=%d error=%v", task.JobID, i, err)
+				} else {
+					var findingList []map[string]interface{}
+					for _, finding := range findings {
+						findingList = append(findingList, map[string]interface{}{
+							"host":        finding.Host,
+							"matched_at":  finding.MatchedAt,
+							"template_id": finding.TemplateID,
+							"name":        finding.Name,
+							"severity":    finding.Severity,
+						})
+					}
+					output = map[string]interface{}{
+						"findings": findingList,
+						"count":    len(findingList),
+					}
 				}
 			}
 
@@ -855,29 +814,7 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 
 		case "admin_finder":
 			// Admin endpoint discovery - needs subdomains from previous steps
-			var urls []string
-			if i > 0 {
-				for j := 0; j < i; j++ {
-					if enhancedPipeline.Pipeline[j].Step == "subdomain_discovery" &&
-						enhancedPipeline.Pipeline[j].Status == "COMPLETED" {
-						result := enhancedPipeline.Pipeline[j].Result
-						if subdomainsData, ok := result["subdomains"].([]interface{}); ok {
-							for _, sd := range subdomainsData {
-								if sdStr, ok := sd.(string); ok {
-									urls = append(urls, sdStr)
-								}
-							}
-						} else if data, ok := result["data"].([]interface{}); ok {
-							for _, item := range data {
-								if sdStr, ok := item.(string); ok {
-									urls = append(urls, sdStr)
-								}
-							}
-						}
-						break
-					}
-				}
-			}
+			urls := collectSubdomainsFromPipeline(enhancedPipeline.Pipeline, i)
 
 			if len(urls) == 0 {
 				utils.Logger.Warnf("no URLs found for admin finder job=%s step=%d", task.JobID, i)
@@ -908,29 +845,7 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 
 		case "backup_detector":
 			// Backup file detection - needs subdomains from previous steps
-			var urls []string
-			if i > 0 {
-				for j := 0; j < i; j++ {
-					if enhancedPipeline.Pipeline[j].Step == "subdomain_discovery" &&
-						enhancedPipeline.Pipeline[j].Status == "COMPLETED" {
-						result := enhancedPipeline.Pipeline[j].Result
-						if subdomainsData, ok := result["subdomains"].([]interface{}); ok {
-							for _, sd := range subdomainsData {
-								if sdStr, ok := sd.(string); ok {
-									urls = append(urls, sdStr)
-								}
-							}
-						} else if data, ok := result["data"].([]interface{}); ok {
-							for _, item := range data {
-								if sdStr, ok := item.(string); ok {
-									urls = append(urls, sdStr)
-								}
-							}
-						}
-						break
-					}
-				}
-			}
+			urls := collectSubdomainsFromPipeline(enhancedPipeline.Pipeline, i)
 
 			if len(urls) == 0 {
 				utils.Logger.Warnf("no URLs found for backup detector job=%s step=%d", task.JobID, i)
@@ -1199,6 +1114,33 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 
 		// Handle tool execution result
 		if toolErr != nil {
+			if isOptionalTool(enhancedPipeline.Pipeline[i].Tool) {
+				enhancedPipeline.Pipeline[i].Status = "SKIPPED"
+				enhancedPipeline.Pipeline[i].Error = toolErr.Error()
+				enhancedPipeline.Pipeline[i].Result = map[string]interface{}{
+					"warning": toolErr.Error(),
+				}
+				completedSteps++
+				enhancedPipeline.Process = fmt.Sprintf("%d/%d", completedSteps, len(enhancedPipeline.Pipeline))
+
+				if err := saveEnhancedPipeline(ctx, enhancedPipeline); err != nil {
+					utils.Logger.Warnf("failed to save SKIPPED state job=%s step=%d: %v", task.JobID, i, err)
+				}
+
+				progress := int((float64(completedSteps) / float64(len(enhancedPipeline.Pipeline))) * 100)
+				if err := emitStepEvent(ctx, task.JobID, enhancedPipeline.Pipeline[i].AssetID,
+					enhancedPipeline.Pipeline[i].Step, enhancedPipeline.Pipeline[i].Tool, "SKIPPED", progress); err != nil {
+					utils.Logger.Warnf("failed to emit SKIPPED step event job=%s step=%d: %v", task.JobID, i, err)
+				}
+
+				utils.Logger.Warnf(
+					"job=%s skipped optional step=%d/%d stage=%s tool=%s error=%v",
+					task.JobID, i+1, len(enhancedPipeline.Pipeline), enhancedPipeline.Pipeline[i].Step,
+					enhancedPipeline.Pipeline[i].Tool, toolErr,
+				)
+				continue
+			}
+
 			// Mark current step as FAILED
 			enhancedPipeline.Pipeline[i].Status = "FAILED"
 			enhancedPipeline.Pipeline[i].Error = toolErr.Error()
@@ -1345,6 +1287,27 @@ func fail(jobID string, err error) executor.Result {
 		Error:   err.Error(),
 		EndAt:   time.Now(),
 	}
+}
+
+func isOptionalTool(tool string) bool {
+	optionalTools := map[string]bool{
+		"crtsh":             true,
+		"amass":             true,
+		"ipinfo":            true,
+		"asnmap":            true,
+		"top_ports_scanner": true,
+		"service_detector":  true,
+		"ssl_analyzer":      true,
+		"api_detector":      true,
+		"bbot":              true,
+		"dnsgen":            true,
+		"nuclei":            true,
+		"cloud_osint":       true,
+		"admin_finder":      true,
+		"backup_detector":   true,
+		"asset_diff_engine": true,
+	}
+	return optionalTools[tool]
 }
 
 // getMapKeys returns keys from a map for debugging

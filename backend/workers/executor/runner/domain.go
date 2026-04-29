@@ -4,27 +4,55 @@ import "fmt"
 
 func collectSubdomainsFromPipeline(pipeline []ToolResult, upto int) []string {
 	var subdomains []string
+	seen := make(map[string]bool)
+	relevantSteps := map[string]bool{
+		"subdomain_discovery": true,
+		"cert_intel":          true,
+		"deep_discovery":      true,
+		"recursive_discovery": true,
+		"recursive_osint":     true,
+		"subdomain_expansion": true,
+	}
 	for j := 0; j < upto; j++ {
-		if pipeline[j].Step != "subdomain_discovery" || pipeline[j].Status != "COMPLETED" {
+		if !relevantSteps[pipeline[j].Step] || pipeline[j].Status != "COMPLETED" {
 			continue
 		}
 		result := pipeline[j].Result
 		if subdomainsData, ok := result["subdomains"].([]interface{}); ok {
 			for _, sd := range subdomainsData {
 				if sdStr, ok := sd.(string); ok {
-					subdomains = append(subdomains, sdStr)
+					if sdStr != "" && !seen[sdStr] {
+						subdomains = append(subdomains, sdStr)
+						seen[sdStr] = true
+					}
 				}
 			}
 		} else if data, ok := result["data"].([]interface{}); ok {
 			for _, item := range data {
 				if sdStr, ok := item.(string); ok {
-					subdomains = append(subdomains, sdStr)
+					if sdStr != "" && !seen[sdStr] {
+						subdomains = append(subdomains, sdStr)
+						seen[sdStr] = true
+					}
+				}
+			}
+		} else if candidates, ok := result["candidates"].([]interface{}); ok {
+			for _, item := range candidates {
+				if sdStr, ok := item.(string); ok {
+					if sdStr != "" && !seen[sdStr] {
+						subdomains = append(subdomains, sdStr)
+						seen[sdStr] = true
+					}
 				}
 			}
 		} else if data, ok := result["data"].([]string); ok {
-			subdomains = data
+			for _, sdStr := range data {
+				if sdStr != "" && !seen[sdStr] {
+					subdomains = append(subdomains, sdStr)
+					seen[sdStr] = true
+				}
+			}
 		}
-		break
 	}
 	return subdomains
 }
@@ -51,6 +79,24 @@ func collectIPsFromResolutionSteps(pipeline []ToolResult, upto int) []string {
 						}
 					}
 				}
+			} else if resolved, ok := result["resolved"].([]map[string]interface{}); ok {
+				for _, itemMap := range resolved {
+					if ipList, ok := itemMap["ips"].([]string); ok {
+						for _, ipStr := range ipList {
+							if ipStr != "" && !ipSet[ipStr] {
+								ips = append(ips, ipStr)
+								ipSet[ipStr] = true
+							}
+						}
+					} else if ipList, ok := itemMap["ips"].([]interface{}); ok {
+						for _, ip := range ipList {
+							if ipStr, ok := ip.(string); ok && ipStr != "" && !ipSet[ipStr] {
+								ips = append(ips, ipStr)
+								ipSet[ipStr] = true
+							}
+						}
+					}
+				}
 			}
 		}
 	}
@@ -69,6 +115,14 @@ func collectPortsFromCommonScan(pipeline []ToolResult, upto int) []int {
 						if port, ok := portMap["port"].(float64); ok {
 							ports = append(ports, int(port))
 						}
+					}
+				}
+			} else if portList, ok := result["ports"].([]map[string]interface{}); ok {
+				for _, portMap := range portList {
+					if port, ok := portMap["port"].(int); ok {
+						ports = append(ports, port)
+					} else if port, ok := portMap["port"].(float64); ok {
+						ports = append(ports, int(port))
 					}
 				}
 			}

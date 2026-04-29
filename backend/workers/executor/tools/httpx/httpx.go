@@ -15,24 +15,11 @@ import (
 
 // getToolPath finds the tool executable in PATH or common locations
 func getToolPath(toolName string) (string, error) {
-	// First try PATH
-	if path, err := exec.LookPath(toolName); err == nil {
-		utils.Logger.Debugf("found %s in PATH: %s", toolName, path)
-		return path, nil
-	}
-
-	// Try Go bin directory from GOPATH env
-	if goPath := os.Getenv("GOPATH"); goPath != "" {
-		toolPath := filepath.Join(goPath, "bin", toolName)
-		if _, err := os.Stat(toolPath); err == nil {
-			utils.Logger.Debugf("found %s in GOPATH/bin: %s", toolName, toolPath)
-			return toolPath, nil
-		}
-	}
-
-	// Try common Go bin locations
+	// Prefer known ProjectDiscovery/Homebrew locations before PATH to avoid
+	// colliding with the unrelated Python `httpx` CLI package.
 	homeDir, _ := os.UserHomeDir()
 	commonPaths := []string{
+		filepath.Join("/opt", "homebrew", "bin", toolName),
 		filepath.Join(homeDir, "go", "bin", toolName),
 		filepath.Join("/home", "anonymous", "go", "bin", toolName),
 		filepath.Join("/usr", "local", "bin", toolName),
@@ -46,6 +33,21 @@ func getToolPath(toolName string) (string, error) {
 				return path, nil
 			}
 		}
+	}
+
+	// Try Go bin directory from GOPATH env
+	if goPath := os.Getenv("GOPATH"); goPath != "" {
+		toolPath := filepath.Join(goPath, "bin", toolName)
+		if _, err := os.Stat(toolPath); err == nil {
+			utils.Logger.Debugf("found %s in GOPATH/bin: %s", toolName, toolPath)
+			return toolPath, nil
+		}
+	}
+
+	// Fallback to PATH only after checking explicit binary locations.
+	if path, err := exec.LookPath(toolName); err == nil {
+		utils.Logger.Debugf("found %s in PATH: %s", toolName, path)
+		return path, nil
 	}
 
 	return "", fmt.Errorf("tool '%s' not found in PATH or common locations", toolName)
@@ -80,14 +82,14 @@ func RunHTTPStatus(ctx context.Context, subdomains []string) ([]HTTPResponse, er
 	cmd := exec.CommandContext(
 		ctx,
 		httpxPath,
-		"-l", "-",           // Read from stdin
-		"-status-code",      // Include status code
-		"-title",            // Include page title
-		"-server",           // Include server header
-		"-tech-detect",      // Technology detection
-		"-json",             // JSON output
-		"-timeout", "10",    // Timeout in seconds
-		"-retries", "1",     // Retry once
+		"-l", "-", // Read from stdin
+		"-status-code",   // Include status code
+		"-title",         // Include page title
+		"-server",        // Include server header
+		"-tech-detect",   // Technology detection
+		"-json",          // JSON output
+		"-timeout", "10", // Timeout in seconds
+		"-retries", "1", // Retry once
 	)
 
 	cmd.Stdin = strings.NewReader(input)
@@ -157,4 +159,3 @@ func RunHTTPStatus(ctx context.Context, subdomains []string) ([]HTTPResponse, er
 	utils.Logger.Infof("httpx checked %d subdomains", len(responses))
 	return responses, nil
 }
-
