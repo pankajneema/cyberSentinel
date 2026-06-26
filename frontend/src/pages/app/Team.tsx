@@ -24,6 +24,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -39,42 +43,40 @@ import {
   Crown,
   Trash2,
   Edit,
-  ExternalLink,
+  Shield,
   History,
   Calendar,
   Target,
-  Slack,
-  Mail,
   PlayCircle,
   PauseCircle,
   UserPlus,
+  UserCog,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
 import {
   createInvite,
-  createRole,
-  deleteRole,
+  changeMemberRole,
   listInvites,
   listMembers,
-  listRoles,
   removeMember,
+  revokeInvite,
   TeamInvite as ApiTeamInvite,
   TeamMember as ApiTeamMember,
-  TeamRole as ApiTeamRole,
 } from "@/lib/services/team";
-import { getProfile } from "@/lib/services/profile";
+import { getMe } from "@/lib/services/auth";
+import {
+  listTasks,
+  createTask,
+  updateTask,
+  deleteTask,
+  getTaskMessages,
+  createTaskMessage,
+} from "@/lib/services/tasks";
 
-interface TaskMember {
+interface TaskAssignee {
   id: string;
   name: string;
-  email: string;
-  role: "Admin" | "Analyst" | "Reader";
-  status: "active" | "pending" | "offline";
-  avatar?: string;
-  tasksAssigned: number;
-  tasksCompleted: number;
-  lastActive: string;
 }
 
 interface Task {
@@ -83,12 +85,12 @@ interface Task {
   description: string;
   priority: "critical" | "high" | "medium" | "low";
   status: "pending" | "in_progress" | "completed" | "overdue";
-  assignee: TaskMember;
+  assignee: TaskAssignee;
   createdAt: string;
   dueDate: string;
   completedAt?: string;
   asset?: string;
-  messages: TaskMessage[];
+  messageCount: number;
 }
 
 interface TaskMessage {
@@ -96,77 +98,17 @@ interface TaskMessage {
   sender: string;
   message: string;
   timestamp: string;
-  platform: "internal" | "slack" | "jira" | "email";
+  platform: string;
 }
 
-const mockTaskMembers: TaskMember[] = [
-  { id: "1", name: "John Smith", email: "john@company.com", role: "Admin", status: "active", tasksAssigned: 12, tasksCompleted: 8, lastActive: "Now" },
-  { id: "2", name: "Sarah Johnson", email: "sarah@company.com", role: "Analyst", status: "active", tasksAssigned: 18, tasksCompleted: 15, lastActive: "5 min ago" },
-  { id: "3", name: "Mike Chen", email: "mike@company.com", role: "Analyst", status: "offline", tasksAssigned: 10, tasksCompleted: 10, lastActive: "2 hours ago" },
-  { id: "4", name: "Emily Davis", email: "emily@company.com", role: "Reader", status: "pending", tasksAssigned: 5, tasksCompleted: 2, lastActive: "1 day ago" },
-];
+const ROLE_OPTIONS = ["owner", "admin", "analyst", "reader"] as const;
+const INVITE_ROLE_OPTIONS = ["admin", "analyst", "reader"] as const;
 
-const mockTasks: Task[] = [
-  {
-    id: "1",
-    title: "Patch CVE-2024-1234 on web server",
-    description: "Critical vulnerability requires immediate attention",
-    priority: "critical",
-    status: "in_progress",
-    assignee: mockTaskMembers[1],
-    createdAt: "2024-01-10T10:00:00",
-    dueDate: "2024-01-12T18:00:00",
-    asset: "api.company.com",
-    messages: [
-      { id: "1", sender: "John Smith", message: "Assigned this critical task - needs immediate attention", timestamp: "2024-01-10T10:05:00", platform: "internal" },
-      { id: "2", sender: "Sarah Johnson", message: "Working on it now, will update in 2 hours", timestamp: "2024-01-10T11:30:00", platform: "slack" },
-    ],
-  },
-  {
-    id: "2",
-    title: "Update TLS configuration",
-    description: "Upgrade to TLS 1.3 across all endpoints",
-    priority: "high",
-    status: "pending",
-    assignee: mockTaskMembers[2],
-    createdAt: "2024-01-09T14:00:00",
-    dueDate: "2024-01-15T18:00:00",
-    asset: "*.company.com",
-    messages: [
-      { id: "1", sender: "John Smith", message: "Please prioritize after current task", timestamp: "2024-01-09T14:05:00", platform: "jira" },
-    ],
-  },
-  {
-    id: "3",
-    title: "Review firewall rules",
-    description: "Audit and optimize current firewall configuration",
-    priority: "medium",
-    status: "completed",
-    assignee: mockTaskMembers[0],
-    createdAt: "2024-01-05T09:00:00",
-    dueDate: "2024-01-08T18:00:00",
-    completedAt: "2024-01-07T16:30:00",
-    messages: [
-      { id: "1", sender: "Mike Chen", message: "Completed review, found 3 redundant rules", timestamp: "2024-01-07T16:30:00", platform: "internal" },
-    ],
-  },
-  {
-    id: "4",
-    title: "Fix SQL injection vulnerability",
-    description: "Address SQLi in login form",
-    priority: "critical",
-    status: "overdue",
-    assignee: mockTaskMembers[3],
-    createdAt: "2024-01-01T10:00:00",
-    dueDate: "2024-01-05T18:00:00",
-    messages: [],
-  },
-];
-
-const integrations = [
-  { id: "slack", name: "Slack", icon: Slack, connected: true, workspace: "#security-alerts" },
-  { id: "jira", name: "Jira", icon: ExternalLink, connected: true, workspace: "SEC-Project" },
-  { id: "email", name: "Email", icon: Mail, connected: true, workspace: "notifications@company.com" },
+const BUILTIN_ROLES: { name: string; description: string }[] = [
+  { name: "Owner", description: "Full access plus billing and organization ownership." },
+  { name: "Admin", description: "Manage team members and all organization data." },
+  { name: "Analyst", description: "Edit assets and scans, but cannot manage the team." },
+  { name: "Reader", description: "Read-only access to assets, scans, and reports." },
 ];
 
 export default function Team() {
@@ -177,52 +119,81 @@ export default function Team() {
   const [isAssignTaskOpen, setIsAssignTaskOpen] = useState(false);
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [newMessage, setNewMessage] = useState("");
-  const [messagePlatform, setMessagePlatform] = useState<string>("internal");
   const [teamMembers, setTeamMembers] = useState<ApiTeamMember[]>([]);
   const [teamInvites, setTeamInvites] = useState<ApiTeamInvite[]>([]);
-  const [teamRoles, setTeamRoles] = useState<ApiTeamRole[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("reader");
-  const [roleName, setRoleName] = useState("");
-  const [roleDescription, setRoleDescription] = useState("");
   const [isLoadingTeam, setIsLoadingTeam] = useState(false);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [currentRole, setCurrentRole] = useState("reader");
   const [isSuperadmin, setIsSuperadmin] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | undefined>(undefined);
 
-  const currentUser = useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem("user") || "null");
-    } catch {
-      return null;
-    }
-  }, []);
-  const currentUserId = currentUser?.id as string | undefined;
-  const isAdmin = currentRole === "admin";
+  // Task message panel
+  const [taskMessages, setTaskMessages] = useState<TaskMessage[]>([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+
+  // Assign task form
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskDescription, setTaskDescription] = useState("");
+  const [taskAssignee, setTaskAssignee] = useState<string>("");
+  const [taskPriority, setTaskPriority] = useState<string>("medium");
+  const [taskDueDate, setTaskDueDate] = useState("");
+  const [taskAsset, setTaskAsset] = useState("");
+  const [isSavingTask, setIsSavingTask] = useState(false);
+
+  // Edit task dialog
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editPriority, setEditPriority] = useState<string>("medium");
+  const [editStatus, setEditStatus] = useState<string>("pending");
+  const [editDueDate, setEditDueDate] = useState("");
+  const [editAsset, setEditAsset] = useState("");
+
+  const isAdmin = currentRole === "admin" || currentRole === "owner";
   const canInvite = isAdmin || isSuperadmin;
-  const isAnalystOrReader = currentRole === "analyst" || currentRole === "reader";
 
   const pendingInvites = useMemo(
     () => teamInvites.filter((invite) => invite.status === "pending"),
     [teamInvites]
   );
 
-  const roleOptions = useMemo(() => {
-    const defaults = ["admin", "analyst", "reader"];
-    const custom = teamRoles.map((role) => role.name.toLowerCase());
-    return Array.from(new Set([...defaults, ...custom]));
-  }, [teamRoles]);
+  const mapTask = (a: any): Task => ({
+    id: String(a.id),
+    title: a.title,
+    description: a.description || "",
+    priority: a.priority || "medium",
+    status: a.status || "pending",
+    assignee: {
+      id: a.assignee_id || "",
+      name: a.assignee_name || "Unassigned",
+    },
+    createdAt: a.created_at || "",
+    dueDate: a.due_date || "",
+    completedAt: a.completed_at || undefined,
+    asset: a.asset_name,
+    messageCount: Array.isArray(a.messages) ? a.messages.length : 0,
+  });
+
+  const loadTasks = async () => {
+    try {
+      const res: any = await listTasks({ page_size: 50 });
+      const items: any[] = Array.isArray(res) ? res : res?.items ?? [];
+      setTasks(items.map(mapTask));
+    } catch {
+      setTasks([]);
+    }
+  };
 
   const loadTeamData = async () => {
     try {
       setIsLoadingTeam(true);
-      const [members, invites, roles] = await Promise.all([
-        listMembers(),
-        listInvites(),
-        listRoles(),
-      ]);
+      const [members, invites] = await Promise.all([listMembers(), listInvites()]);
       setTeamMembers(members);
       setTeamInvites(invites);
-      setTeamRoles(roles);
+      await loadTasks();
     } catch (error) {
       toast({
         title: "Failed to load team data",
@@ -240,11 +211,12 @@ export default function Team() {
   useEffect(() => {
     const loadRole = async () => {
       try {
-        const profile = await getProfile();
-        if (profile?.role) {
-          setCurrentRole(profile.role);
+        const me = await getMe();
+        if (me?.role) {
+          setCurrentRole(me.role);
         }
-        setIsSuperadmin(Boolean(profile?.is_superadmin));
+        setCurrentUserId(me.user_id);
+        setIsSuperadmin(false);
       } catch {
         // keep defaults
       }
@@ -252,22 +224,143 @@ export default function Team() {
     void loadRole();
   }, []);
 
-  const handleSendMessage = () => {
-    if (!newMessage.trim() || !selectedTask) return;
-    
-    toast({
-      title: "Message Sent",
-      description: `Message sent via ${messagePlatform === "slack" ? "Slack" : messagePlatform === "jira" ? "Jira" : messagePlatform === "email" ? "Email" : "Internal"}`,
-    });
-    setNewMessage("");
+  const loadMessages = async (taskId: string) => {
+    try {
+      setIsLoadingMessages(true);
+      const res: any = await getTaskMessages(taskId);
+      const items: any[] = Array.isArray(res) ? res : [];
+      setTaskMessages(
+        items.map((m) => ({
+          id: String(m.id),
+          sender: m.sender || m.sender_name || "Unknown",
+          message: m.message,
+          timestamp: m.timestamp || m.created_at || "",
+          platform: m.platform || "internal",
+        }))
+      );
+    } catch {
+      setTaskMessages([]);
+    } finally {
+      setIsLoadingMessages(false);
+    }
   };
 
-  const handleAssignTask = (memberId: string) => {
-    toast({
-      title: "Task Assigned",
-      description: "Task has been assigned successfully",
-    });
-    setIsAssignTaskOpen(false);
+  const handleSelectTask = (task: Task) => {
+    setSelectedTask(task);
+    void loadMessages(task.id);
+  };
+
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || !selectedTask) return;
+    try {
+      setIsSendingMessage(true);
+      await createTaskMessage(selectedTask.id, {
+        message: newMessage.trim(),
+        platform: "internal",
+      });
+      setNewMessage("");
+      await loadMessages(selectedTask.id);
+      await loadTasks();
+    } catch {
+      toast({ title: "Failed to send message", description: "Please try again." });
+    } finally {
+      setIsSendingMessage(false);
+    }
+  };
+
+  const resetAssignForm = () => {
+    setTaskTitle("");
+    setTaskDescription("");
+    setTaskAssignee("");
+    setTaskPriority("medium");
+    setTaskDueDate("");
+    setTaskAsset("");
+  };
+
+  const handleAssignTask = async () => {
+    if (!taskTitle.trim()) {
+      toast({ title: "Title required", description: "Enter a task title." });
+      return;
+    }
+    try {
+      setIsSavingTask(true);
+      const assignee = teamMembers.find((m) => m.id === taskAssignee);
+      await createTask({
+        title: taskTitle.trim(),
+        description: taskDescription.trim() || undefined,
+        priority: taskPriority as any,
+        assignee_id: taskAssignee || undefined,
+        assignee_name: assignee?.name,
+        due_date: taskDueDate || undefined,
+        asset_name: taskAsset.trim() || undefined,
+      });
+      toast({ title: "Task assigned", description: `"${taskTitle.trim()}" created.` });
+      resetAssignForm();
+      setIsAssignTaskOpen(false);
+      await loadTasks();
+    } catch {
+      toast({ title: "Failed to assign task", description: "Please try again." });
+    } finally {
+      setIsSavingTask(false);
+    }
+  };
+
+  const openEditTask = (task: Task) => {
+    setEditingTask(task);
+    setEditTitle(task.title);
+    setEditDescription(task.description);
+    setEditPriority(task.priority);
+    setEditStatus(task.status);
+    setEditDueDate(task.dueDate ? task.dueDate.slice(0, 10) : "");
+    setEditAsset(task.asset || "");
+  };
+
+  const handleUpdateTask = async () => {
+    if (!editingTask) return;
+    if (!editTitle.trim()) {
+      toast({ title: "Title required", description: "Enter a task title." });
+      return;
+    }
+    try {
+      setIsSavingTask(true);
+      await updateTask(editingTask.id, {
+        title: editTitle.trim(),
+        description: editDescription.trim() || undefined,
+        priority: editPriority as any,
+        status: editStatus as any,
+        due_date: editDueDate || undefined,
+        asset_name: editAsset.trim() || undefined,
+      });
+      toast({ title: "Task updated" });
+      setEditingTask(null);
+      await loadTasks();
+    } catch {
+      toast({ title: "Failed to update task", description: "Please try again." });
+    } finally {
+      setIsSavingTask(false);
+    }
+  };
+
+  const handleCompleteTask = async (task: Task) => {
+    try {
+      await updateTask(task.id, { status: "completed" });
+      toast({ title: "Task marked complete" });
+      await loadTasks();
+    } catch {
+      toast({ title: "Failed to update task", description: "Please try again." });
+    }
+  };
+
+  const handleDeleteTask = async (task: Task) => {
+    if (!window.confirm(`Delete task "${task.title}"? This cannot be undone.`)) return;
+    try {
+      await deleteTask(task.id);
+      toast({ title: "Task deleted" });
+      if (selectedTask?.id === task.id) setSelectedTask(null);
+      await loadTasks();
+    } catch {
+      toast({ title: "Failed to delete task", description: "Please try again." });
+    }
   };
 
   const handleInviteMember = async () => {
@@ -277,7 +370,7 @@ export default function Team() {
     }
     try {
       await createInvite({ email: inviteEmail.trim(), role: inviteRole });
-      toast({ title: "Invitation sent", description: "Invite email has been sent." });
+      toast({ title: "Invitation sent", description: `Invitation sent to ${inviteEmail.trim()}.` });
       setInviteEmail("");
       setInviteRole("reader");
       setIsInviteOpen(false);
@@ -297,35 +390,30 @@ export default function Team() {
     }
   };
 
-  const handleCreateRole = async () => {
-    if (!roleName.trim()) {
-      toast({ title: "Role name required", description: "Enter a role name to continue." });
-      return;
-    }
+  const handleChangeRole = async (memberId: string, role: string) => {
     try {
-      await createRole({ name: roleName.trim(), description: roleDescription.trim() || undefined });
-      toast({ title: "Role created" });
-      setRoleName("");
-      setRoleDescription("");
+      await changeMemberRole(memberId, role);
+      toast({ title: "Role updated", description: `Member is now ${role}.` });
       await loadTeamData();
     } catch (error) {
-      toast({ title: "Role creation failed", description: "Could not create role." });
+      toast({ title: "Update failed", description: "Could not change role." });
     }
   };
 
-  const handleDeleteRole = async (roleId: string) => {
+  const handleRevokeInvite = async (inviteId: string) => {
     try {
-      await deleteRole(roleId);
-      toast({ title: "Role deleted" });
+      await revokeInvite(inviteId);
+      toast({ title: "Invite revoked" });
       await loadTeamData();
     } catch (error) {
-      toast({ title: "Delete failed", description: "Could not delete role." });
+      toast({ title: "Revoke failed", description: "Could not revoke invite." });
     }
   };
 
-  const filteredTasks = mockTasks.filter(task => {
-    const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         task.assignee.name.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredTasks = tasks.filter((task) => {
+    const matchesSearch =
+      task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      task.assignee.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "all" || task.status === statusFilter;
     const matchesPriority = priorityFilter === "all" || task.priority === priorityFilter;
     return matchesSearch && matchesStatus && matchesPriority;
@@ -333,38 +421,47 @@ export default function Team() {
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
-      case "critical": return "bg-destructive/10 text-destructive border-destructive/20";
-      case "high": return "bg-warning/10 text-warning border-warning/20";
-      case "medium": return "bg-accent/10 text-accent border-accent/20";
-      default: return "bg-muted text-muted-foreground";
+      case "critical":
+        return "bg-destructive/10 text-destructive border-destructive/20";
+      case "high":
+        return "bg-warning/10 text-warning border-warning/20";
+      case "medium":
+        return "bg-accent/10 text-accent border-accent/20";
+      default:
+        return "bg-muted text-muted-foreground";
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "completed": return "bg-success/10 text-success";
-      case "in_progress": return "bg-primary/10 text-primary";
-      case "overdue": return "bg-destructive/10 text-destructive";
-      default: return "bg-muted text-muted-foreground";
+      case "completed":
+        return "bg-success/10 text-success";
+      case "in_progress":
+        return "bg-primary/10 text-primary";
+      case "overdue":
+        return "bg-destructive/10 text-destructive";
+      default:
+        return "bg-muted text-muted-foreground";
     }
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case "completed": return CheckCircle2;
-      case "in_progress": return PlayCircle;
-      case "overdue": return AlertCircle;
-      default: return PauseCircle;
+      case "completed":
+        return CheckCircle2;
+      case "in_progress":
+        return PlayCircle;
+      case "overdue":
+        return AlertCircle;
+      default:
+        return PauseCircle;
     }
   };
 
-  const getPlatformIcon = (platform: string) => {
-    switch (platform) {
-      case "slack": return Slack;
-      case "jira": return ExternalLink;
-      case "email": return Mail;
-      default: return MessageSquare;
-    }
+  const formatDate = (value?: string) => {
+    if (!value) return "—";
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
   };
 
   return (
@@ -405,7 +502,7 @@ export default function Team() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {roleOptions.map((role) => (
+                        {INVITE_ROLE_OPTIONS.map((role) => (
                           <SelectItem key={role} value={role}>
                             {role.charAt(0).toUpperCase() + role.slice(1)}
                           </SelectItem>
@@ -414,7 +511,9 @@ export default function Team() {
                     </Select>
                   </div>
                   <div className="flex justify-end gap-3 pt-4">
-                    <Button variant="outline" onClick={() => setIsInviteOpen(false)}>Cancel</Button>
+                    <Button variant="outline" onClick={() => setIsInviteOpen(false)}>
+                      Cancel
+                    </Button>
                     <Button variant="gradient" onClick={handleInviteMember}>
                       Send Invitation
                     </Button>
@@ -423,7 +522,13 @@ export default function Team() {
               </DialogContent>
             </Dialog>
           )}
-          <Dialog open={isAssignTaskOpen} onOpenChange={setIsAssignTaskOpen}>
+          <Dialog
+            open={isAssignTaskOpen}
+            onOpenChange={(open) => {
+              setIsAssignTaskOpen(open);
+              if (!open) resetAssignForm();
+            }}
+          >
             <DialogTrigger asChild>
               <Button variant="gradient">
                 <Plus className="w-4 h-4 mr-2" />
@@ -437,29 +542,40 @@ export default function Team() {
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
                   <Label>Task Title</Label>
-                  <Input placeholder="Enter task title" />
+                  <Input
+                    placeholder="Enter task title"
+                    value={taskTitle}
+                    onChange={(e) => setTaskTitle(e.target.value)}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Description</Label>
-                  <Textarea placeholder="Describe the task..." rows={3} />
+                  <Textarea
+                    placeholder="Describe the task..."
+                    rows={3}
+                    value={taskDescription}
+                    onChange={(e) => setTaskDescription(e.target.value)}
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Assign To</Label>
-                    <Select>
+                    <Select value={taskAssignee} onValueChange={setTaskAssignee}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select member" />
                       </SelectTrigger>
                       <SelectContent>
-                        {teamMembers.map(member => (
-                          <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
+                        {teamMembers.map((member) => (
+                          <SelectItem key={member.id} value={member.id}>
+                            {member.name}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
                     <Label>Priority</Label>
-                    <Select defaultValue="medium">
+                    <Select value={taskPriority} onValueChange={setTaskPriority}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -475,29 +591,28 @@ export default function Team() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Due Date</Label>
-                    <Input type="date" />
+                    <Input
+                      type="date"
+                      value={taskDueDate}
+                      onChange={(e) => setTaskDueDate(e.target.value)}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Related Asset</Label>
-                    <Input placeholder="e.g., api.company.com" />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Notify Via</Label>
-                  <div className="flex gap-2">
-                    {integrations.filter(i => i.connected).map(integration => (
-                      <Button key={integration.id} variant="outline" size="sm" className="gap-2">
-                        <integration.icon className="w-4 h-4" />
-                        {integration.name}
-                      </Button>
-                    ))}
+                    <Input
+                      placeholder="e.g., api.company.com"
+                      value={taskAsset}
+                      onChange={(e) => setTaskAsset(e.target.value)}
+                    />
                   </div>
                 </div>
                 <div className="flex justify-end gap-3 pt-4">
-                  <Button variant="outline" onClick={() => setIsAssignTaskOpen(false)}>Cancel</Button>
-                  <Button variant="gradient" onClick={() => handleAssignTask("")}>
+                  <Button variant="outline" onClick={() => setIsAssignTaskOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button variant="gradient" onClick={handleAssignTask} disabled={isSavingTask}>
                     <Send className="w-4 h-4 mr-2" />
-                    Assign Task
+                    {isSavingTask ? "Assigning..." : "Assign Task"}
                   </Button>
                 </div>
               </div>
@@ -506,12 +621,86 @@ export default function Team() {
         </div>
       </div>
 
+      {/* Edit Task Dialog */}
+      <Dialog open={!!editingTask} onOpenChange={(open) => !open && setEditingTask(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Task</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Task Title</Label>
+              <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea
+                rows={3}
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Priority</Label>
+                <Select value={editPriority} onValueChange={setEditPriority}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="critical">Critical</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={editStatus} onValueChange={setEditStatus}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="in_progress">In Progress</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="overdue">Overdue</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Due Date</Label>
+                <Input
+                  type="date"
+                  value={editDueDate}
+                  onChange={(e) => setEditDueDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Related Asset</Label>
+                <Input value={editAsset} onChange={(e) => setEditAsset(e.target.value)} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+              <Button variant="outline" onClick={() => setEditingTask(null)}>
+                Cancel
+              </Button>
+              <Button variant="gradient" onClick={handleUpdateTask} disabled={isSavingTask}>
+                {isSavingTask ? "Saving..." : "Save Changes"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Tabs defaultValue="tasks" className="space-y-6">
         <TabsList>
           <TabsTrigger value="tasks">Tasks</TabsTrigger>
           <TabsTrigger value="members">Team Members</TabsTrigger>
           <TabsTrigger value="history">Task History</TabsTrigger>
-          {!isAnalystOrReader && <TabsTrigger value="integrations">Integrations</TabsTrigger>}
           <TabsTrigger value="roles">Roles</TabsTrigger>
         </TabsList>
 
@@ -558,6 +747,12 @@ export default function Team() {
           <div className="grid lg:grid-cols-2 gap-4">
             {/* Task Cards */}
             <div className="space-y-3">
+              {filteredTasks.length === 0 && (
+                <div className="card-elevated p-8 text-center text-muted-foreground">
+                  <Target className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                  <p>{isLoadingTeam ? "Loading tasks..." : "No tasks found."}</p>
+                </div>
+              )}
               {filteredTasks.map((task, index) => {
                 const StatusIcon = getStatusIcon(task.status);
                 return (
@@ -566,8 +761,10 @@ export default function Team() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.05 }}
-                    className={`card-elevated p-4 cursor-pointer transition-all hover:shadow-lg ${selectedTask?.id === task.id ? 'ring-2 ring-primary' : ''}`}
-                    onClick={() => setSelectedTask(task)}
+                    className={`card-elevated p-4 cursor-pointer transition-all hover:shadow-lg ${
+                      selectedTask?.id === task.id ? "ring-2 ring-primary" : ""
+                    }`}
+                    onClick={() => handleSelectTask(task)}
                   >
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div className="flex items-center gap-2">
@@ -581,14 +778,41 @@ export default function Team() {
                       </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <MoreVertical className="w-4 h-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem><Edit className="w-4 h-4 mr-2" /> Edit Task</DropdownMenuItem>
-                          <DropdownMenuItem><CheckCircle2 className="w-4 h-4 mr-2" /> Mark Complete</DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive"><Trash2 className="w-4 h-4 mr-2" /> Delete</DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditTask(task);
+                            }}
+                          >
+                            <Edit className="w-4 h-4 mr-2" /> Edit Task
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleCompleteTask(task);
+                            }}
+                          >
+                            <CheckCircle2 className="w-4 h-4 mr-2" /> Mark Complete
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleDeleteTask(task);
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" /> Delete
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
@@ -598,20 +822,20 @@ export default function Team() {
                       <div className="flex items-center gap-2">
                         <Avatar className="w-6 h-6">
                           <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
-                            {task.assignee.name.split(' ').map(n => n[0]).join('')}
+                            {task.assignee.name.split(" ").map((n) => n[0]).join("")}
                           </AvatarFallback>
                         </Avatar>
                         <span>{task.assignee.name}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        Due: {new Date(task.dueDate).toLocaleDateString()}
+                        Due: {formatDate(task.dueDate)}
                       </div>
                     </div>
-                    {task.messages.length > 0 && (
+                    {task.messageCount > 0 && (
                       <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
                         <MessageSquare className="w-3 h-3" />
-                        {task.messages.length} message{task.messages.length > 1 ? 's' : ''}
+                        {task.messageCount} message{task.messageCount > 1 ? "s" : ""}
                       </div>
                     )}
                   </motion.div>
@@ -641,11 +865,11 @@ export default function Team() {
                     <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
                       <div className="flex items-center gap-1">
                         <Calendar className="w-4 h-4" />
-                        Created: {new Date(selectedTask.createdAt).toLocaleDateString()}
+                        Created: {formatDate(selectedTask.createdAt)}
                       </div>
                       <div className="flex items-center gap-1">
                         <Clock className="w-4 h-4" />
-                        Due: {new Date(selectedTask.dueDate).toLocaleDateString()}
+                        Due: {formatDate(selectedTask.dueDate)}
                       </div>
                     </div>
                   </div>
@@ -653,81 +877,68 @@ export default function Team() {
                   {/* Messages */}
                   <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/10">
                     <AnimatePresence>
-                      {selectedTask.messages.map((msg, index) => {
-                        const PlatformIcon = getPlatformIcon(msg.platform);
-                        return (
-                          <motion.div
-                            key={msg.id}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.05 }}
-                            className="flex gap-3"
-                          >
-                            <Avatar className="w-8 h-8 shrink-0">
-                              <AvatarFallback className="text-xs bg-primary/10 text-primary">
-                                {msg.sender.split(' ').map(n => n[0]).join('')}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="font-medium text-sm text-foreground">{msg.sender}</span>
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                                  <PlatformIcon className="w-3 h-3 mr-1" />
-                                  {msg.platform}
-                                </Badge>
-                                <span className="text-xs text-muted-foreground">
-                                  {new Date(msg.timestamp).toLocaleString()}
-                                </span>
-                              </div>
-                              <p className="text-sm text-muted-foreground bg-card p-3 rounded-lg">
-                                {msg.message}
-                              </p>
+                      {taskMessages.map((msg, index) => (
+                        <motion.div
+                          key={msg.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="flex gap-3"
+                        >
+                          <Avatar className="w-8 h-8 shrink-0">
+                            <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                              {msg.sender.split(" ").map((n) => n[0]).join("")}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium text-sm text-foreground">{msg.sender}</span>
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                                <MessageSquare className="w-3 h-3 mr-1" />
+                                {msg.platform}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {msg.timestamp ? new Date(msg.timestamp).toLocaleString() : ""}
+                              </span>
                             </div>
-                          </motion.div>
-                        );
-                      })}
+                            <p className="text-sm text-muted-foreground bg-card p-3 rounded-lg">
+                              {msg.message}
+                            </p>
+                          </div>
+                        </motion.div>
+                      ))}
                     </AnimatePresence>
-                    {selectedTask.messages.length === 0 && (
+                    {!isLoadingMessages && taskMessages.length === 0 && (
                       <div className="text-center py-8 text-muted-foreground">
                         <MessageSquare className="w-10 h-10 mx-auto mb-2 opacity-50" />
                         <p>No messages yet</p>
                       </div>
+                    )}
+                    {isLoadingMessages && (
+                      <div className="text-center py-8 text-muted-foreground">Loading messages...</div>
                     )}
                   </div>
 
                   {/* Message Input */}
                   <div className="p-4 border-t border-border bg-card">
                     <div className="flex gap-2 mb-2">
-                      {integrations.filter(i => i.connected).map(integration => (
-                        <Button
-                          key={integration.id}
-                          variant={messagePlatform === integration.id ? "secondary" : "ghost"}
-                          size="sm"
-                          onClick={() => setMessagePlatform(integration.id)}
-                          className="gap-1.5"
-                        >
-                          <integration.icon className="w-4 h-4" />
-                          {integration.name}
-                        </Button>
-                      ))}
-                      <Button
-                        variant={messagePlatform === "internal" ? "secondary" : "ghost"}
-                        size="sm"
-                        onClick={() => setMessagePlatform("internal")}
-                        className="gap-1.5"
-                      >
+                      <Button variant="secondary" size="sm" className="gap-1.5" disabled>
                         <MessageSquare className="w-4 h-4" />
                         Internal
                       </Button>
                     </div>
                     <div className="flex gap-2">
                       <Input
-                        placeholder={`Send message via ${messagePlatform}...`}
+                        placeholder="Send an internal message..."
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                        onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
                       />
-                      <Button variant="gradient" onClick={handleSendMessage}>
+                      <Button
+                        variant="gradient"
+                        onClick={handleSendMessage}
+                        disabled={isSendingMessage}
+                      >
                         <Send className="w-4 h-4" />
                       </Button>
                     </div>
@@ -752,9 +963,7 @@ export default function Team() {
             <div>
               <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
                 Team Members
-                {isSuperadmin && (
-                  <Badge variant="outline" className="text-xs">Owner</Badge>
-                )}
+                {isSuperadmin && <Badge variant="outline" className="text-xs">Owner</Badge>}
               </h3>
               <p className="text-sm text-muted-foreground">Active members in your organization</p>
             </div>
@@ -764,54 +973,82 @@ export default function Team() {
           </div>
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {teamMembers.map((member, index) => (
-              <motion.div
-                key={member.id}
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.06 }}
-                className="card-elevated p-4"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <Avatar className="w-12 h-12">
-                    {member.avatar_url && <AvatarImage src={member.avatar_url} alt={member.name} />}
-                    <AvatarFallback className="bg-primary/10 text-primary font-medium">
-                      {member.name?.split(" ").map((n) => n[0]).join("") || "U"}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        member.status === "active" ? "bg-success" : "bg-muted-foreground"
-                      }`}
-                    />
-                    {member.is_superadmin && <Crown className="w-4 h-4 text-warning" />}
-                    {member.is_superadmin && <Badge variant="outline" className="text-xs">Owner</Badge>}
-                    {member.role !== "admin" && member.id !== currentUserId && !member.is_superadmin && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreVertical className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleRemoveMember(member.id)}>
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Remove Member
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    )}
+            {teamMembers.map((member, index) => {
+              const canManage = canInvite && member.id !== currentUserId && !member.is_superadmin;
+              return (
+                <motion.div
+                  key={member.id}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.06 }}
+                  className="card-elevated p-4"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <Avatar className="w-12 h-12">
+                      {member.avatar_url && <AvatarImage src={member.avatar_url} alt={member.name} />}
+                      <AvatarFallback className="bg-primary/10 text-primary font-medium">
+                        {member.name?.split(" ").map((n) => n[0]).join("") || "U"}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          member.status === "active" ? "bg-success" : "bg-muted-foreground"
+                        }`}
+                      />
+                      {member.is_superadmin && <Crown className="w-4 h-4 text-warning" />}
+                      {member.is_superadmin && (
+                        <Badge variant="outline" className="text-xs">Owner</Badge>
+                      )}
+                      {canManage && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreVertical className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuSub>
+                              <DropdownMenuSubTrigger>
+                                <UserCog className="w-4 h-4 mr-2" />
+                                Change role
+                              </DropdownMenuSubTrigger>
+                              <DropdownMenuSubContent>
+                                {ROLE_OPTIONS.map((role) => (
+                                  <DropdownMenuItem
+                                    key={role}
+                                    disabled={member.role === role}
+                                    onClick={() => handleChangeRole(member.id, role)}
+                                  >
+                                    <span className="capitalize">{role}</span>
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuSubContent>
+                            </DropdownMenuSub>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => handleRemoveMember(member.id)}
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Remove Member
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <h4 className="font-semibold text-foreground">{member.name}</h4>
-                <p className="text-sm text-muted-foreground mb-3">{member.email}</p>
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span className="capitalize">{member.is_superadmin ? "Super Admin" : member.role}</span>
-                  <span className="capitalize">{member.status}</span>
-                </div>
-              </motion.div>
-            ))}
+                  <h4 className="font-semibold text-foreground">{member.name}</h4>
+                  <p className="text-sm text-muted-foreground mb-3">{member.email}</p>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="capitalize">
+                      {member.is_superadmin ? "Super Admin" : member.role}
+                    </span>
+                    <span className="capitalize">{member.status}</span>
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
 
           {canInvite && (
@@ -840,9 +1077,9 @@ export default function Team() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => navigator.clipboard.writeText(invite.token)}
+                          onClick={() => handleRevokeInvite(invite.id)}
                         >
-                          Copy Token
+                          Revoke
                         </Button>
                       </div>
                     </div>
@@ -863,12 +1100,15 @@ export default function Team() {
               </h3>
             </div>
             <div className="divide-y divide-border">
-              {mockTasks.map((task) => (
+              {tasks.length === 0 && (
+                <div className="p-4 text-sm text-muted-foreground">No tasks yet.</div>
+              )}
+              {tasks.map((task) => (
                 <div key={task.id} className="p-4 hover:bg-muted/30 transition-colors">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <Badge variant="outline" className={getPriorityColor(task.priority)} >
+                        <Badge variant="outline" className={getPriorityColor(task.priority)}>
                           {task.priority}
                         </Badge>
                         <span className="font-medium text-foreground truncate">{task.title}</span>
@@ -880,12 +1120,12 @@ export default function Team() {
                         </span>
                         <span className="flex items-center gap-1">
                           <Calendar className="w-4 h-4" />
-                          Created: {new Date(task.createdAt).toLocaleDateString()}
+                          Created: {formatDate(task.createdAt)}
                         </span>
                         {task.completedAt && (
                           <span className="flex items-center gap-1 text-success">
                             <CheckCircle2 className="w-4 h-4" />
-                            Completed: {new Date(task.completedAt).toLocaleDateString()}
+                            Completed: {formatDate(task.completedAt)}
                           </span>
                         )}
                       </div>
@@ -900,97 +1140,25 @@ export default function Team() {
           </div>
         </TabsContent>
 
-        {/* Integrations Tab */}
-        {!isAnalystOrReader && (
-          <TabsContent value="integrations" className="space-y-4">
-            <div className="grid sm:grid-cols-3 gap-4">
-              {integrations.map((integration, index) => (
-                <motion.div
-                  key={integration.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="card-elevated p-4"
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-                      <integration.icon className="w-6 h-6 text-primary" />
-                    </div>
-                    <Badge variant={integration.connected ? "secondary" : "outline"}>
-                      {integration.connected ? "Connected" : "Not Connected"}
-                    </Badge>
-                  </div>
-                  <h4 className="font-semibold text-foreground mb-1">{integration.name}</h4>
-                  <p className="text-sm text-muted-foreground mb-4">{integration.workspace}</p>
-                  <Button variant="outline" size="sm" className="w-full">
-                    {integration.connected ? "Configure" : "Connect"}
-                  </Button>
-                </motion.div>
-              ))}
-            </div>
-          </TabsContent>
-        )}
-
-        <TabsContent value="roles" className="space-y-6">
-          {isAdmin && (
-            <div className="card-elevated p-4">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="font-semibold text-foreground">Create Role</h3>
-                  <p className="text-sm text-muted-foreground">Define custom roles for your team</p>
-                </div>
-              </div>
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="space-y-2 md:col-span-1">
-                  <Label>Role Name</Label>
-                  <Input
-                    placeholder="e.g., Auditor"
-                    value={roleName}
-                    onChange={(e) => setRoleName(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Description</Label>
-                  <Input
-                    placeholder="Short description of access"
-                    value={roleDescription}
-                    onChange={(e) => setRoleDescription(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end mt-4">
-                <Button variant="gradient" onClick={handleCreateRole}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create Role
-                </Button>
-              </div>
-            </div>
-          )}
-
+        {/* Roles Tab — read-only reference of built-in roles */}
+        <TabsContent value="roles" className="space-y-4">
           <div className="card-elevated">
-            <div className="p-4 border-b border-border flex items-center justify-between">
-              <h4 className="font-semibold text-foreground">Custom Roles</h4>
-              <Badge variant="outline">{teamRoles.length}</Badge>
+            <div className="p-4 border-b border-border">
+              <h3 className="font-semibold text-foreground flex items-center gap-2">
+                <Shield className="w-5 h-5 text-primary" />
+                Built-in Roles
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Roles are fixed. Assign one to each member from the Team Members tab.
+              </p>
             </div>
             <div className="divide-y divide-border">
-              {teamRoles.length === 0 ? (
-                <div className="p-4 text-sm text-muted-foreground">No custom roles created yet.</div>
-              ) : (
-                teamRoles.map((role) => (
-                  <div key={role.id} className="p-4 flex items-center justify-between gap-4">
-                    <div>
-                      <p className="font-medium text-foreground">{role.name}</p>
-                      <p className="text-sm text-muted-foreground">{role.description || "No description"}</p>
-                    </div>
-                    {isAdmin && (
-                      <Button variant="outline" size="sm" onClick={() => handleDeleteRole(role.id)}>
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Delete
-                      </Button>
-                    )}
-                  </div>
-                ))
-              )}
+              {BUILTIN_ROLES.map((role) => (
+                <div key={role.name} className="p-4 flex items-start gap-3">
+                  <Badge variant="outline" className="mt-0.5">{role.name}</Badge>
+                  <p className="text-sm text-muted-foreground">{role.description}</p>
+                </div>
+              ))}
             </div>
           </div>
         </TabsContent>
