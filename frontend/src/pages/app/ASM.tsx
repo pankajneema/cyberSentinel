@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Radar, LayoutDashboard, GitBranch, FileSearch, FileText, Settings, Shield } from "lucide-react";
+import { Radar, LayoutDashboard, GitBranch, FileSearch, FileText, Settings, Shield, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ASMOverview } from "@/components/asm/ASMOverview";
@@ -10,12 +10,13 @@ import { ASMSettings } from "@/components/asm/ASMSettings";
 import { DiscoveryRunsList } from "@/components/asm/DiscoveryRunsList";
 import { ASMFindings } from "@/components/asm/ASMFindings";
 import { IPGeoMap } from "@/components/asm/IPGeoMap";
-import { ASMReports } from "@/components/asm/ASMReports";
+import { ExposureSignals } from "@/components/asm/ExposureSignals";
 import { motion } from "framer-motion";
 
 const tabs = [
   { value: "overview", label: "Overview", icon: LayoutDashboard },
   { value: "findings", label: "Findings", icon: Shield },
+  { value: "exposure", label: "Exposure", icon: ShieldAlert },
   { value: "scans", label: "Discovery", icon: FileSearch },
   { value: "reports", label: "Reports", icon: FileText },
   { value: "graph", label: "Graph", icon: GitBranch },
@@ -128,6 +129,9 @@ export default function ASM() {
           </TabsContent>
           <TabsContent value="findings" forceMount className="mt-0 data-[state=inactive]:hidden">
             <ASMFindings />
+          </TabsContent>
+          <TabsContent value="exposure" forceMount className="mt-0 data-[state=inactive]:hidden">
+            <ExposureSignals />
           </TabsContent>
           <TabsContent value="graph" forceMount className="mt-0 data-[state=inactive]:hidden">
             <AttackSurfaceGraph />
