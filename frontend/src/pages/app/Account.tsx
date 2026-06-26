@@ -33,15 +33,13 @@ import { motion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
-  changePassword,
-  getProfile,
-  updateAvatar,
-  updateProfile,
-} from "@/lib/services/profile";
-import { getSettings, updateSettings } from "@/lib/services/settings";
-import { getCurrentUser } from "@/lib/services/user";
-import { getAccount, updateAccount } from "@/lib/services/account";
+  getMe,
+  updateProfile as updateMyProfile,
+  getMemberSettings,
+  putMemberSettings,
+} from "@/lib/services/auth";
 import { getCurrentPlan, listInvoices } from "@/lib/services/billing";
+import { supabase } from "@/lib/supabase";
 
 export default function Account() {
   const [isLoading, setIsLoading] = useState(true);
@@ -62,7 +60,7 @@ export default function Account() {
   const [invoices, setInvoices] = useState<Array<{ id: string; amount: number; status: string; created_at: string }>>([]);
 
   const role = profile?.role || currentUser?.role || "reader";
-  const isAdmin = role === "admin";
+  const isAdmin = role === "admin" || role === "owner";
   const isSuperadmin = profile?.is_superadmin;
   const isAnalystOrReader = role === "analyst" || role === "reader";
 
@@ -70,40 +68,56 @@ export default function Account() {
     const loadAll = async () => {
       try {
         setIsLoading(true);
-        const user = await getCurrentUser();
-        setCurrentUser(user);
-
-        const [profileRes, settingsRes] = await Promise.all([
-          getProfile(),
-          getSettings(),
-        ]);
-
-        setProfile(profileRes);
-        setProfileForm({
-          full_name: profileRes.full_name || "",
-          email: profileRes.email || "",
-          phone: profileRes.phone || "",
-          country: profileRes.country || "",
+        // Identity + profile from the verified Supabase session.
+        const me = await getMe();
+        setCurrentUser({ id: me.user_id, role: me.role, company_id: me.org_id });
+        setProfile({
+          full_name: me.full_name || "",
+          email: me.email,
+          phone: me.phone || "",
+          country: me.country || "",
+          avatar_url: me.avatar_url || "",
+          role: me.role,
         });
-        setAvatarUrl(profileRes.avatar_url || "");
-        setSettings(settingsRes);
+        setProfileForm({
+          full_name: me.full_name || "",
+          email: me.email,
+          phone: me.phone || "",
+          country: me.country || "",
+        });
+        setAvatarUrl(me.avatar_url || "");
+        setAccount(me.org_id ? { id: me.org_id, name: me.org_name || "", plan: "starter" } : null);
+        setAccountName(me.org_name || "");
 
-        if (user.company_id) {
-          const acct = await getAccount(user.company_id);
-          setAccount(acct);
-          setAccountName(acct.name);
-        } else {
-          setAccount(null);
+        // Notification + UI preferences.
+        try {
+          const s = await getMemberSettings();
+          const n = (s.notifications || {}) as Record<string, boolean>;
+          const p = (s.preferences || {}) as Record<string, string>;
+          setSettings({
+            notifications: { email: !!n.email, slack: !!n.slack, push: !!n.push },
+            preferences: {
+              theme: (p.theme as "light" | "dark" | "system") || "system",
+              language: p.language || "en",
+              timezone: p.timezone || "UTC",
+            },
+          });
+        } catch {
+          setSettings({
+            notifications: { email: true, slack: false, push: false },
+            preferences: { theme: "system", language: "en", timezone: "UTC" },
+          });
         }
 
-        if (profileRes.is_superadmin) {
+        // Billing — real data, owner-only (backend gates to superadmin).
+        if (me.role === "owner") {
           try {
-            const [planRes, invoicesRes] = await Promise.all([
-              getCurrentPlan(),
-              listInvoices(),
+            const [p, inv] = await Promise.all([
+              getCurrentPlan().catch(() => null),
+              listInvoices().catch(() => []),
             ]);
-            setPlan(planRes);
-            setInvoices(invoicesRes);
+            setPlan(p);
+            setInvoices(Array.isArray(inv) ? inv : []);
           } catch {
             setPlan(null);
             setInvoices([]);
@@ -132,22 +146,25 @@ export default function Account() {
 
   const handleSaveProfile = async () => {
     try {
-      const updated = await updateProfile({
+      const updated = await updateMyProfile({
         full_name: profileForm.full_name || undefined,
-        email: profileForm.email || undefined,
         phone: profileForm.phone || undefined,
         country: profileForm.country || undefined,
       });
-      setProfile(updated);
-
-      if (account && isAdmin && accountName && accountName !== account.name) {
-        const updatedAccount = await updateAccount(account.id, { name: accountName });
-        setAccount(updatedAccount);
-      }
+      setProfile({
+        full_name: updated.full_name || "",
+        email: updated.email,
+        phone: updated.phone || "",
+        country: updated.country || "",
+        avatar_url: updated.avatar_url || "",
+        role: updated.role,
+      });
 
       if (settings) {
-        const updatedSettings = await updateSettings(settings);
-        setSettings(updatedSettings);
+        await putMemberSettings({
+          notifications: settings.notifications,
+          preferences: settings.preferences,
+        });
       }
 
       toast({ title: "Profile Updated", description: "Your profile has been saved." });
@@ -159,8 +176,10 @@ export default function Account() {
   const handleSaveSettings = async () => {
     if (!settings) return;
     try {
-      const updated = await updateSettings(settings);
-      setSettings(updated);
+      await putMemberSettings({
+        notifications: settings.notifications,
+        preferences: settings.preferences,
+      });
       toast({ title: "Settings saved", description: "Your preferences were updated." });
     } catch (error: any) {
       toast({ title: "Settings failed", description: error?.message || "Please try again" });
@@ -173,8 +192,8 @@ export default function Account() {
       return;
     }
     try {
-      const updated = await updateAvatar({ avatar_url: avatarUrl.trim() });
-      setProfile(updated);
+      const updated = await updateMyProfile({ avatar_url: avatarUrl.trim() });
+      setProfile((p) => (p ? { ...p, avatar_url: updated.avatar_url || "" } : p));
       toast({ title: "Avatar Updated", description: "Your photo was updated." });
     } catch (error: any) {
       toast({ title: "Avatar update failed", description: error?.message || "Please try again" });
@@ -182,8 +201,12 @@ export default function Account() {
   };
 
   const handleChangePassword = async () => {
-    if (!passwordForm.current || !passwordForm.next) {
-      toast({ title: "Missing fields", description: "Enter your current and new password." });
+    if (!passwordForm.next) {
+      toast({ title: "Missing fields", description: "Enter a new password." });
+      return;
+    }
+    if (passwordForm.next.length < 8) {
+      toast({ title: "Weak password", description: "Use at least 8 characters." });
       return;
     }
     if (passwordForm.next !== passwordForm.confirm) {
@@ -191,7 +214,9 @@ export default function Account() {
       return;
     }
     try {
-      await changePassword({ current_password: passwordForm.current, new_password: passwordForm.next });
+      // Supabase updates the password for the currently signed-in user.
+      const { error } = await supabase.auth.updateUser({ password: passwordForm.next });
+      if (error) throw error;
       setPasswordForm({ current: "", next: "", confirm: "" });
       toast({ title: "Password Updated", description: "Your password was changed." });
     } catch (error: any) {
