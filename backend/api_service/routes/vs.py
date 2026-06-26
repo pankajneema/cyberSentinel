@@ -13,9 +13,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from models.auth_models import User
 
-# Mock databases
+# INTERIM in-memory store. Each record carries an `org_id` so reads are
+# tenant-isolated (no cross-org leakage). This is NOT durable — a persistent,
+# worker-backed VS subsystem is the remaining build (see audit notes). No
+# fabricated/seeded scan results are ever produced here.
 scans_db: Dict[str, Dict[str, Any]] = {}
 results_db: Dict[str, Dict[str, Any]] = {}
+
+
+def _org_scans(org_id: Optional[str]) -> Dict[str, Dict[str, Any]]:
+    """All scans owned by the caller's org."""
+    return {sid: s for sid, s in scans_db.items() if s.get("org_id") == org_id}
 
 class ScanRequest(BaseModel):
     name: str
@@ -67,9 +75,13 @@ async def get_vs_dashboard(current_user: dict = Depends(get_current_user)):
     Returns honest zeros when no scans have produced results — never seeds
     placeholder/example data.
     """
-    # Aggregate severity counts
+    # Aggregate severity counts — only over this org's scans (tenant isolation).
+    org_id = current_user.get("org_id")
+    org_scan_ids = set(_org_scans(org_id).keys())
     critical = high = medium = low = 0
-    for result in results_db.values():
+    for sid, result in results_db.items():
+        if sid not in org_scan_ids:
+            continue
         for v in result.get("results", []):
             sev = v.get("severity", "").lower()
             if sev == "critical":
@@ -116,6 +128,7 @@ async def create_scan(
     scan_id = str(uuid.uuid4())
     scans_db[scan_id] = {
         "id": scan_id,
+        "org_id": current_user.get("org_id"),   # tenant ownership
         "name": request.name,
         "target": request.target,
         "scan_type": request.scan_type,
@@ -123,39 +136,32 @@ async def create_scan(
         "status": "running",
         "created_at": datetime.utcnow().isoformat()
     }
-    # TODO: Queue scan job for background worker
+    # TODO: Queue scan job for background worker (persistent VS subsystem).
     return {"scan_id": scan_id, "status": "running"}
 
 @router.get("", response_model=List[dict])
 async def list_scans(skip: int = 0, limit: int = 100, current_user: dict = Depends(get_current_user)):
-    scans = list(scans_db.values())[skip:skip+limit]
-    return scans
+    # Only this org's scans (tenant isolation). Strip internal org_id from output.
+    scans = list(_org_scans(current_user.get("org_id")).values())[skip:skip + limit]
+    return [{k: v for k, v in s.items() if k != "org_id"} for s in scans]
 
 @router.get("/{scan_id}", response_model=ScanResult)
 async def get_scan(scan_id: str, current_user: dict = Depends(get_current_user)):
     scan = scans_db.get(scan_id)
-    if not scan:
+    if not scan or scan.get("org_id") != current_user.get("org_id"):
         raise HTTPException(status_code=404, detail="Scan not found")
-    
-    if scan_id not in results_db:
-        results_db[scan_id] = {
-            "id": scan_id,
-            "scan_type": scan["scan_type"],
-            "target": scan["target"],
-            "status": "completed",
-            "results": [
-                {
-                    "cve": "CVE-2024-0001",
-                    "severity": "critical",
-                    "exploitability_score": 9.8,
-                    "description": "Remote code execution vulnerability",
-                    "remediation": "Update to version 2.0.1"
-                }
-            ],
-            "created_at": scan["created_at"]
-        }
-    
-    return ScanResult(**results_db[scan_id])
+
+    # No fabricated results. Until a real scan worker populates results_db,
+    # return an honest empty result set for a scan that has not completed.
+    result = results_db.get(scan_id) or {
+        "id": scan_id,
+        "scan_type": scan["scan_type"],
+        "target": scan["target"],
+        "status": scan.get("status", "running"),
+        "results": [],
+        "created_at": scan["created_at"],
+    }
+    return ScanResult(**result)
 
 @router.post("/{scan_id}/retest")
 async def retest_scan(
@@ -165,7 +171,7 @@ async def retest_scan(
 ):
     await _require_write_access(db, current_user)
     scan = scans_db.get(scan_id)
-    if not scan:
+    if not scan or scan.get("org_id") != current_user.get("org_id"):
         raise HTTPException(status_code=404, detail="Scan not found")
     scan["status"] = "running"
     return {"scan_id": scan_id, "status": "running"}
@@ -177,7 +183,9 @@ async def delete_scan(
     current_user: dict = Depends(get_current_user),
 ):
     await _require_write_access(db, current_user)
-    if scan_id not in scans_db:
+    scan = scans_db.get(scan_id)
+    if not scan or scan.get("org_id") != current_user.get("org_id"):
         raise HTTPException(status_code=404, detail="Scan not found")
     del scans_db[scan_id]
+    results_db.pop(scan_id, None)
     return {"message": "Scan deleted successfully"}

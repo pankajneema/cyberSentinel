@@ -23,6 +23,7 @@ from routes import orgs            # Phase 2: organizations & memberships
 from models import marketing_models  # ensure marketing tables are registered
 from models import tenancy_models   # ensure organizations/member_profiles tables are registered
 from models import notification_models  # ensure notifications tables are registered
+from models import task_models  # ensure tasks/task_messages tables are registered
 
 app = FastAPI(
     title=settings.APP_NAME,
