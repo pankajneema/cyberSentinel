@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SeverityBadge } from "./SeverityBadge";
@@ -16,7 +16,6 @@ import {
   Trash2,
   Edit,
   Eye,
-  UserPlus,
   Tag,
   RefreshCw,
   X,
@@ -74,7 +73,8 @@ import {
   type CreateAssetPayload,
   type UpdateAssetPayload,
 } from "@/lib/api";
-import { getProfile } from "@/lib/services/profile";
+import { getMe } from "@/lib/services/auth";
+import { importAssets, parseAssetsCsv, rescoreAsset, type RescoreResult } from "@/lib/services/assets";
 
 const typeIcons: Record<string, typeof Globe> = {
   domain: Globe,
@@ -102,6 +102,46 @@ export function AssetInventory() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [exposureFilter, setExposureFilter] = useState("all");
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isTagOpen, setIsTagOpen] = useState(false);
+  const [bulkTags, setBulkTags] = useState("");
+  const [rescoringId, setRescoringId] = useState<string | null>(null);
+  // Cache of the latest score breakdown per asset (for the detail sheet "why").
+  const [scoreBreakdown, setScoreBreakdown] = useState<Record<string, RescoreResult>>({});
+
+  const handleCsvFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (!file) return;
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to import assets." });
+      return;
+    }
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const rows = parseAssetsCsv(text);
+      if (rows.length === 0) {
+        toast({ title: "Empty file", description: "No valid rows found in the CSV." });
+        return;
+      }
+      const res = await importAssets(rows);
+      toast({
+        title: "Import complete",
+        description: `${res.created} added, ${res.skipped} skipped${res.errors.length ? `, ${res.errors.length} error(s)` : ""}.`,
+      });
+      // Refresh the list to show the imported assets.
+      try {
+        const data = await fetchAssets({ page_size: 200 });
+        setAssets(data.items);
+      } catch { /* list will refresh on next navigation */ }
+    } catch (err) {
+      toast({ title: "Import failed", description: err instanceof Error ? err.message : "Please try again." });
+    } finally {
+      setImporting(false);
+    }
+  };
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [selectedAssetType, setSelectedAssetType] = useState<string | null>(null);
@@ -163,9 +203,9 @@ export function AssetInventory() {
     let mounted = true;
     const loadProfile = async () => {
       try {
-        const profile = await getProfile();
+        const me = await getMe();
         if (mounted) {
-          setCurrentRole(profile.role ?? "reader");
+          setCurrentRole(me.role ?? "reader");
         }
       } catch {
         if (mounted) {
@@ -227,15 +267,28 @@ export function AssetInventory() {
 
     setIsSubmitting(true);
 
+    // Build tags from the free-text field plus any type-specific selections so
+    // none of the entered context (provider/department/access) is dropped.
+    const buildTags = () => {
+      const base = newAsset.tags
+        ? newAsset.tags.split(",").map((t) => t.trim()).filter(Boolean)
+        : [];
+      const extra: string[] = [];
+      if (selectedAssetType === "cloud" && newAsset.cloudProvider) extra.push(newAsset.cloudProvider);
+      if (selectedAssetType === "user" && newAsset.department) extra.push(newAsset.department);
+      if (selectedAssetType === "user" && newAsset.accessLevel) extra.push(`access:${newAsset.accessLevel}`);
+      return Array.from(new Set([...base, ...extra]));
+    };
+    const description = newAsset.description.trim() || undefined;
+
     try {
       if (newAsset.name) {
         const payload: CreateAssetPayload = {
           name: newAsset.name.trim(),
           type: selectedAssetType as ApiAsset["type"],
           exposure: newAsset.exposure,
-          tags: newAsset.tags
-            ? newAsset.tags.split(",").map((t) => t.trim()).filter(Boolean)
-            : [],
+          tags: buildTags(),
+          description,
         };
 
         const createdAsset = await createAsset(payload);
@@ -257,9 +310,8 @@ export function AssetInventory() {
               name: line.trim(),
               type: selectedAssetType as ApiAsset["type"],
               exposure: newAsset.exposure,
-              tags: newAsset.tags
-                ? newAsset.tags.split(",").map((t) => t.trim()).filter(Boolean)
-                : [],
+              tags: buildTags(),
+              description,
             };
 
             const createdAsset = await createAsset(payload);
@@ -423,6 +475,117 @@ export function AssetInventory() {
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Export the currently filtered assets to a CSV file (client-side download).
+  const handleExport = () => {
+    if (filteredAssets.length === 0) {
+      toast({ title: "Nothing to export", description: "No assets match the current filters." });
+      return;
+    }
+    const esc = (v: unknown) => {
+      const s = String(v ?? "");
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const header = ["name", "type", "exposure", "risk_score", "status", "tags", "last_seen"];
+    const rows = filteredAssets.map((a) =>
+      [
+        a.name,
+        a.type,
+        a.exposure,
+        a.risk_score == null ? "unscanned" : a.risk_score,
+        a.status ?? "",
+        (a.tags || []).join("|"),
+        a.last_seen ?? "",
+      ].map(esc).join(",")
+    );
+    const csv = [header.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `assets-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast({ title: "Exported", description: `${filteredAssets.length} asset(s) exported to CSV.` });
+  };
+
+  // Apply tags to all selected assets (merged with existing, de-duplicated).
+  const handleBulkTag = async () => {
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to tag assets." });
+      return;
+    }
+    const tags = bulkTags.split(",").map((t) => t.trim()).filter(Boolean);
+    if (tags.length === 0) {
+      toast({ title: "No tags", description: "Enter one or more comma-separated tags." });
+      return;
+    }
+    setIsSubmitting(true);
+    let ok = 0;
+    let failed = 0;
+    const updates: ApiAsset[] = [];
+    for (const id of selectedAssets) {
+      const current = assets.find((a) => a.id === id);
+      if (!current) continue;
+      const merged = Array.from(new Set([...(current.tags || []), ...tags]));
+      try {
+        const updated = await updateAsset(id, { tags: merged });
+        updates.push(updated);
+        ok++;
+      } catch (err) {
+        console.error(`Failed to tag ${id}:`, err);
+        failed++;
+      }
+    }
+    if (updates.length) {
+      setAssets((prev) => prev.map((a) => updates.find((u) => u.id === a.id) ?? a));
+    }
+    setIsSubmitting(false);
+    setIsTagOpen(false);
+    setBulkTags("");
+    setSelectedAssets([]);
+    toast({
+      title: "Tags applied",
+      description: `${ok} asset(s) tagged${failed ? `, ${failed} failed` : ""}.`,
+      variant: failed ? "destructive" : "default",
+    });
+  };
+
+  // Recompute an asset's exposure score from real ASM scan data.
+  const handleRescore = async (asset: ApiAsset) => {
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to rescan assets." });
+      return;
+    }
+    setRescoringId(asset.id);
+    try {
+      const res = await rescoreAsset(asset.id);
+      if (!res.scored) {
+        toast({
+          title: "No scan data yet",
+          description: res.message || "Run an ASM discovery against this asset first.",
+        });
+        return;
+      }
+      setScoreBreakdown((prev) => ({ ...prev, [asset.id]: res }));
+      setAssets((prev) =>
+        prev.map((a) => (a.id === asset.id ? { ...a, risk_score: res.risk_score } : a))
+      );
+      setSelectedAsset((prev) =>
+        prev && prev.id === asset.id ? { ...prev, risk_score: res.risk_score } : prev
+      );
+      toast({
+        title: "Exposure rescored",
+        description: `${asset.name}: ${res.risk_score}/100 (${res.severity}) from ${res.matched_ips.length} IP(s).`,
+      });
+    } catch (err: any) {
+      toast({ title: "Rescore failed", description: err.message || "Please try again.", variant: "destructive" });
+    } finally {
+      setRescoringId(null);
     }
   };
 
@@ -601,9 +764,15 @@ export function AssetInventory() {
               />
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                disabled={importing}
+                onClick={() => { setIsAddOpen(false); fileInputRef.current?.click(); }}
+              >
                 <FileText className="w-4 h-4" />
-                Upload CSV
+                {importing ? "Importing…" : "Upload CSV"}
               </Button>
               <span className="text-xs text-muted-foreground">or paste directly above</span>
             </div>
@@ -688,10 +857,30 @@ export function AssetInventory() {
           </Select>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline">
+          <Button variant="outline" onClick={handleExport}>
             <Download className="w-4 h-4 mr-2" />
             Export
           </Button>
+          {canWrite && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={handleCsvFile}
+              />
+              <Button
+                variant="outline"
+                disabled={importing}
+                onClick={() => fileInputRef.current?.click()}
+                title="CSV columns: name,type,exposure,tags,description"
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                {importing ? "Importing…" : "Import CSV"}
+              </Button>
+            </>
+          )}
           {canWrite && (
             <Button variant="gradient" onClick={() => setIsAddOpen(true)}>
               <Plus className="w-4 h-4 mr-2" />
@@ -714,18 +903,14 @@ export function AssetInventory() {
               {selectedAssets.length} selected
             </span>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={() => setIsTagOpen(true)}>
                 <Tag className="w-4 h-4 mr-1" />
                 Tag
               </Button>
-              <Button variant="outline" size="sm">
-                <UserPlus className="w-4 h-4 mr-1" />
-                Assign
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="text-destructive hover:text-destructive" 
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:text-destructive"
                 onClick={handleBulkDelete}
                 disabled={isSubmitting}
               >
@@ -809,7 +994,16 @@ export function AssetInventory() {
                       </span>
                     </td>
                     <td className="p-4">
-                      <SeverityBadge severity={getSeverity(asset.risk_score) as any} showDot={false} />
+                      {asset.risk_score == null ? (
+                        <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-muted text-muted-foreground border border-border">
+                          Unscanned
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-2">
+                          <SeverityBadge severity={getSeverity(asset.risk_score) as any} showDot={false} />
+                          <span className="text-xs text-muted-foreground tabular-nums">{asset.risk_score}</span>
+                        </span>
+                      )}
                     </td>
                     <td className="p-4">
                       <div className="flex flex-wrap gap-1">
@@ -844,11 +1038,12 @@ export function AssetInventory() {
                               <DropdownMenuItem onClick={() => openEditDialog(asset)}>
                                 <Edit className="w-4 h-4 mr-2" />Edit
                               </DropdownMenuItem>
-                              <DropdownMenuItem>
-                                <RefreshCw className="w-4 h-4 mr-2" />Re-discover
-                              </DropdownMenuItem>
-                              <DropdownMenuItem>
-                                <UserPlus className="w-4 h-4 mr-2" />Assign Owner
+                              <DropdownMenuItem
+                                disabled={rescoringId === asset.id || (asset.type !== "domain" && asset.type !== "ip")}
+                                onClick={() => handleRescore(asset)}
+                              >
+                                <RefreshCw className={`w-4 h-4 mr-2 ${rescoringId === asset.id ? "animate-spin" : ""}`} />
+                                {rescoringId === asset.id ? "Rescoring…" : "Rescore exposure"}
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem 
@@ -896,8 +1091,15 @@ export function AssetInventory() {
               <div className="mt-6 space-y-6">
                 {canWrite && (
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm"><RefreshCw className="w-4 h-4 mr-1" />Re-discover</Button>
-                    <Button variant="outline" size="sm"><UserPlus className="w-4 h-4 mr-1" />Assign</Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={rescoringId === selectedAsset.id || (selectedAsset.type !== "domain" && selectedAsset.type !== "ip")}
+                      onClick={() => handleRescore(selectedAsset)}
+                    >
+                      <RefreshCw className={`w-4 h-4 mr-1 ${rescoringId === selectedAsset.id ? "animate-spin" : ""}`} />
+                      {rescoringId === selectedAsset.id ? "Rescoring…" : "Rescore"}
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => openEditDialog(selectedAsset)}><Edit className="w-4 h-4 mr-1" />Edit</Button>
                   </div>
                 )}
@@ -915,7 +1117,9 @@ export function AssetInventory() {
                     </div>
                     <div className="p-4 bg-muted/30 rounded-xl">
                       <div className="text-xs text-muted-foreground mb-1">Exposure Score</div>
-                      <div className="text-sm font-medium">{selectedAsset.risk_score}/100</div>
+                      <div className="text-sm font-medium">
+                        {selectedAsset.risk_score == null ? "Unscanned" : `${selectedAsset.risk_score}/100`}
+                      </div>
                     </div>
                     <div className="p-4 bg-muted/30 rounded-xl">
                       <div className="text-xs text-muted-foreground mb-1">Last Seen</div>
@@ -944,6 +1148,23 @@ export function AssetInventory() {
                     )}
                   </div>
                 </div>
+
+                {scoreBreakdown[selectedAsset.id]?.scored && (
+                  <div className="space-y-3">
+                    <h4 className="font-medium text-foreground">Why this score</h4>
+                    <p className="text-xs text-muted-foreground">
+                      Computed from {scoreBreakdown[selectedAsset.id].matched_ips.length} discovered IP(s) using CVSS/EPSS/KEV-aware exposure scoring.
+                    </p>
+                    <div className="space-y-2">
+                      {scoreBreakdown[selectedAsset.id].factors.map((f, i) => (
+                        <div key={i} className="flex items-center justify-between text-xs p-2.5 bg-muted/30 rounded-lg">
+                          <span className="text-foreground">{f.detail}</span>
+                          <span className="font-medium text-muted-foreground tabular-nums">+{f.points}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -1079,6 +1300,41 @@ export function AssetInventory() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Tag Dialog */}
+      <Dialog open={isTagOpen} onOpenChange={(open) => { setIsTagOpen(open); if (!open) setBulkTags(""); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Tag className="w-5 h-5 text-primary" />
+              Tag {selectedAssets.length} asset{selectedAssets.length !== 1 ? "s" : ""}
+            </DialogTitle>
+            <DialogDescription>
+              Tags are merged with each asset's existing tags (duplicates ignored).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Tags (comma-separated)</Label>
+              <Input
+                autoFocus
+                placeholder="e.g., production, pci, external"
+                value={bulkTags}
+                onChange={(e) => setBulkTags(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleBulkTag(); }}
+              />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button variant="outline" className="flex-1" onClick={() => setIsTagOpen(false)} disabled={isSubmitting}>
+                Cancel
+              </Button>
+              <Button variant="gradient" className="flex-1" onClick={handleBulkTag} disabled={isSubmitting}>
+                {isSubmitting ? "Applying…" : "Apply Tags"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
