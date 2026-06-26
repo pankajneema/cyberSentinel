@@ -9,6 +9,7 @@ Create Date: 2026-06-27
 """
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 from sqlalchemy.dialects import postgresql
 
 revision = "reports_tables"
@@ -17,7 +18,15 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table(name: str) -> bool:
+    # The app's Base.metadata.create_all may have already created these tables
+    # at startup; skip creation so this migration is idempotent.
+    return inspect(op.get_bind()).has_table(name)
+
+
 def upgrade() -> None:
+    if _has_table("reports"):
+        return
     op.create_table(
         "reports",
         sa.Column("id", sa.String(), nullable=False),

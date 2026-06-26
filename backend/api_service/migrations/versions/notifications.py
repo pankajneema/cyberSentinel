@@ -8,6 +8,7 @@ Create Date: 2026-06-27
 """
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 
 revision = "notifications"
 down_revision = "reports_tables"
@@ -15,7 +16,14 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table(name: str) -> bool:
+    # Idempotent: app startup create_all may have already made these tables.
+    return inspect(op.get_bind()).has_table(name)
+
+
 def upgrade() -> None:
+    if _has_table("notifications"):
+        return
     op.create_table(
         "notifications",
         sa.Column("id", sa.String(), nullable=False),
