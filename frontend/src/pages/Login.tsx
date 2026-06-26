@@ -1,20 +1,43 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Shield, Mail, Lock, ArrowRight, Eye, EyeOff, CheckCircle2, Zap, Users, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
-import { login } from "@/lib/api";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { LogoMark } from "@/components/Logo";
+import { useAuth } from "@/contexts/AuthContext";
+import { acceptInvite } from "@/lib/services/orgs";
 
 export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const inviteToken = searchParams.get("invite");
+  const { signInWithPassword, signInWithOAuth, session } = useAuth();
+  const from =
+    (location.state as { from?: { pathname: string } } | null)?.from?.pathname ??
+    "/app/dashboard";
+
+  // If a session already exists (e.g. just returned from GitHub/Google OAuth),
+  // forward to the app instead of sitting on the login screen.
+  useEffect(() => {
+    if (session) {
+      if (inviteToken) {
+        acceptInvite(inviteToken).catch(() => {});
+      }
+      navigate(from, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,33 +45,25 @@ export default function Login() {
     setError("");
 
     try {
-      const response = await login({ email, password });
-      
-      // Store the access token
-      localStorage.setItem("access_token", response.access_token);
-      localStorage.setItem("token_type", response.token_type);
-      
-      // Store user email for reference
-      localStorage.setItem("user_email", email);
-
-      // Redirect to dashboard
-      navigate("/app/dashboard");
-    } catch (error) {
-      let errorMessage = "Failed to sign in. Please try again.";
-      
-      if (error instanceof Error) {
-        // Parse error message if it's JSON
-        try {
-          const errorData = JSON.parse(error.message);
-          errorMessage = errorData.detail || errorData.message || errorMessage;
-        } catch {
-          errorMessage = error.message || errorMessage;
-        }
+      await signInWithPassword(email.trim().toLowerCase(), password, remember);
+      // Finalize a pending org-join if the user arrived from an invite link.
+      if (inviteToken) {
+        try { await acceptInvite(inviteToken); } catch { /* non-fatal */ }
       }
-
-      setError(errorMessage);
+      navigate(from, { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to sign in. Please try again.");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const oauth = async (provider: "google" | "github") => {
+    setError("");
+    try {
+      await signInWithOAuth(provider);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "OAuth sign-in failed");
     }
   };
 
@@ -63,9 +78,7 @@ export default function Login() {
         >
           {/* Logo */}
           <Link to="/" className="flex items-center gap-3 mb-10">
-            <div className="w-11 h-11 rounded-xl gradient-bg flex items-center justify-center shadow-lg">
-              <Shield className="w-6 h-6 text-primary-foreground" />
-            </div>
+            <LogoMark className="w-11 h-11" />
             <span className="font-heading font-bold text-xl text-foreground tracking-tight">
               CyberSentinel
             </span>
@@ -88,7 +101,7 @@ export default function Login() {
 
           {/* SSO Buttons */}
           <div className="grid grid-cols-2 gap-3 mb-6">
-            <Button variant="outline" className="w-full h-12 text-base font-medium">
+            <Button variant="outline" type="button" onClick={() => oauth("google")} className="w-full h-12 text-base font-medium">
               <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
                 <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                 <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -97,7 +110,7 @@ export default function Login() {
               </svg>
               Google
             </Button>
-            <Button variant="outline" className="w-full h-12 text-base font-medium">
+            <Button variant="outline" type="button" onClick={() => oauth("github")} className="w-full h-12 text-base font-medium">
               <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
               </svg>
@@ -160,6 +173,17 @@ export default function Login() {
               </div>
             </div>
 
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="remember"
+                checked={remember}
+                onCheckedChange={(checked) => setRemember(checked === true)}
+              />
+              <Label htmlFor="remember" className="text-sm text-muted-foreground cursor-pointer">
+                Remember me on this device
+              </Label>
+            </div>
+
             <Button type="submit" variant="gradient" className="w-full h-12 text-base" disabled={isLoading}>
               {isLoading ? (
                 <span className="flex items-center gap-2">
@@ -190,13 +214,13 @@ export default function Login() {
       {/* Right Side - Visual */}
       <div className="hidden lg:flex flex-1 gradient-hero-bg items-center justify-center p-12 relative overflow-hidden">
         {/* Grid pattern */}
-        <div 
+        <div
           className="absolute inset-0 opacity-10"
           style={{
             backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.3'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
           }}
         />
-        
+
         <div className="relative z-10 text-center text-primary-foreground max-w-lg">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
