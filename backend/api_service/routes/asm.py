@@ -26,7 +26,7 @@ from models.asm_models import (
 )
 from models.asset_models import Asset as AssetModel
 from models.auth_models import User as UserModel
-from models.tenancy_models import MemberProfile
+from models.tenancy_models import MemberProfile, AuditLog
 from scoring import score_exposure, AssetSignals
 
 # -------------------- Schemas -------------------- #
@@ -724,6 +724,29 @@ async def asm_overview(
         {"label": "low", "count": int(low_exposure_count)},
     ]
 
+    # Recent activity — real org events from the audit trail (last ~10).
+    recent_activity = []
+    org_id = current_user.get("org_id")
+    if org_id:
+        recent_logs = (
+            await db.execute(
+                select(AuditLog)
+                .where(AuditLog.org_id == org_id)
+                .order_by(AuditLog.created_at.desc())
+                .limit(10)
+            )
+        ).scalars().all()
+        recent_activity = [
+            {
+                "id": log.id,
+                "action": log.action,
+                "asset": log.target,
+                "time": log.created_at.isoformat() if log.created_at else None,
+                "type": (log.action or "").split(".")[0] or log.action,
+            }
+            for log in recent_logs
+        ]
+
     return AsmOverviewResponse(
         attack_surface_index=attack_surface_index,
         total_discoveries=total,
@@ -745,7 +768,7 @@ async def asm_overview(
         exposure_breakdown=exposure_breakdown,
         exposure_trend=0,
         top_exposed_assets=top_exposed_assets,
-        recent_activity=[],
+        recent_activity=recent_activity,
     )
 
 

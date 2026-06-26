@@ -16,12 +16,13 @@ from utils.queue import close_queue, get_queue_connection
 from utils.clickhouse_client import close_clickhouse, get_clickhouse
 
 # Import all routes
-from routes import auth, users, profile, accounts, billing, services, asm, vs, settings_route, activity, assets, tasks, team, marketing, reports
+from routes import auth, users, profile, accounts, billing, services, asm, vs, settings_route, activity, assets, tasks, team, marketing, reports, notifications
 from routes import auth_supabase  # Supabase-era identity router (Phase 1)
 from routes import auth_webhook    # Supabase provisioning webhook
 from routes import orgs            # Phase 2: organizations & memberships
 from models import marketing_models  # ensure marketing tables are registered
 from models import tenancy_models   # ensure organizations/member_profiles tables are registered
+from models import notification_models  # ensure notifications tables are registered
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -145,6 +146,7 @@ app.include_router(vs.vs_router)
 app.include_router(activity.router)
 app.include_router(assets.router)
 app.include_router(reports.router)
+app.include_router(notifications.router)
 app.include_router(tasks.router)
 app.include_router(marketing.router)
 

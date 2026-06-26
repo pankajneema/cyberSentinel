@@ -68,3 +68,4 @@ export * from "./services/reports";
 export * from "./services/settings";
 export * from "./services/activity";
 export * from "./services/team";
+export * from "./services/notifications";
