@@ -26,6 +26,8 @@ from models.asm_models import (
 )
 from models.asset_models import Asset as AssetModel
 from models.auth_models import User as UserModel
+from models.tenancy_models import MemberProfile
+from scoring import score_exposure, AssetSignals
 
 # -------------------- Schemas -------------------- #
 from schemas.asm_schema import (
@@ -77,32 +79,41 @@ async def _company_user_ids(
     db: AsyncSession,
     current_user: dict,
 ) -> list[str]:
-    user_res = await db.execute(
-        select(UserModel).where(UserModel.id == current_user["user_id"])
-    )
-    user = user_res.scalar_one_or_none()
-    if not user or not user.company_id:
-        raise HTTPException(status_code=404, detail="Company not found")
+    """
+    Return the Supabase user-ids of every member in the caller's organization.
 
-    ids_res = await db.execute(
-        select(UserModel.id).where(UserModel.company_id == user.company_id)
+    Tenancy scoping: ASM data is created with the creator's Supabase `user_id`,
+    and creators are org members — so filtering existing queries by
+    `user_id.in_(these ids)` scopes everything to the org (org_id tenancy).
+    """
+    org_id = current_user.get("org_id")
+    self_id = current_user.get("user_id")
+
+    if not org_id:
+        # No org context yet — only the caller's own data.
+        return [self_id] if self_id else []
+
+    rows = await db.execute(
+        select(MemberProfile.supabase_user_id).where(
+            MemberProfile.org_id == org_id,
+            MemberProfile.deleted_at.is_(None),
+        )
     )
-    return [row[0] for row in ids_res.all()]
+    ids = [r[0] for r in rows.all()]
+    if self_id and self_id not in ids:
+        ids.append(self_id)
+    return ids
 
 
 async def _require_write_access(
     db: AsyncSession,
     current_user: dict,
 ):
-    user_res = await db.execute(
-        select(UserModel).where(UserModel.id == current_user["user_id"])
-    )
-    user = user_res.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    if user.role == "reader":
-        raise HTTPException(status_code=403, detail="Read-only access")
-    return user
+    # RBAC from the verified identity (owner/admin/analyst may write; reader cannot).
+    role = current_user.get("role", "reader")
+    if role not in ("owner", "admin", "analyst"):
+        raise HTTPException(status_code=403, detail="Read-only access for your role")
+    return current_user
 
 
 async def _user_discovery_ids(db: AsyncSession, user_ids: list[str]) -> list[str]:
@@ -200,6 +211,7 @@ async def create_discovery(
     await _require_write_access(db, current_user)
     discovery = AsmDiscoveryModel(
         user_id=current_user["user_id"],
+        org_id=current_user.get("org_id"),
         name=payload.name,
         asset_type=payload.asset_type,
         target_source=payload.target_source,
@@ -238,6 +250,82 @@ async def create_discovery(
         )
 
     return discovery_data
+
+
+# ---------------------------------------------------
+# Exposure Signals (defensible CVSS/EPSS/KEV-aware scoring)
+# ---------------------------------------------------
+@router.get("/exposure")
+async def asm_exposure(
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Per-IP exposure scored with the defensible model in `scoring/exposure.py`
+    (open ports/sensitive services + TLS posture + context), replacing the
+    legacy magic-number score. Returns the factor breakdown so the UI can show
+    *why* each asset scored what it did.
+    """
+    user_ids = await _company_user_ids(db, current_user)
+    discovery_ids = await _user_discovery_ids(db, user_ids)
+    if not discovery_ids:
+        return {"items": [], "total": 0, "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}}
+
+    ips = (await db.execute(
+        select(AsmIPModel).where(AsmIPModel.asm_discovery_id.in_(discovery_ids))
+    )).scalars().all()
+    if not ips:
+        return {"items": [], "total": 0, "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}}
+
+    open_ports = (await db.execute(
+        select(AsmPortModel).where(
+            AsmPortModel.asm_discovery_id.in_(discovery_ids),
+            AsmPortModel.status == "open",
+        )
+    )).scalars().all()
+    ports_by_ip: dict[str, list[int]] = {}
+    services_by_ip: dict[str, list[str]] = {}
+    for p in open_ports:
+        ports_by_ip.setdefault(p.ip_address, []).append(p.port)
+        if p.service:
+            services_by_ip.setdefault(p.ip_address, []).append(p.service)
+
+    certs = (await db.execute(
+        select(AsmSSLCertModel).where(AsmSSLCertModel.asm_discovery_id.in_(discovery_ids))
+    )).scalars().all()
+    tls_by_host: dict[str, list[str]] = {}
+    now = datetime.utcnow()
+    for c in certs:
+        if c.valid_until and c.valid_until < now:
+            tls_by_host.setdefault(c.host, []).append("expired")
+
+    summary = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+    items = []
+    for ip in ips:
+        addr = ip.ip_address
+        sc = score_exposure(AssetSignals(
+            open_ports=ports_by_ip.get(addr, []),
+            services=services_by_ip.get(addr, []),
+            is_public=True,                 # externally-discovered = internet-facing
+            tls_issues=tls_by_host.get(addr, []),
+            asset_criticality="normal",
+        ))
+        summary[sc.severity] = summary.get(sc.severity, 0) + 1
+        items.append({
+            "ip_address": addr,
+            "country": ip.country,
+            "country_code": ip.country_code,
+            "asn": ip.asn,
+            "asn_org": ip.asn_org,
+            "open_ports": sorted(ports_by_ip.get(addr, [])),
+            "score": sc.score,
+            "severity": sc.severity,
+            "factors": sc.to_dict()["factors"],
+        })
+
+    items.sort(key=lambda r: r["score"], reverse=True)
+    return {"items": items[:limit], "total": len(items), "summary": summary}
 
 
 # ---------------------------------------------------
@@ -354,6 +442,52 @@ async def update_discovery(
 
     await db.commit()
     await db.refresh(discovery)
+
+    return discovery.to_dict()
+
+
+# ---------------------------------------------------
+# Run / Re-run Discovery (manual trigger)
+# ---------------------------------------------------
+@router.post("/discoveries/{discovery_id}/run", response_model=AsmDiscoveryResponse)
+async def run_discovery(
+    discovery_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Manually (re-)queue an existing discovery for immediate execution.
+
+    Mirrors the create-time enqueue: marks the discovery PENDING with an
+    immediate next_run_at and publishes the same job message the worker
+    consumes. Scoped to the caller's org via _company_user_ids.
+    """
+    await _require_write_access(db, current_user)
+    user_ids = await _company_user_ids(db, current_user)
+    query = select(AsmDiscoveryModel).where(
+        AsmDiscoveryModel.id == discovery_id,
+        AsmDiscoveryModel.user_id.in_(user_ids),
+    )
+    result = await db.execute(query)
+    discovery = result.scalar_one_or_none()
+
+    if not discovery:
+        raise HTTPException(status_code=404, detail="Discovery not found")
+
+    discovery.status = "PENDING"
+    discovery.next_run_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(discovery)
+
+    queue_message = {
+        "type": "asm",
+        "user_id": discovery.user_id,
+        "id": discovery.id,
+        "asset_type": discovery.asset_type,
+        "target_source": discovery.target_source,
+        "intensity": discovery.intensity,
+    }
+    if not await publish_message("jobs.asm", queue_message):
+        raise HTTPException(status_code=500, detail="Not able to schedule this discovery")
 
     return discovery.to_dict()
 

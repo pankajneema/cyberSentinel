@@ -72,6 +72,7 @@ import {
   createDiscovery,
   updateDiscovery,
   deleteDiscovery,
+  runDiscovery,
   fetchDiscoveryRuns,
   type ApiAsset,
   type AsmDiscovery,
@@ -341,43 +342,17 @@ export function ScanManager() {
 
   const handleRunDiscovery = async (id: string, name: string) => {
     try {
-      // First set to PENDING
-      setDiscoveries(discoveries.map(d => 
-        d.id === id ? { ...d, status: "PENDING" as any } : d
-      ));
-      
-      toast({ 
-        title: "Discovery Queued", 
-        description: `${name} has been queued and will start shortly` 
+      // Real backend enqueue — publishes the job to the ASM worker queue.
+      const updated = await runDiscovery(id);
+      setDiscoveries(prev => prev.map(d => (d.id === id ? { ...d, ...updated } : d)));
+      toast({
+        title: "Discovery Queued",
+        description: `${name} has been queued and will start shortly.`,
       });
-      
-      // Change to RUNNING after 2 seconds
-      setTimeout(() => {
-        setDiscoveries(prev => prev.map(d => 
-          d.id === id ? { ...d, status: "RUNNING" as any } : d
-        ));
-        
-        toast({
-          title: "Discovery Started",
-          description: `${name} is now running`,
-        });
-        
-        // Change to RUNNING after scan completes (5 seconds)
-        setTimeout(() => {
-          setDiscoveries(prev => prev.map(d => 
-            d.id === id ? { ...d, status: "RUNNING" as any } : d
-          ));
-          
-          toast({
-            title: "Discovery Completed",
-            description: `${name} scan completed successfully`,
-          });
-        }, 5000);
-      }, 2000);
     } catch (err: any) {
       toast({
         title: "Error",
-        description: "Failed to start discovery",
+        description: err?.message || "Failed to start discovery",
         variant: "destructive",
       });
     }
@@ -405,13 +380,11 @@ export function ScanManager() {
 
   const handleStopDiscovery = async (id: string, name: string) => {
     try {
-      setDiscoveries(discoveries.map(d => 
-        d.id === id ? { ...d, status: "PAUSED" as any } : d
-      ));
-      
-      toast({ 
-        title: "Discovery Stopped", 
-        description: `${name} has been stopped` 
+      const updated = await updateDiscovery(id, { status: "PAUSED" as any });
+      setDiscoveries(prev => prev.map(d => (d.id === id ? { ...d, ...updated } : d)));
+      toast({
+        title: "Discovery Stopped",
+        description: `${name} has been stopped`,
       });
     } catch (err: any) {
       toast({

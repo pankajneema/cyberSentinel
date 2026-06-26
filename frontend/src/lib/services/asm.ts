@@ -303,6 +303,34 @@ export interface DiscoveryListParams {
   sort_dir?: string;
 }
 
+export interface ExposureFactor {
+  name: string;
+  points: number;
+  detail: string;
+}
+
+export interface ExposureItem {
+  ip_address: string;
+  country: string | null;
+  country_code: string | null;
+  asn: string | null;
+  asn_org: string | null;
+  open_ports: number[];
+  score: number;
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  factors: ExposureFactor[];
+}
+
+export interface ExposureResponse {
+  items: ExposureItem[];
+  total: number;
+  summary: Record<string, number>;
+}
+
+export function getExposure(limit = 100) {
+  return apiFetch<ExposureResponse>(`/asm/exposure?limit=${limit}`);
+}
+
 // API Functions
 export function fetchDiscoveries(params?: DiscoveryListParams) {
   const search = new URLSearchParams();
@@ -336,6 +364,13 @@ export function updateDiscovery(discoveryId: string, payload: UpdateDiscoveryPay
 export function deleteDiscovery(discoveryId: string) {
   return apiFetch<{ message: string }>(`/asm/discoveries/${discoveryId}`, {
     method: "DELETE",
+  });
+}
+
+/** Manually (re-)queue an existing discovery for immediate execution. */
+export function runDiscovery(discoveryId: string) {
+  return apiFetch<AsmDiscovery>(`/asm/discoveries/${discoveryId}/run`, {
+    method: "POST",
   });
 }
 
