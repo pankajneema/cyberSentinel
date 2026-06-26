@@ -53,53 +53,20 @@ vs_router = APIRouter(prefix="/api/v1/vs", tags=["Vulnerability Scanning (VS)"])
 
 
 async def _require_write_access(db: AsyncSession, current_user: dict):
-    user_res = await db.execute(select(User).where(User.id == current_user["user_id"]))
-    user = user_res.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    if user.role == "reader":
-        raise HTTPException(status_code=403, detail="Read-only access")
-    return user
+    # RBAC from the verified identity (owner/admin/analyst may write; reader cannot).
+    role = current_user.get("role", "reader")
+    if role not in ("owner", "admin", "analyst"):
+        raise HTTPException(status_code=403, detail="Read-only access for your role")
+    return current_user
 
 
 @vs_router.get("/dashboard", response_model=VSDashboard)
 async def get_vs_dashboard(current_user: dict = Depends(get_current_user)):
     """
-    Minimal VS dashboard endpoint derived from in-memory scans/results.
+    VS dashboard endpoint. Aggregates severity counts from real scan results.
+    Returns honest zeros when no scans have produced results — never seeds
+    placeholder/example data.
     """
-    # Ensure at least one completed scan result exists so UI has data
-    if not scans_db:
-        scan_id = "example-scan"
-        scans_db[scan_id] = {
-            "id": scan_id,
-            "name": "Example Scan",
-            "target": "api.company.com",
-            "scan_type": "external",
-            "frequency": "weekly",
-            "status": "completed",
-            "created_at": datetime.utcnow().isoformat(),
-        }
-
-    # Populate a synthetic results entry for each scan if missing
-    for scan_id, scan in scans_db.items():
-        if scan_id not in results_db:
-            results_db[scan_id] = {
-                "id": scan_id,
-                "scan_type": scan["scan_type"],
-                "target": scan["target"],
-                "status": "completed",
-                "results": [
-                    {
-                        "cve": "CVE-2024-0001",
-                        "severity": "critical",
-                        "exploitability_score": 9.8,
-                        "description": "Remote code execution vulnerability",
-                        "remediation": "Update to version 2.0.1",
-                    }
-                ],
-                "created_at": scan["created_at"],
-            }
-
     # Aggregate severity counts
     critical = high = medium = low = 0
     for result in results_db.values():
@@ -127,18 +94,16 @@ async def get_vs_dashboard(current_user: dict = Depends(get_current_user)):
             scan_coverage=0,
         )
 
-    # Synthetic MTTR and coverage for now
-    avg_mttr_days = 4.2
-    scan_coverage = 87
-
+    # MTTR/coverage are not yet derived from real remediation timestamps;
+    # report 0 rather than fabricating values.
     return VSDashboard(
         total_vulnerabilities=total,
         critical=critical,
         high=high,
         medium=medium,
         low=low,
-        avg_mttr_days=avg_mttr_days,
-        scan_coverage=scan_coverage,
+        avg_mttr_days=0.0,
+        scan_coverage=0,
     )
 
 @router.post("")
