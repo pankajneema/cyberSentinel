@@ -26,6 +26,9 @@ import {
   Cloud,
   FileText,
   Activity,
+  Github,
+  Boxes,
+  UserCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -96,12 +99,33 @@ const discoveryTypes = [
     description: "Add IP addresses or CIDR ranges",
     color: "bg-destructive/10 text-destructive"
   },
-  { 
-    value: "cloud", 
-    label: "Cloud Asset", 
-    icon: Cloud, 
+  {
+    value: "cloud",
+    label: "Cloud Asset",
+    icon: Cloud,
     description: "AWS, Azure, GCP resources",
     color: "bg-success/10 text-success"
+  },
+  {
+    value: "repo",
+    label: "Repository",
+    icon: Github,
+    description: "GitHub, GitLab, or Bitbucket repos",
+    color: "bg-accent/10 text-accent"
+  },
+  {
+    value: "saas",
+    label: "SaaS App",
+    icon: Boxes,
+    description: "Third-party SaaS applications",
+    color: "bg-warning/10 text-warning"
+  },
+  {
+    value: "user",
+    label: "User Account",
+    icon: UserCircle,
+    description: "Employee or service accounts",
+    color: "bg-primary/10 text-primary"
   },
 ];
 

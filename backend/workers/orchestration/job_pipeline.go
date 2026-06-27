@@ -146,6 +146,41 @@ var PipelineConfig = map[string]map[string][]StageConfig{
 			{Stage: "full_osint_correlation", Tool: "full_osint_correlation"},
 		},
 	},
+	"repo": {
+		"LIGHT": {
+			{Stage: "repo_secret_scan", Tool: "repo_secret_scan"},
+		},
+		"NORMAL": {
+			{Stage: "repo_secret_scan", Tool: "repo_secret_scan"},
+		},
+		"DEEP": {
+			{Stage: "repo_secret_scan", Tool: "repo_secret_scan"},
+			{Stage: "full_osint_correlation", Tool: "full_osint_correlation"},
+		},
+	},
+	"saas": {
+		"LIGHT": {
+			{Stage: "saas_detect", Tool: "saas_detect"},
+		},
+		"NORMAL": {
+			{Stage: "saas_detect", Tool: "saas_detect"},
+		},
+		"DEEP": {
+			{Stage: "saas_detect", Tool: "saas_detect"},
+		},
+	},
+	"user": {
+		"LIGHT": {
+			{Stage: "email_leak_check", Tool: "email_leak_check"},
+		},
+		"NORMAL": {
+			{Stage: "email_leak_check", Tool: "email_leak_check"},
+		},
+		"DEEP": {
+			{Stage: "email_leak_check", Tool: "email_leak_check"},
+			{Stage: "full_osint_correlation", Tool: "full_osint_correlation"},
+		},
+	},
 }
 
 // ToolExecution represents a single tool execution in the pipeline

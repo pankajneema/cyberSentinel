@@ -1,0 +1,148 @@
+"""User asset-type ASM reporting.
+
+Mirrors process_cloud_asm: ensures a discovery-run record exists, persists each
+COMPLETED pipeline step (routing the email_leak_check stage to
+store_user_accounts) inside a per-step savepoint, then marks the run COMPLETED.
+
+The DEEP user pipeline also runs full_osint_correlation; that step is ignored
+here (it has no user-account storage handler) and does not affect the run.
+"""
+import logging
+from typing import Any
+from datetime import datetime
+
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.api_service.models.asm_models import AsmDiscovery, AsmDiscoveryRun, AsmUserAccount
+from backend.reporting.asm.assets.domain import get_user_id_from_discovery
+
+logger = logging.getLogger(__name__)
+
+
+async def store_user_accounts(
+    db: AsyncSession,
+    job_id: str,
+    result: dict[str, Any],
+    asset_id: str,
+    org_id: str | None = None,
+) -> int:
+    """Extract and store exposed accounts from email_leak_check step result."""
+    inserted = 0
+    accounts_data = result.get("accounts", [])
+    if not isinstance(accounts_data, list):
+        return 0
+
+    for item in accounts_data:
+        if not isinstance(item, dict):
+            continue
+
+        email = item.get("email", "")
+        if not email:
+            continue
+
+        breach_count = item.get("breach_count")
+        try:
+            breach_count = int(breach_count) if breach_count is not None else None
+        except (TypeError, ValueError):
+            breach_count = None
+
+        exposed_data = item.get("exposed_data")
+        if not isinstance(exposed_data, list):
+            exposed_data = None
+
+        try:
+            stmt = (
+                insert(AsmUserAccount)
+                .values(
+                    asm_discovery_id=job_id,
+                    org_id=org_id,
+                    asset_id=asset_id,
+                    email=str(email).strip(),
+                    source=item.get("source"),
+                    breached=bool(item.get("breached", False)),
+                    breach_count=breach_count,
+                    exposed_data=exposed_data,
+                    severity=item.get("severity"),
+                    extra_info=item,
+                )
+                .on_conflict_do_nothing(index_elements=["asm_discovery_id", "email", "source"])
+                .returning(AsmUserAccount.id)
+            )
+            res = await db.execute(stmt)
+            if res.scalar_one_or_none():
+                inserted += 1
+        except Exception as e:
+            logger.warning(f"Error inserting user account {email}: {e}")
+
+    return inserted
+
+
+async def process_user_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
+    job_id = payload.get("job_id")
+    intensity = payload.get("intensity", "LIGHT")
+    status = payload.get("status", "COMPLETED")
+    user_id = await get_user_id_from_discovery(db, job_id) or "system"
+    org_id = (
+        await db.execute(select(AsmDiscovery.org_id).where(AsmDiscovery.id == job_id))
+    ).scalar_one_or_none()
+
+    run = (
+        (
+            await db.execute(
+                select(AsmDiscoveryRun)
+                .where(AsmDiscoveryRun.asm_discovery_id == job_id)
+                .order_by(AsmDiscoveryRun.created_at.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if not run:
+        run = AsmDiscoveryRun(
+            asm_discovery_id=job_id,
+            user_id=user_id,
+            triggered_by="API",
+            run_mode="QUICK",
+            status="RUNNING",
+            started_at=datetime.utcnow(),
+        )
+        db.add(run)
+        await db.flush()
+    else:
+        run.status = "RUNNING"
+        if not run.started_at:
+            run.started_at = datetime.utcnow()
+
+    accounts_inserted = 0
+    for step in payload.get("pipeline", []):
+        if step.get("status") != "COMPLETED":
+            continue
+        step_name = step.get("step", "")
+        if step_name != "email_leak_check":
+            continue
+        step_asset_id = step.get("asset_id") or payload.get("asset_id")
+        if not step_asset_id:
+            continue
+        try:
+            async with db.begin_nested():  # isolate each step (one bad row != whole job)
+                accounts_inserted += await store_user_accounts(
+                    db=db,
+                    job_id=job_id,
+                    result=step.get("result", {}) or {},
+                    asset_id=step_asset_id,
+                    org_id=org_id,
+                )
+        except Exception as step_err:
+            logger.warning(f"User step '{step_name}' failed (isolated, job continues): {step_err}")
+
+    run.status = status
+    run.completed_at = datetime.utcnow()
+    run.summary = {
+        "intensity": intensity,
+        "user_accounts": {"inserted": accounts_inserted},
+        "pipeline_steps": len(payload.get("pipeline", [])),
+    }
+    await db.commit()
+    logger.info("✅ User ASM Completed job=%s user_accounts=%d", job_id, accounts_inserted)

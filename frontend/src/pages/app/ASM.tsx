@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Radar, LayoutDashboard, GitBranch, FileSearch, FileText, Settings, Shield, ShieldAlert } from "lucide-react";
+import { Radar, LayoutDashboard, GitBranch, FileSearch, FileText, Settings, Shield, ShieldAlert, Github, Boxes, UserCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ASMOverview } from "@/components/asm/ASMOverview";
@@ -11,11 +11,15 @@ import { DiscoveryRunsList } from "@/components/asm/DiscoveryRunsList";
 import { ASMFindings } from "@/components/asm/ASMFindings";
 import { IPGeoMap } from "@/components/asm/IPGeoMap";
 import { ExposureSignals } from "@/components/asm/ExposureSignals";
+import { RepoFindingsTab, SaasAppsTab, UserExposureTab } from "@/components/asm/ExtendedFindings";
 import { motion } from "framer-motion";
 
 const tabs = [
   { value: "overview", label: "Overview", icon: LayoutDashboard },
   { value: "findings", label: "Findings", icon: Shield },
+  { value: "repo_findings", label: "Repo Findings", icon: Github },
+  { value: "saas_apps", label: "SaaS Apps", icon: Boxes },
+  { value: "user_exposure", label: "User Exposure", icon: UserCircle },
   { value: "exposure", label: "Exposure", icon: ShieldAlert },
   { value: "scans", label: "Discovery", icon: FileSearch },
   { value: "reports", label: "Reports", icon: FileText },
@@ -40,6 +44,18 @@ const tabMeta: Record<string, { title: string; description: string }> = {
   findings: {
     title: "ASM Findings",
     description: "Explore subdomains, IPs, cloud assets, and deep scan results",
+  },
+  repo_findings: {
+    title: "Repository Findings",
+    description: "Leaked secrets and risky patterns across discovered repositories",
+  },
+  saas_apps: {
+    title: "SaaS Applications",
+    description: "Third-party SaaS applications discovered across your attack surface",
+  },
+  user_exposure: {
+    title: "User Exposure",
+    description: "Employee and service accounts exposed in breaches and leaks",
   },
   graph: {
     title: "Attack Surface Graph",
@@ -129,6 +145,15 @@ export default function ASM() {
           </TabsContent>
           <TabsContent value="findings" forceMount className="mt-0 data-[state=inactive]:hidden">
             <ASMFindings />
+          </TabsContent>
+          <TabsContent value="repo_findings" forceMount className="mt-0 data-[state=inactive]:hidden">
+            <RepoFindingsTab />
+          </TabsContent>
+          <TabsContent value="saas_apps" forceMount className="mt-0 data-[state=inactive]:hidden">
+            <SaasAppsTab />
+          </TabsContent>
+          <TabsContent value="user_exposure" forceMount className="mt-0 data-[state=inactive]:hidden">
+            <UserExposureTab />
           </TabsContent>
           <TabsContent value="exposure" forceMount className="mt-0 data-[state=inactive]:hidden">
             <ExposureSignals />

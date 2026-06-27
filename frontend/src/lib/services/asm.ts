@@ -18,7 +18,7 @@ export interface AsmDiscovery {
 
 export interface CreateDiscoveryPayload {
   name: string;
-  asset_type: "domain" | "ip" | "cloud";
+  asset_type: "domain" | "ip" | "cloud" | "repo" | "saas" | "user";
   target_source: "FROM_ASSET" | "MANUAL_ENTRY";
   asset_ids?: string[] | null;
   manual_targets?: string[] | null;
@@ -234,6 +234,41 @@ export interface AsmChange {
   changes?: any[] | null;
   message?: string | null;
   created_at?: string | null;
+}
+
+export interface RepoFinding {
+  id: string;
+  repo_url: string;
+  finding_type: string;
+  rule: string;
+  severity: string;
+  file_path: string;
+  line: number;
+  secret: string;
+  commit: string;
+  created_at: string;
+}
+
+export interface SaasApp {
+  id: string;
+  app_name: string;
+  vendor: string;
+  category: string;
+  url: string;
+  status: string;
+  discovery_method: string;
+  created_at: string;
+}
+
+export interface UserAccount {
+  id: string;
+  email: string;
+  source: string;
+  breached: boolean;
+  breach_count: number;
+  exposed_data: string;
+  severity: string;
+  created_at: string;
 }
 
 export interface AsmDiscoveryRun {
@@ -557,6 +592,42 @@ export function fetchAllIPs(page = 1, page_size = 50) {
   qs.set("page", String(page));
   qs.set("page_size", String(page_size));
   return apiFetch<Paginated<AsmIP>>(`/asm/ips?${qs.toString()}`);
+}
+
+type FindingListParams = {
+  discovery_id?: string;
+  q?: string;
+  sort_by?: string;
+  sort_dir?: string;
+  page?: number;
+  page_size?: number;
+};
+
+function buildFindingQuery(params?: FindingListParams) {
+  const search = new URLSearchParams();
+  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
+  if (params?.q) search.set("q", params.q);
+  if (params?.sort_by) search.set("sort_by", params.sort_by);
+  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.page_size) search.set("page_size", String(params.page_size));
+  const qs = search.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export async function fetchRepoFindings(params?: FindingListParams): Promise<RepoFinding[]> {
+  const res = await apiFetch<any>(`/asm/repo-findings${buildFindingQuery(params)}`);
+  return Array.isArray(res) ? res : res?.items ?? [];
+}
+
+export async function fetchSaasApps(params?: FindingListParams): Promise<SaasApp[]> {
+  const res = await apiFetch<any>(`/asm/saas-apps${buildFindingQuery(params)}`);
+  return Array.isArray(res) ? res : res?.items ?? [];
+}
+
+export async function fetchUserAccounts(params?: FindingListParams): Promise<UserAccount[]> {
+  const res = await apiFetch<any>(`/asm/user-accounts${buildFindingQuery(params)}`);
+  return Array.isArray(res) ? res : res?.items ?? [];
 }
 
 export function fetchIPGeoMap(discovery_id?: string, max_points = 3000) {

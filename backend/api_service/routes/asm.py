@@ -23,6 +23,9 @@ from models.asm_models import (
     AsmAdminEndpoint as AsmAdminEndpointModel,
     AsmBackupFile as AsmBackupFileModel,
     AsmChange as AsmChangeModel,
+    AsmRepoFinding as AsmRepoFindingModel,
+    AsmSaasApp as AsmSaasAppModel,
+    AsmUserAccount as AsmUserAccountModel,
 )
 from models.asset_models import Asset as AssetModel
 from models.auth_models import User as UserModel
@@ -1851,3 +1854,111 @@ async def get_run_detail(
         summary=run.summary,
         created_at=run.created_at.isoformat() if run.created_at else None,
     )
+
+
+# ---------------------------------------------------
+# Repo findings list
+# ---------------------------------------------------
+@router.get("/repo-findings")
+async def list_repo_findings(
+    discovery_id: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_ids = await _company_user_ids(db, current_user)
+    if page_size > 100:
+        page_size = 100
+
+    base = (
+        select(AsmRepoFindingModel)
+        .join(AsmDiscoveryModel, AsmRepoFindingModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+    )
+    if discovery_id:
+        base = base.where(AsmRepoFindingModel.asm_discovery_id == discovery_id)
+
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+    rows = (await db.execute(
+        base.order_by(AsmRepoFindingModel.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    return {
+        "items": [r.to_dict() for r in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+# ---------------------------------------------------
+# SaaS apps list
+# ---------------------------------------------------
+@router.get("/saas-apps")
+async def list_saas_apps(
+    discovery_id: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_ids = await _company_user_ids(db, current_user)
+    if page_size > 100:
+        page_size = 100
+
+    base = (
+        select(AsmSaasAppModel)
+        .join(AsmDiscoveryModel, AsmSaasAppModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+    )
+    if discovery_id:
+        base = base.where(AsmSaasAppModel.asm_discovery_id == discovery_id)
+
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+    rows = (await db.execute(
+        base.order_by(AsmSaasAppModel.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    return {
+        "items": [r.to_dict() for r in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+# ---------------------------------------------------
+# User accounts list
+# ---------------------------------------------------
+@router.get("/user-accounts")
+async def list_user_accounts(
+    discovery_id: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    user_ids = await _company_user_ids(db, current_user)
+    if page_size > 100:
+        page_size = 100
+
+    base = (
+        select(AsmUserAccountModel)
+        .join(AsmDiscoveryModel, AsmUserAccountModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+    )
+    if discovery_id:
+        base = base.where(AsmUserAccountModel.asm_discovery_id == discovery_id)
+
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+    rows = (await db.execute(
+        base.order_by(AsmUserAccountModel.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    return {
+        "items": [r.to_dict() for r in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }

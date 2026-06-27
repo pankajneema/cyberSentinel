@@ -25,6 +25,9 @@ import (
 	naabu "workers/executor/tools/naabu"
 	nmap "workers/executor/tools/nmap"
 	"workers/executor/tools/nuclei"
+	emailleak "workers/executor/tools/emailleak"
+	reposcan "workers/executor/tools/reposcan"
+	saasdetect "workers/executor/tools/saasdetect"
 	sslscan "workers/executor/tools/sslscan"
 	"workers/executor/tools/subfinder"
 	"workers/utils"
@@ -884,6 +887,75 @@ func Run(ctx context.Context, task executor.Task) (result executor.Result) {
 				}
 			}
 
+		case "repo_secret_scan":
+			// Repo asset-type: scan a git repository for leaked secrets (gitleaks).
+			seed := enhancedPipeline.AssetName
+			if seed == "" && enhancedPipeline.Pipeline[i].AssetID != "" {
+				if name, err := getAssetName(ctx, enhancedPipeline.Pipeline[i].AssetID); err == nil {
+					seed = name
+					enhancedPipeline.AssetName = name
+				}
+			}
+			if seed == "" {
+				utils.Logger.Warnf("no asset name for repo_secret_scan job=%s step=%d", task.JobID, i)
+				output = map[string]interface{}{"findings": []map[string]interface{}{}, "count": 0}
+			} else {
+				findings, err := reposcan.Run(ctx, seed)
+				if err != nil {
+					toolErr = err
+					utils.Logger.Errorf("repo_secret_scan failed job=%s step=%d error=%v", task.JobID, i, err)
+				} else {
+					output = map[string]interface{}{"findings": findings, "count": len(findings)}
+					utils.Logger.Infof("repo_secret_scan completed job=%s step=%d found=%d", task.JobID, i, len(findings))
+				}
+			}
+
+		case "saas_detect":
+			// SaaS asset-type: detect third-party SaaS apps via MX + DNS subdomains.
+			seed := enhancedPipeline.AssetName
+			if seed == "" && enhancedPipeline.Pipeline[i].AssetID != "" {
+				if name, err := getAssetName(ctx, enhancedPipeline.Pipeline[i].AssetID); err == nil {
+					seed = name
+					enhancedPipeline.AssetName = name
+				}
+			}
+			if seed == "" {
+				utils.Logger.Warnf("no asset name for saas_detect job=%s step=%d", task.JobID, i)
+				output = map[string]interface{}{"apps": []map[string]interface{}{}, "count": 0}
+			} else {
+				apps, err := saasdetect.Run(ctx, seed)
+				if err != nil {
+					toolErr = err
+					utils.Logger.Errorf("saas_detect failed job=%s step=%d error=%v", task.JobID, i, err)
+				} else {
+					output = map[string]interface{}{"apps": apps, "count": len(apps)}
+					utils.Logger.Infof("saas_detect completed job=%s step=%d found=%d", task.JobID, i, len(apps))
+				}
+			}
+
+		case "email_leak_check":
+			// User asset-type: check for breached accounts via HaveIBeenPwned.
+			seed := enhancedPipeline.AssetName
+			if seed == "" && enhancedPipeline.Pipeline[i].AssetID != "" {
+				if name, err := getAssetName(ctx, enhancedPipeline.Pipeline[i].AssetID); err == nil {
+					seed = name
+					enhancedPipeline.AssetName = name
+				}
+			}
+			if seed == "" {
+				utils.Logger.Warnf("no asset name for email_leak_check job=%s step=%d", task.JobID, i)
+				output = map[string]interface{}{"accounts": []map[string]interface{}{}, "count": 0}
+			} else {
+				accounts, err := emailleak.Run(ctx, seed)
+				if err != nil {
+					toolErr = err
+					utils.Logger.Errorf("email_leak_check failed job=%s step=%d error=%v", task.JobID, i, err)
+				} else {
+					output = map[string]interface{}{"accounts": accounts, "count": len(accounts)}
+					utils.Logger.Infof("email_leak_check completed job=%s step=%d found=%d", task.JobID, i, len(accounts))
+				}
+			}
+
 		case "config_review_readonly":
 			// Read-only config review: keep only publicly-accessible resources.
 			all := collectCloudResourcesFromPipeline(enhancedPipeline.Pipeline, i)
@@ -1413,6 +1485,10 @@ func isOptionalTool(tool string) bool {
 		"config_review_readonly":  true,
 		"full_osint_correlation":  true,
 		"ai_subdomain_probe":      true,
+		// repo/saas/user asset-type pipeline tools (skip if external dep absent).
+		"repo_secret_scan": true,
+		"saas_detect":      true,
+		"email_leak_check": true,
 	}
 	return optionalTools[tool]
 }
