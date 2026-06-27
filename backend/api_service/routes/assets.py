@@ -355,3 +355,90 @@ async def delete_asset(
     await db.delete(asset)
     await db.commit()
     return {"message": "Asset deleted successfully"}
+
+
+# ---------------------------------------------------------------------------
+# Authorization-to-scan: ownership verification
+# ---------------------------------------------------------------------------
+# Active discoveries (NORMAL/DEEP) require proven ownership of the target so the
+# platform cannot be used to actively scan third-party infrastructure.
+
+_VERIFY_PREFIX = "cybersentinel-site-verification"
+
+
+@router.post("/{asset_id}/verification-token")
+async def get_verification_token(
+    asset_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(_writer),
+):
+    """Issue (or return) the ownership-verification token + instructions."""
+    import secrets
+
+    asset = await _get_owned_asset(db, asset_id, require_org(user.org_id))
+    if not asset.verification_token:
+        asset.verification_token = secrets.token_urlsafe(24)
+        await db.commit()
+        await db.refresh(asset)
+
+    txt_value = f"{_VERIFY_PREFIX}={asset.verification_token}"
+    return {
+        "asset_id": asset.id,
+        "name": asset.name,
+        "type": asset.type,
+        "ownership_verified": asset.ownership_verified,
+        "token": asset.verification_token,
+        "dns_txt_record": txt_value,
+        "instructions": (
+            f"Add a DNS TXT record on '{asset.name}' with value '{txt_value}', "
+            "then call POST /assets/{id}/verify. (Non-domain assets: an owner/admin "
+            "may attest ownership via the verify endpoint.)"
+        ),
+    }
+
+
+@router.post("/{asset_id}/verify")
+async def verify_ownership(
+    asset_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: CurrentUser = Depends(_writer),
+):
+    """Verify ownership. Domains: DNS TXT check. Other types: owner/admin attestation."""
+    asset = await _get_owned_asset(db, asset_id, require_org(user.org_id))
+    if asset.ownership_verified:
+        return {"asset_id": asset.id, "ownership_verified": True, "method": "already_verified"}
+    if not asset.verification_token:
+        raise HTTPException(status_code=400, detail="Request a verification token first.")
+
+    expected = f"{_VERIFY_PREFIX}={asset.verification_token}"
+
+    if asset.type == "domain":
+        try:
+            import dns.resolver  # dnspython
+
+            answers = dns.resolver.resolve(asset.name.rstrip("."), "TXT")
+            values = [b.decode() if isinstance(b, bytes) else str(b)
+                      for r in answers for b in getattr(r, "strings", [str(r)])]
+            joined = " ".join(values).replace('"', "")
+            if expected not in joined:
+                raise HTTPException(
+                    status_code=400,
+                    detail="DNS TXT record not found yet. Add it and retry (propagation can take minutes).",
+                )
+            method = "dns_txt"
+        except HTTPException:
+            raise
+        except Exception as exc:  # NXDOMAIN / no TXT / resolver error
+            raise HTTPException(status_code=400, detail=f"DNS verification failed: {exc}")
+    else:
+        # ip/cloud/repo/saas/user: owner/admin attests ownership (audited via role).
+        if user.role not in ("owner", "admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="Only an owner or admin can attest ownership for this asset type.",
+            )
+        method = "attestation"
+
+    asset.ownership_verified = True
+    await db.commit()
+    return {"asset_id": asset.id, "ownership_verified": True, "method": method}

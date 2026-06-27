@@ -212,6 +212,37 @@ async def create_discovery(
     current_user: dict = Depends(get_current_user),
 ):
     await _require_write_access(db, current_user)
+
+    # Authorization-to-scan: active (NORMAL/DEEP) discoveries may only target
+    # assets whose ownership has been verified, so the platform can't be used to
+    # actively scan third-party infrastructure. LIGHT (passive) is always allowed.
+    from config.settings import settings as _settings
+    from models.asset_models import Asset as _Asset
+
+    if _settings.REQUIRE_SCAN_VERIFICATION and (payload.intensity or "").upper() in ("NORMAL", "DEEP"):
+        org_id = current_user.get("org_id")
+        if payload.target_source == "MANUAL_ENTRY" or not payload.asset_ids:
+            raise HTTPException(
+                status_code=403,
+                detail="Active (NORMAL/DEEP) scans require a verified-owned asset. Add the "
+                       "target as an asset and verify ownership, or use LIGHT (passive) intensity.",
+            )
+        rows = (
+            await db.execute(
+                select(_Asset).where(_Asset.id.in_(payload.asset_ids), _Asset.org_id == org_id)
+            )
+        ).scalars().all()
+        found_ids = {a.id for a in rows}
+        if any(aid not in found_ids for aid in payload.asset_ids):
+            raise HTTPException(status_code=404, detail="One or more target assets not found in your organization.")
+        unverified = [a.name for a in rows if not a.ownership_verified]
+        if unverified:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Ownership not verified for: {', '.join(unverified)}. Verify via "
+                       "POST /api/v1/assets/{id}/verify before running an active scan, or use LIGHT intensity.",
+            )
+
     discovery = AsmDiscoveryModel(
         user_id=current_user["user_id"],
         org_id=current_user.get("org_id"),

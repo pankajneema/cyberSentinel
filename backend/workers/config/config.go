@@ -45,6 +45,10 @@ type Config struct {
 
 	// Mircoservice
 	AsmEndpoint string
+
+	// Shared secret for the internal control-plane API (consumer -> control-plane).
+	// When set, /asm/jobs/start requires header X-Internal-Token == this value.
+	ControlPlaneToken string
 }
 
 // Load loads environment variables and returns Config
@@ -82,6 +86,8 @@ func Load() *Config {
 
 		// Microservices
 		AsmEndpoint: Get("ASM_SERVICE_ENDPOINTS", "http://localhost:9003/asm/"),
+
+		ControlPlaneToken: Get("CONTROL_PLANE_TOKEN", ""),
 
 		//database
 		PostgreSql: MustGet("POSTGRESQL_URL"),

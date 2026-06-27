@@ -2,7 +2,7 @@
 SQLAlchemy Models for Assets
 """
 
-from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Text
+from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Text, Boolean
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.sql import func
 import uuid
@@ -46,6 +46,11 @@ class Asset(Base):
     last_seen = Column(String(100), nullable=True)
 
     description = Column(Text, nullable=True)
+
+    # Authorization-to-scan: active discoveries (NORMAL/DEEP) require proven
+    # ownership of the target so the platform can't be used to scan third parties.
+    ownership_verified = Column(Boolean, nullable=False, default=False)
+    verification_token = Column(String, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(

@@ -47,6 +47,10 @@ func Run(ctx context.Context, repo string) ([]map[string]interface{}, error) {
 	}
 
 	repoURL := normalizeRepoURL(repo)
+	if repoURL == "" {
+		utils.Logger.Warnf("repo_secret_scan: rejected non-https/unsafe repo target %q, skipping", repo)
+		return []map[string]interface{}{}, nil
+	}
 
 	gitleaksPath, err := getToolPath("gitleaks")
 	if err != nil {
@@ -65,7 +69,11 @@ func Run(ctx context.Context, repo string) ([]map[string]interface{}, error) {
 
 			cloneCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 			defer cancel()
-			clone := exec.CommandContext(cloneCtx, gitPath, "clone", "--depth", "1", repoURL, tmpDir)
+			// "--" terminates option parsing so a crafted repoURL cannot be
+			// interpreted as a git flag (e.g. --upload-pack -> RCE).
+			clone := exec.CommandContext(cloneCtx, gitPath, "clone", "--depth", "1",
+				"-c", "protocol.ext.allow=never", "-c", "protocol.file.allow=never",
+				"--", repoURL, tmpDir)
 			if out, cerr := clone.CombinedOutput(); cerr != nil {
 				utils.Logger.Warnf("repo_secret_scan: clone failed repo=%s err=%v out=%s", repoURL, cerr, strings.TrimSpace(string(out)))
 			} else {
@@ -129,10 +137,22 @@ func Run(ctx context.Context, repo string) ([]map[string]interface{}, error) {
 }
 
 // normalizeRepoURL turns "github.com/org/repo" into a clonable https URL.
+// HTTPS-only: http:// is upgraded; ssh/git@/ext::/file:// and any other scheme
+// are rejected (return "") so the caller skips — these are SSRF/RCE vectors.
 func normalizeRepoURL(repo string) string {
 	r := strings.TrimSpace(repo)
-	if strings.HasPrefix(r, "http://") || strings.HasPrefix(r, "https://") || strings.HasPrefix(r, "git@") {
+	if r == "" || strings.HasPrefix(r, "-") {
+		return ""
+	}
+	if strings.HasPrefix(r, "https://") {
 		return r
+	}
+	if strings.HasPrefix(r, "http://") {
+		return "https://" + strings.TrimPrefix(r, "http://")
+	}
+	// Reject anything with an explicit non-https scheme or SSH form.
+	if strings.Contains(r, "://") || strings.HasPrefix(r, "git@") || strings.Contains(r, "::") {
+		return ""
 	}
 	return "https://" + r
 }

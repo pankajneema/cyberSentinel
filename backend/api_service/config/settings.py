@@ -42,6 +42,10 @@ class Settings:
     SECRET_KEY: str = os.getenv("SECRET_KEY", "")
     JWT_SECRET: str = os.getenv("JWT_SECRET", "")
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
+
+    # Authorization-to-scan: when true, active discoveries (NORMAL/DEEP) require
+    # the target asset(s) to have proven ownership. Set false only in dev.
+    REQUIRE_SCAN_VERIFICATION: bool = os.getenv("REQUIRE_SCAN_VERIFICATION", "true").lower() == "true"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
         os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
     )

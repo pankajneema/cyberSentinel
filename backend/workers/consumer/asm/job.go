@@ -82,6 +82,9 @@ func HandleJob(body []byte) error {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	if cfg.ControlPlaneToken != "" {
+		req.Header.Set("X-Internal-Token", cfg.ControlPlaneToken)
+	}
 
 	resp, err := controlPlaneClient.Do(req)
 	if err != nil {
