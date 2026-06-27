@@ -11,6 +11,7 @@ import (
 
 	"workers/database"
 	"workers/executor"
+	aisubs "workers/executor/tools/aisubs"
 	amass "workers/executor/tools/amass"
 	bbot "workers/executor/tools/bbot"
 	cloudenum "workers/executor/tools/cloudenum"
@@ -349,6 +350,28 @@ func Run(ctx context.Context, task executor.Task) (result executor.Result) {
 				utils.Logger.Errorf("subfinder failed job=%s step=%d domain=%s error=%v", task.JobID, i, domainName, toolErr)
 			} else {
 				utils.Logger.Infof("subfinder completed job=%s step=%d domain=%s", task.JobID, i, domainName)
+			}
+
+		case "ai_subdomain_probe":
+			// Dedicated AI/LLM subdomain probe (claude.<domain>, openai.<domain>, ...).
+			domainName := enhancedPipeline.AssetName
+			if domainName == "" && enhancedPipeline.Pipeline[i].AssetID != "" {
+				if name, err := getAssetName(ctx, enhancedPipeline.Pipeline[i].AssetID); err == nil {
+					domainName = name
+					enhancedPipeline.AssetName = name
+				}
+			}
+			if domainName == "" {
+				output = map[string]interface{}{"subdomains": []string{}, "count": 0}
+			} else {
+				subs, err := aisubs.Run(ctx, domainName)
+				if err != nil {
+					toolErr = err
+					utils.Logger.Errorf("ai_subdomain_probe failed job=%s step=%d error=%v", task.JobID, i, err)
+				} else {
+					output = map[string]interface{}{"subdomains": subs, "count": len(subs)}
+					utils.Logger.Infof("ai_subdomain_probe completed job=%s step=%d found=%d", task.JobID, i, len(subs))
+				}
 			}
 
 		case "crtsh":
@@ -1389,6 +1412,7 @@ func isOptionalTool(tool string) bool {
 		"public_endpoint_detect": true,
 		"config_review_readonly":  true,
 		"full_osint_correlation":  true,
+		"ai_subdomain_probe":      true,
 	}
 	return optionalTools[tool]
 }

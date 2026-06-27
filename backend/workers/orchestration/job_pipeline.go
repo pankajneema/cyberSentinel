@@ -13,10 +13,12 @@ type StageConfig struct {
 // PipelineConfig holds all asset type and intensity mappings with stage-based configuration
 // ASM Intensity Levels: LIGHT (visibility), NORMAL (exposure), DEEP (risk signals)
 var PipelineConfig = map[string]map[string][]StageConfig{
+	// ASM Principle: Each asset type has a defined set of stages, and each stage maps to a specific tool	
 	"domain": {
 		"LIGHT": {
 			{Stage: "subdomain_discovery", Tool: "subfinder"},
 			{Stage: "cert_intel", Tool: "crtsh"},
+			{Stage: "ai_subdomain_probe", Tool: "ai_subdomain_probe"},
 			{Stage: "dns_resolution", Tool: "dnsx"},
 			{Stage: "reachability_check", Tool: "http_probe"},
 			{Stage: "http_status", Tool: "httpx"},
@@ -25,6 +27,7 @@ var PipelineConfig = map[string]map[string][]StageConfig{
 			{Stage: "subdomain_discovery", Tool: "subfinder"},
 			{Stage: "deep_discovery", Tool: "amass"},
 			{Stage: "cert_intel", Tool: "crtsh"},
+			{Stage: "ai_subdomain_probe", Tool: "ai_subdomain_probe"},
 			{Stage: "dns_resolution", Tool: "dnsx"},
 			{Stage: "reachability_check", Tool: "http_probe"},
 			{Stage: "http_status", Tool: "httpx"},
@@ -42,6 +45,7 @@ var PipelineConfig = map[string]map[string][]StageConfig{
 			{Stage: "recursive_osint", Tool: "bbot"},
 			{Stage: "subdomain_expansion", Tool: "dnsgen"},
 			{Stage: "cert_intel", Tool: "crtsh"},
+			{Stage: "ai_subdomain_probe", Tool: "ai_subdomain_probe"},
 			{Stage: "dns_resolution", Tool: "dnsx"},
 			{Stage: "reachability_check", Tool: "http_probe"},
 			{Stage: "http_status", Tool: "httpx"},
