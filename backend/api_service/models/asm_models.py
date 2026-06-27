@@ -626,3 +626,124 @@ class AsmChange(Base):
             "message": self.message,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class AsmRepoFinding(Base):
+    """Secrets/leaks found in a source-code repository (GitHub/GitLab/Bitbucket)."""
+    __tablename__ = "asm_repo_findings"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    asm_discovery_id = Column(String, ForeignKey("asm_discoveries.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    asset_id = Column(String, nullable=False, index=True)
+
+    repo_url = Column(String, nullable=False, index=True)
+    finding_type = Column(String, nullable=True)   # secret, dependency, misconfig
+    rule = Column(String, nullable=True)           # e.g. aws-access-key, generic-api-key
+    severity = Column(String, nullable=True)       # critical|high|medium|low|info
+    file_path = Column(String, nullable=True)
+    line = Column(Integer, nullable=True)
+    secret = Column(String, nullable=True)         # redacted/match snippet
+    commit = Column(String, nullable=True)
+    extra_info = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'repo_url', 'rule', 'file_path', 'line', name='uq_repo_finding'),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asm_discovery_id": self.asm_discovery_id,
+            "asset_id": self.asset_id,
+            "repo_url": self.repo_url,
+            "finding_type": self.finding_type,
+            "rule": self.rule,
+            "severity": self.severity,
+            "file_path": self.file_path,
+            "line": self.line,
+            "secret": self.secret,
+            "commit": self.commit,
+            "extra_info": self.extra_info,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AsmSaasApp(Base):
+    """Third-party SaaS application discovered for the organisation/domain."""
+    __tablename__ = "asm_saas_apps"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    asm_discovery_id = Column(String, ForeignKey("asm_discoveries.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    asset_id = Column(String, nullable=False, index=True)
+
+    app_name = Column(String, nullable=False, index=True)
+    vendor = Column(String, nullable=True)
+    category = Column(String, nullable=True)       # auth, crm, storage, comms, ...
+    url = Column(String, nullable=True)
+    status = Column(String, nullable=True)         # active, detected, unknown
+    discovery_method = Column(String, nullable=True)  # dns, sso, http, header
+    extra_info = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'app_name', name='uq_saas_app'),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asm_discovery_id": self.asm_discovery_id,
+            "asset_id": self.asset_id,
+            "app_name": self.app_name,
+            "vendor": self.vendor,
+            "category": self.category,
+            "url": self.url,
+            "status": self.status,
+            "discovery_method": self.discovery_method,
+            "extra_info": self.extra_info,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AsmUserAccount(Base):
+    """Exposed employee/service account (email leak / breach exposure)."""
+    __tablename__ = "asm_user_accounts"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    asm_discovery_id = Column(String, ForeignKey("asm_discoveries.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
+    asset_id = Column(String, nullable=False, index=True)
+
+    email = Column(String, nullable=False, index=True)
+    source = Column(String, nullable=True)         # breach name / leak source
+    breached = Column(Boolean, default=False)
+    breach_count = Column(Integer, nullable=True)
+    exposed_data = Column(JSON, nullable=True)      # e.g. ["passwords","emails"]
+    severity = Column(String, nullable=True)
+    extra_info = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'email', 'source', name='uq_user_account'),
+    )
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "asm_discovery_id": self.asm_discovery_id,
+            "asset_id": self.asset_id,
+            "email": self.email,
+            "source": self.source,
+            "breached": self.breached,
+            "breach_count": self.breach_count,
+            "exposed_data": self.exposed_data,
+            "severity": self.severity,
+            "extra_info": self.extra_info,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

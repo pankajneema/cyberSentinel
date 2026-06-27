@@ -7,7 +7,7 @@ from typing import List, Optional, Literal
 # ---------------------------------------------------
 class AsmDiscoveryCreateRequest(BaseModel):
     name: str
-    asset_type: Literal["domain", "ip", "cloud"]
+    asset_type: Literal["domain", "ip", "cloud", "repo", "saas", "user"]
     target_source: Literal["FROM_ASSET", "MANUAL_ENTRY"]
     asset_ids: Optional[List[str]] = None
     manual_targets: Optional[List[str]] = None
