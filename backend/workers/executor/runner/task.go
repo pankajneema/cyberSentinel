@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"workers/database"
@@ -214,7 +215,16 @@ func getAssetName(ctx context.Context, assetID string) (string, error) {
 	return assetName, nil
 }
 
-func Run(ctx context.Context, task executor.Task) executor.Result {
+func Run(ctx context.Context, task executor.Task) (result executor.Result) {
+	// Top-level panic recovery (audit C3): a panic in any tool/parser fails the
+	// job cleanly instead of crashing the worker and stranding other jobs.
+	defer func() {
+		if r := recover(); r != nil {
+			utils.Logger.Errorf("recovered panic in executor job=%s: %v", task.JobID, r)
+			result = fail(task.JobID, fmt.Errorf("panic: %v", r))
+		}
+	}()
+
 	utils.Logger.Infof("executor started job=%s", task.JobID)
 
 	// 🔹 Load pipeline from Redis
@@ -281,6 +291,14 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 	// 🔹 Execute pipeline steps sequentially
 	completedSteps := 0
 	for i := range enhancedPipeline.Pipeline {
+		// Stop if the job's deadline/cancellation fired (audit C4): a hung or
+		// cancelled scan no longer blocks the worker indefinitely.
+		if cerr := ctx.Err(); cerr != nil {
+			utils.Logger.Warnf("context done, stopping pipeline job=%s at step=%d: %v", task.JobID, i, cerr)
+			enhancedPipeline.Pipeline[i].Status = "CANCELLED"
+			break
+		}
+
 		stepStartTime := time.Now()
 
 		utils.Logger.Infof(
@@ -812,6 +830,60 @@ func Run(ctx context.Context, task executor.Task) executor.Result {
 				}
 			}
 
+		case "public_endpoint_detect":
+			// Cloud asset-type discovery: enumerate public cloud endpoints/buckets
+			// for the asset (reuses the real unauthenticated cloud OSINT tool).
+			seed := enhancedPipeline.AssetName
+			if seed == "" {
+				utils.Logger.Warnf("no asset name for public_endpoint_detect job=%s step=%d", task.JobID, i)
+				output = map[string]interface{}{"resources": []interface{}{}, "count": 0}
+			} else {
+				cloudResults, err := cloudenum.RunCloudOSINT(ctx, seed)
+				if err != nil {
+					toolErr = err
+					utils.Logger.Errorf("public_endpoint_detect failed job=%s step=%d error=%v", task.JobID, i, err)
+				} else {
+					var resourceList []map[string]interface{}
+					for _, cr := range cloudResults {
+						resourceList = append(resourceList, map[string]interface{}{
+							"service": cr.Service, "type": cr.Type, "name": cr.Name, "status": cr.Status,
+						})
+					}
+					output = map[string]interface{}{"resources": resourceList, "count": len(resourceList)}
+					utils.Logger.Infof("public_endpoint_detect completed job=%s step=%d found=%d resources", task.JobID, i, len(resourceList))
+				}
+			}
+
+		case "config_review_readonly":
+			// Read-only config review: keep only publicly-accessible resources.
+			all := collectCloudResourcesFromPipeline(enhancedPipeline.Pipeline, i)
+			var publicRes []map[string]interface{}
+			for _, r := range all {
+				status, _ := r["status"].(string)
+				ls := strings.ToLower(status)
+				if strings.Contains(ls, "public") || strings.Contains(ls, "open") {
+					publicRes = append(publicRes, r)
+				}
+			}
+			output = map[string]interface{}{"resources": publicRes, "count": len(publicRes)}
+			utils.Logger.Infof("config_review_readonly completed job=%s step=%d public=%d", task.JobID, i, len(publicRes))
+
+		case "full_osint_correlation":
+			// Correlate + dedupe all cloud resources discovered in prior steps.
+			all := collectCloudResourcesFromPipeline(enhancedPipeline.Pipeline, i)
+			seen := map[string]bool{}
+			var deduped []map[string]interface{}
+			for _, r := range all {
+				name, _ := r["name"].(string)
+				if name == "" || seen[name] {
+					continue
+				}
+				seen[name] = true
+				deduped = append(deduped, r)
+			}
+			output = map[string]interface{}{"resources": deduped, "count": len(deduped)}
+			utils.Logger.Infof("full_osint_correlation completed job=%s step=%d correlated=%d", task.JobID, i, len(deduped))
+
 		case "admin_finder":
 			// Admin endpoint discovery - needs subdomains from previous steps
 			urls := collectSubdomainsFromPipeline(enhancedPipeline.Pipeline, i)
@@ -1306,6 +1378,10 @@ func isOptionalTool(tool string) bool {
 		"admin_finder":      true,
 		"backup_detector":   true,
 		"asset_diff_engine": true,
+		// Cloud asset-type pipeline tools (skip cleanly if cloud_enum binary absent).
+		"public_endpoint_detect": true,
+		"config_review_readonly":  true,
+		"full_osint_correlation":  true,
 	}
 	return optionalTools[tool]
 }

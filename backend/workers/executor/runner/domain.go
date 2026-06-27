@@ -57,6 +57,39 @@ func collectSubdomainsFromPipeline(pipeline []ToolResult, upto int) []string {
 	return subdomains
 }
 
+// collectCloudResourcesFromPipeline gathers cloud-resource maps emitted by the
+// cloud asset-type stages (and the domain cloud stage) in prior steps. Handles
+// both []map[string]interface{} (in-process) and []interface{} (post-JSON).
+func collectCloudResourcesFromPipeline(pipeline []ToolResult, upto int) []map[string]interface{} {
+	var out []map[string]interface{}
+	cloudSteps := map[string]bool{
+		"public_endpoint_detect": true,
+		"config_review_readonly": true,
+		"full_osint_correlation": true,
+		"cloud_exposure_detect":  true,
+	}
+	for j := 0; j < upto && j < len(pipeline); j++ {
+		if !cloudSteps[pipeline[j].Step] || pipeline[j].Status != "COMPLETED" {
+			continue
+		}
+		res, ok := pipeline[j].Result["resources"]
+		if !ok {
+			continue
+		}
+		switch v := res.(type) {
+		case []map[string]interface{}:
+			out = append(out, v...)
+		case []interface{}:
+			for _, item := range v {
+				if m, ok := item.(map[string]interface{}); ok {
+					out = append(out, m)
+				}
+			}
+		}
+	}
+	return out
+}
+
 func collectIPsFromResolutionSteps(pipeline []ToolResult, upto int) []string {
 	var ips []string
 	ipSet := make(map[string]bool)
