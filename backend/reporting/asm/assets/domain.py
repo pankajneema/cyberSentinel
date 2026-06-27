@@ -911,39 +911,50 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
             result_sample = str(result)[:500] if result else "empty"
             logger.debug(f"Step {step_name} result: keys={result_keys}, sample={result_sample}")
             
-            if step_name == "common_port_scan":
-                count = await store_ports(db, job_id, result, step_asset_id, ip_lookup, subdomain_lookup)
-                ports_inserted += count
-                logger.info(f"Stored {count} ports from {step_name}")
-            elif step_name == "service_fingerprint":
-                count = await store_services(db, job_id, result, step_asset_id, ip_lookup)
-                services_inserted += count
-                logger.info(f"Stored {count} services from {step_name}")
-            elif step_name == "tls_metadata":
-                count = await store_ssl_certs(db, job_id, result, step_asset_id, subdomain_lookup)
-                ssl_inserted += count
-                logger.info(f"Stored {count} SSL certs from {step_name}")
-            elif step_name == "api_surface_hint":
-                count = await store_api_endpoints(db, job_id, result, step_asset_id, subdomain_lookup)
-                api_inserted += count
-                logger.info(f"Stored {count} API endpoints from {step_name}")
-            elif step_name == "cloud_exposure_detect":
-                count = await store_cloud_resources(db, job_id, result, step_asset_id)
-                cloud_inserted += count
-                logger.info(f"Stored {count} cloud resources from {step_name}")
-            elif step_name == "admin_endpoint_check":
-                count = await store_admin_endpoints(db, job_id, result, step_asset_id, subdomain_lookup)
-                admin_inserted += count
-                logger.info(f"Stored {count} admin endpoints from {step_name}")
-            elif step_name == "backup_file_check":
-                count = await store_backup_files(db, job_id, result, step_asset_id, subdomain_lookup)
-                backup_inserted += count
-                logger.info(f"Stored {count} backup files from {step_name}")
-            elif step_name == "change_detection":
-                # Change detection is computed from persisted snapshots below for accuracy.
-                logger.debug("Skipping raw change_detection payload storage for job=%s", job_id)
-            else:
-                logger.debug(f"No storage handler for step: {step_name}")
+            # Each step's storage runs in its own SAVEPOINT so a single bad row
+            # (e.g. an unexpected value) rolls back ONLY that step and the job
+            # keeps going — previously one failure poisoned the whole
+            # transaction (InFailedSQLTransactionError) and aborted the run.
+            try:
+                async with db.begin_nested():
+                    if step_name == "common_port_scan":
+                        count = await store_ports(db, job_id, result, step_asset_id, ip_lookup, subdomain_lookup)
+                        ports_inserted += count
+                        logger.info(f"Stored {count} ports from {step_name}")
+                    elif step_name == "service_fingerprint":
+                        count = await store_services(db, job_id, result, step_asset_id, ip_lookup)
+                        services_inserted += count
+                        logger.info(f"Stored {count} services from {step_name}")
+                    elif step_name == "tls_metadata":
+                        count = await store_ssl_certs(db, job_id, result, step_asset_id, subdomain_lookup)
+                        ssl_inserted += count
+                        logger.info(f"Stored {count} SSL certs from {step_name}")
+                    elif step_name == "api_surface_hint":
+                        count = await store_api_endpoints(db, job_id, result, step_asset_id, subdomain_lookup)
+                        api_inserted += count
+                        logger.info(f"Stored {count} API endpoints from {step_name}")
+                    elif step_name in ("cloud_exposure_detect", "public_endpoint_detect", "config_review_readonly", "full_osint_correlation"):
+                        # Domain DEEP cloud stage + the cloud asset-type pipeline stages.
+                        count = await store_cloud_resources(db, job_id, result, step_asset_id)
+                        cloud_inserted += count
+                        logger.info(f"Stored {count} cloud resources from {step_name}")
+                    elif step_name == "admin_endpoint_check":
+                        count = await store_admin_endpoints(db, job_id, result, step_asset_id, subdomain_lookup)
+                        admin_inserted += count
+                        logger.info(f"Stored {count} admin endpoints from {step_name}")
+                    elif step_name == "backup_file_check":
+                        count = await store_backup_files(db, job_id, result, step_asset_id, subdomain_lookup)
+                        backup_inserted += count
+                        logger.info(f"Stored {count} backup files from {step_name}")
+                    elif step_name == "change_detection":
+                        # Change detection is computed from persisted snapshots below for accuracy.
+                        logger.debug("Skipping raw change_detection payload storage for job=%s", job_id)
+                    else:
+                        logger.debug(f"No storage handler for step: {step_name}")
+            except Exception as step_err:
+                # Savepoint already rolled back this step; the outer transaction
+                # stays healthy so remaining steps + the run record still persist.
+                logger.warning(f"Step '{step_name}' storage failed (isolated, job continues): {step_err}")
 
         changes_found = 0
         if intensity == "DEEP":
@@ -1159,7 +1170,7 @@ async def store_step_data(
         counts["ssl"] = await store_ssl_certs(db, job_id, result, asset_id, subdomain_lookup)
     elif step_name == "api_surface_hint":
         counts["api_endpoints"] = await store_api_endpoints(db, job_id, result, asset_id, subdomain_lookup)
-    elif step_name == "cloud_exposure_detect":
+    elif step_name in ("cloud_exposure_detect", "public_endpoint_detect", "config_review_readonly", "full_osint_correlation"):
         counts["cloud_resources"] = await store_cloud_resources(db, job_id, result, asset_id)
     elif step_name == "admin_endpoint_check":
         counts["admin_endpoints"] = await store_admin_endpoints(db, job_id, result, asset_id, subdomain_lookup)
