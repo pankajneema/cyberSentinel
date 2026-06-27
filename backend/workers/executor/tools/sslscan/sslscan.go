@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"workers/utils"
 )
@@ -54,62 +56,65 @@ func RunSSLAnalysis(ctx context.Context, hosts []string) ([]SSLResult, error) {
 		}
 	}
 
-	var results []SSLResult
+	// Bound the work: previously hosts were scanned sequentially with the shared
+	// job context and no per-host timeout, so 25 hosts × a slow/hanging sslscan
+	// could burn ~500s and blow the whole job deadline. Now each host gets its
+	// own timeout and we run a bounded number concurrently.
+	const (
+		perHostTimeout = 20 * time.Second
+		maxConcurrent  = 8
+	)
 
-	for _, host := range hosts {
-		// Extract host and port
-		hostPort := host
-		port := 443
-		if strings.Contains(host, ":") {
-			parts := strings.Split(host, ":")
-			hostPort = parts[0]
-			fmt.Sscanf(parts[1], "%d", &port)
-		}
+	results := make([]SSLResult, len(hosts)) // index-aligned; no shared-append race
+	sem := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
 
-		// Run sslscan
-		utils.Logger.Debugf("sslscan: analyzing %s:%d", hostPort, port)
-		cmd := exec.CommandContext(ctx, toolPath, hostPort)
-		output, err := cmd.CombinedOutput()
-		utils.Logger.Debugf("sslscan: raw output for %s (first 500 chars): %s", hostPort, string(output)[:min(500, len(string(output)))])
-		
-		if err != nil {
-			utils.Logger.Warnf("sslscan failed for %s: %v, output length: %d", host, err, len(output))
-			// Continue even if error - might have partial results
-		}
+	for idx, host := range hosts {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(idx int, host string) {
+			defer wg.Done()
+			defer func() { <-sem }()
 
-		// Parse sslscan output (simplified)
-		outputStr := string(output)
-		result := SSLResult{
-			Host: hostPort,
-			Port: port,
-		}
-		
-		// If output is empty, still add result to indicate we tried
-		if len(outputStr) == 0 {
-			utils.Logger.Debugf("sslscan: empty output for %s, adding empty result", hostPort)
-			results = append(results, result)
-			continue
-		}
-
-		// Extract certificate info
-		lines := strings.Split(outputStr, "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if strings.Contains(line, "Certificate:") {
-				result.Certificate = strings.TrimPrefix(line, "Certificate:")
-			} else if strings.Contains(line, "Issuer:") {
-				result.Issuer = strings.TrimPrefix(line, "Issuer:")
-			} else if strings.Contains(line, "Not valid after:") {
-				result.ValidUntil = strings.TrimPrefix(line, "Not valid after:")
-			} else if strings.Contains(line, "Cipher:") {
-				result.Cipher = strings.TrimPrefix(line, "Cipher:")
+			hostPort := host
+			port := 443
+			if strings.Contains(host, ":") {
+				parts := strings.Split(host, ":")
+				hostPort = parts[0]
+				fmt.Sscanf(parts[1], "%d", &port)
 			}
-		}
 
-		results = append(results, result)
+			result := SSLResult{Host: hostPort, Port: port}
+
+			// Per-host deadline derived from the job ctx (cancels with the job,
+			// but caps a single host at perHostTimeout).
+			hostCtx, cancel := context.WithTimeout(ctx, perHostTimeout)
+			defer cancel()
+
+			cmd := exec.CommandContext(hostCtx, toolPath, hostPort)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				utils.Logger.Warnf("sslscan failed for %s: %v, output length: %d", host, err, len(output))
+			}
+
+			for _, line := range strings.Split(string(output), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.Contains(line, "Certificate:") {
+					result.Certificate = strings.TrimPrefix(line, "Certificate:")
+				} else if strings.Contains(line, "Issuer:") {
+					result.Issuer = strings.TrimPrefix(line, "Issuer:")
+				} else if strings.Contains(line, "Not valid after:") {
+					result.ValidUntil = strings.TrimPrefix(line, "Not valid after:")
+				} else if strings.Contains(line, "Cipher:") {
+					result.Cipher = strings.TrimPrefix(line, "Cipher:")
+				}
+			}
+			results[idx] = result
+		}(idx, host)
 	}
+	wg.Wait()
 
-	utils.Logger.Infof("SSL analysis completed: analyzed %d hosts", len(results))
+	utils.Logger.Infof("SSL analysis completed: analyzed %d hosts (concurrent, per-host %s)", len(results), perHostTimeout)
 	return results, nil
 }
 

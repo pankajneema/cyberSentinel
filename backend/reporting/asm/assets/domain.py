@@ -5,6 +5,7 @@ Domain ASM Reporting - Process discovered subdomains from pipeline results
 import logging
 import asyncio
 import ipaddress
+import re
 from typing import Any
 from datetime import datetime
 import httpx
@@ -19,6 +20,54 @@ from backend.api_service.models.asm_models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# --- sslscan output sanitizers -------------------------------------------------
+# sslscan emits terminal-colored (ANSI) strings and a human-readable date for the
+# certificate expiry. These must be cleaned before they hit VARCHAR/TIMESTAMP
+# columns, otherwise the whole SSL insert fails (asyncpg DataError on the date).
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+_CERT_DATE_FORMATS = (
+    "%b %d %H:%M:%S %Y",        # sslscan: "Nov 26 23:59:59 2026" (after stripping TZ)
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d",
+)
+
+
+def _clean_ansi(value: Any) -> str | None:
+    """Strip ANSI color codes + surrounding whitespace. Empty -> None."""
+    if not isinstance(value, str):
+        return value if value not in ("", None) else None
+    cleaned = _ANSI_RE.sub("", value).strip()
+    return cleaned or None
+
+
+def _clean_ansi_obj(obj: Any) -> Any:
+    """Recursively clean ANSI codes from a dict/list (for JSON detail columns)."""
+    if isinstance(obj, dict):
+        return {k: _clean_ansi_obj(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_clean_ansi_obj(v) for v in obj]
+    if isinstance(obj, str):
+        return _ANSI_RE.sub("", obj).strip()
+    return obj
+
+
+def _parse_cert_datetime(value: Any) -> datetime | None:
+    """Parse an sslscan expiry like 'Nov 26 23:59:59 2026 GMT' (often ANSI-
+    colored) into a naive UTC datetime, or None when empty/unparseable."""
+    s = _clean_ansi(value)
+    if not s:
+        return None
+    # Drop a trailing timezone token (GMT/UTC) — sslscan reports UTC.
+    s = re.sub(r"\s+(GMT|UTC)\b.*$", "", s).strip()
+    for fmt in _CERT_DATE_FORMATS:
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    logger.debug("Could not parse certificate date: %r", value)
+    return None
 
 
 # -------------------------
@@ -1184,7 +1233,7 @@ async def store_ports(
                     service=port_item.get("service"),
                     banner=port_item.get("banner"),
                 )
-                .on_conflict_do_nothing(index_elements=["ip_address", "port", "protocol"])
+                .on_conflict_do_nothing(index_elements=["asm_discovery_id", "ip_address", "port", "protocol"])
                 .returning(AsmPort.id)
             )
             res = await db.execute(stmt)
@@ -1291,7 +1340,7 @@ async def store_services(
                     product=service_item.get("product"),
                     extra_info=service_item.get("extra_info"),
                 )
-                .on_conflict_do_nothing(index_elements=["ip_address", "port", "service_name"])
+                .on_conflict_do_nothing(index_elements=["asm_discovery_id", "ip_address", "port", "service_name"])
                 .returning(AsmService.id)
             )
             res = await db.execute(stmt)
@@ -1339,7 +1388,11 @@ async def store_ssl_certs(
         subdomain = host.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
         lookup_key = (asset_id, subdomain.lower().strip())
         subdomain_id = subdomain_lookup.get(lookup_key)
-        
+
+        # sslscan emits ANSI-colored strings and a human date for valid_until
+        # (e.g. "\x1b[32mNov 26 23:59:59 2026 GMT\x1b[0m"). The DB column is a
+        # TIMESTAMP, so the raw string must be cleaned + parsed (or set NULL),
+        # otherwise asyncpg rejects every row with a DataError.
         try:
             stmt = (
                 insert(AsmSSLCert)
@@ -1349,14 +1402,14 @@ async def store_ssl_certs(
                     host=host.strip(),
                     port=int(port),
                     subdomain_id=subdomain_id,
-                    protocol=ssl_item.get("protocol"),
-                    cipher=ssl_item.get("cipher"),
-                    certificate_issuer=ssl_item.get("issuer"),
-                    certificate_subject=ssl_item.get("certificate"),
-                    valid_until=ssl_item.get("valid_until"),
-                    certificate_details=ssl_item,
+                    protocol=_clean_ansi(ssl_item.get("protocol")),
+                    cipher=_clean_ansi(ssl_item.get("cipher")),
+                    certificate_issuer=_clean_ansi(ssl_item.get("issuer")),
+                    certificate_subject=_clean_ansi(ssl_item.get("certificate")),
+                    valid_until=_parse_cert_datetime(ssl_item.get("valid_until")),
+                    certificate_details=_clean_ansi_obj(ssl_item),
                 )
-                .on_conflict_do_nothing(index_elements=["host", "port"])
+                .on_conflict_do_nothing(index_elements=["asm_discovery_id", "host", "port"])
                 .returning(AsmSSLCert.id)
             )
             res = await db.execute(stmt)

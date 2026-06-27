@@ -18,7 +18,9 @@ depends_on = None
 
 def _has_table(name: str) -> bool:
     # Idempotent: app startup create_all may have already made these tables.
-    return inspect(op.get_bind()).has_table(name)
+    return op.get_bind().execute(
+        sa.text("SELECT to_regclass(:n)"), {"n": name}
+    ).scalar() is not None
 
 
 def upgrade() -> None:

@@ -11,6 +11,8 @@ class AsmDiscovery(Base):
     __tablename__ = "asm_discoveries"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    # Tenant scope (Phase 3). Nullable during backfill, then enforced.
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     user_id = Column(String, nullable=False)
 
     name = Column(String, nullable=False)
@@ -73,7 +75,8 @@ class AsmDiscoveryRun(Base):
     __tablename__ = "asm_discovery_runs"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    asm_discovery_id = Column(String, nullable=False)
+    asm_discovery_id = Column(String, ForeignKey("asm_discoveries.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     user_id = Column(String, nullable=False)
 
     triggered_by = Column(
@@ -117,7 +120,8 @@ class AsmSubdomain(Base):
     __tablename__ = "asm_subdomains"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    asm_discovery_id = Column(String, nullable=False, index=True)
+    asm_discovery_id = Column(String, ForeignKey("asm_discoveries.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     asset_id = Column(String, nullable=False, index=True)
     subdomain = Column(String, nullable=False)
     
@@ -150,7 +154,8 @@ class AsmIP(Base):
     __tablename__ = "asm_ips"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    asm_discovery_id = Column(String, nullable=False, index=True)
+    asm_discovery_id = Column(String, ForeignKey("asm_discoveries.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     asset_id = Column(String, nullable=False, index=True)
     ip_address = Column(String, nullable=False)
     
@@ -246,7 +251,8 @@ class AsmSettings(Base):
     __tablename__ = "asm_settings"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    # Supabase user id (JWT sub) — not an FK to the legacy users table.
+    user_id = Column(String, unique=True, nullable=False, index=True)
 
     # Store ASM settings as JSON for flexibility
     settings = Column(JSON, nullable=False, default=dict)
@@ -273,7 +279,8 @@ class AsmPort(Base):
     __tablename__ = "asm_ports"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    asm_discovery_id = Column(String, nullable=False, index=True)
+    asm_discovery_id = Column(String, ForeignKey("asm_discoveries.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     asset_id = Column(String, nullable=False, index=True)
     ip_address = Column(String, nullable=False, index=True)
     
@@ -292,8 +299,10 @@ class AsmPort(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     __table_args__ = (
-        # Unique constraint: same port per IP
-        __import__('sqlalchemy').UniqueConstraint('ip_address', 'port', 'protocol', name='uq_port_per_ip'),
+        # Unique per discovery (not global): the same IP:port discovered by two
+        # discoveries must be recorded under each, otherwise shared CDN/cloud
+        # IPs get attributed to only the first discovery that found them.
+        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'ip_address', 'port', 'protocol', name='uq_port_per_discovery'),
     )
 
     def to_dict(self):
@@ -318,7 +327,8 @@ class AsmService(Base):
     __tablename__ = "asm_services"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    asm_discovery_id = Column(String, nullable=False, index=True)
+    asm_discovery_id = Column(String, ForeignKey("asm_discoveries.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     asset_id = Column(String, nullable=False, index=True)
     ip_address = Column(String, nullable=False, index=True)
     port = Column(Integer, nullable=False)
@@ -335,8 +345,8 @@ class AsmService(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     __table_args__ = (
-        # Unique constraint: same service per IP:port
-        __import__('sqlalchemy').UniqueConstraint('ip_address', 'port', 'service_name', name='uq_service_per_port'),
+        # Unique per discovery (see AsmPort note above).
+        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'ip_address', 'port', 'service_name', name='uq_service_per_discovery'),
     )
 
     def to_dict(self):
@@ -361,7 +371,8 @@ class AsmSSLCert(Base):
     __tablename__ = "asm_ssl_certs"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    asm_discovery_id = Column(String, nullable=False, index=True)
+    asm_discovery_id = Column(String, ForeignKey("asm_discoveries.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     asset_id = Column(String, nullable=False, index=True)
     host = Column(String, nullable=False, index=True)  # Subdomain or IP
     port = Column(Integer, default=443, nullable=False)
@@ -381,8 +392,8 @@ class AsmSSLCert(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     __table_args__ = (
-        # Unique constraint: same SSL cert per host:port
-        __import__('sqlalchemy').UniqueConstraint('host', 'port', name='uq_ssl_per_host'),
+        # Unique per discovery (see AsmPort note above).
+        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'host', 'port', name='uq_ssl_per_discovery'),
     )
 
     def to_dict(self):
@@ -409,7 +420,8 @@ class AsmAPIEndpoint(Base):
     __tablename__ = "asm_api_endpoints"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    asm_discovery_id = Column(String, nullable=False, index=True)
+    asm_discovery_id = Column(String, ForeignKey("asm_discoveries.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     asset_id = Column(String, nullable=False, index=True)
     url = Column(String, nullable=False, index=True)
     
@@ -456,7 +468,8 @@ class AsmCloudResource(Base):
     __tablename__ = "asm_cloud_resources"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    asm_discovery_id = Column(String, nullable=False, index=True)
+    asm_discovery_id = Column(String, ForeignKey("asm_discoveries.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     asset_id = Column(String, nullable=False, index=True)
     
     service = Column(String, nullable=False)  # AWS, Azure, GCP
@@ -499,7 +512,8 @@ class AsmAdminEndpoint(Base):
     __tablename__ = "asm_admin_endpoints"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    asm_discovery_id = Column(String, nullable=False, index=True)
+    asm_discovery_id = Column(String, ForeignKey("asm_discoveries.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     asset_id = Column(String, nullable=False, index=True)
     url = Column(String, nullable=False, index=True)
     
@@ -544,7 +558,8 @@ class AsmBackupFile(Base):
     __tablename__ = "asm_backup_files"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    asm_discovery_id = Column(String, nullable=False, index=True)
+    asm_discovery_id = Column(String, ForeignKey("asm_discoveries.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     asset_id = Column(String, nullable=False, index=True)
     file_url = Column(String, nullable=False, index=True)
     
@@ -587,7 +602,8 @@ class AsmChange(Base):
     __tablename__ = "asm_changes"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    asm_discovery_id = Column(String, nullable=False, index=True)
+    asm_discovery_id = Column(String, ForeignKey("asm_discoveries.id", ondelete="CASCADE"), nullable=False, index=True)
+    org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     asset_id = Column(String, nullable=False, index=True)
 
     # Raw change output from tool

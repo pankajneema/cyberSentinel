@@ -10,6 +10,19 @@ import asyncio
 import logging
 import json
 from typing import Any
+
+# Register ALL ORM models on the shared Base.metadata BEFORE any DB flush.
+# The asset processors only import asm_models, which foreign-keys to tables
+# defined elsewhere (e.g. asm_discovery_runs.org_id -> organizations.id in
+# tenancy_models). Without importing those modules, SQLAlchemy cannot resolve
+# the FK target at flush time and raises NoReferencedTableError. Importing the
+# model modules here (for their side effect of registering tables) fixes that.
+from backend.api_service.models import (  # noqa: F401
+    tenancy_models,   # organizations, member_profiles, org_invites, audit_logs
+    asm_models,       # asm_discoveries, asm_discovery_runs, subdomains, ips, ...
+    asset_models,     # assets
+)
+
 from backend.reporting.asm.assets.domain import process_domain_asm, store_step_data
 from backend.reporting.asm.assets.ip import process_ip_asm
 from backend.api_service.utils.database import AsyncSessionLocal

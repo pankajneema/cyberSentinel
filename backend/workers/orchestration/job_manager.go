@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"workers/config"
 	"workers/database"
 	"workers/utils"
 
@@ -179,7 +180,7 @@ func RegisterJob(job *Job) error {
 		utils.Logger.Infof("pipeline stored in redis key=asm:pipeline:%s", job.ID)
 	}
 
-	//TODO FOR FUTURES HERE MAKE A LOAD BALANCE AND SHARDING LOGIC=========================
+	//TODO FOR FUTURES HERE MAKE A LOAD BALANCE AND SHARDING LOGIC========================= #TODO
 	go executeJob(job.ID)
 
 	// Update job status to RUNNING in DB
@@ -199,19 +200,28 @@ func RegisterJob(job *Job) error {
 }
 
 func executeJob(jobID string) error {
-	ctx, cancel := runner.NewContext()
+	utils.Logger.Info("Job Executor start and job id is : %s",jobID)
+	// Bound the whole job by the configured timeout so a hung tool cannot block
+	// a worker forever (audit C4). TASK_TIMEOUT_SECONDS, default 900.
+	ctx, cancel := runner.NewTimeoutContext(config.Load().TaskTimeoutSec)
 	defer cancel()
 
 	task := executor.Task{
 		JobID: jobID, // 🔑 ONLY JOB ID PASSED
 	}
-
-	utils.Logger.Infof("job_manager starting executor job=%s", jobID)
 	result := runner.Run(ctx, task)
+    utils.Logger.Info("Job Executed and Result %s for Job id %s",result,jobID)
+
+	// Final status writes must NOT reuse the job ctx: if a slow tool consumed the
+	// whole TASK_TIMEOUT budget, ctx is already past its deadline and every write
+	// fails with "context deadline exceeded", leaving the discovery stuck in
+	// RUNNING forever. Use a fresh, short-lived context so the status always lands.
+	statusCtx, statusCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer statusCancel()
 
 	if !result.Success {
 		JobFailed := `UPDATE asm_discoveries SET status = 'FAILED', updated_at = NOW() WHERE id = $1;`
-		if err := database.Exec(ctx, JobFailed, jobID); err != nil {
+		if err := database.Exec(statusCtx, JobFailed, jobID); err != nil {
 			// Update status to FAILED  DB
 			utils.Logger.Errorf("failed to update job status: %v", err)
 		}
@@ -226,7 +236,7 @@ func executeJob(jobID string) error {
 
 	// Update status to COMPLETED on success
 	JobCompleted := `UPDATE asm_discoveries SET status = 'COMPLETED', updated_at = NOW() WHERE id = $1;`
-	if err := database.Exec(ctx, JobCompleted, jobID); err != nil {
+	if err := database.Exec(statusCtx, JobCompleted, jobID); err != nil {
 		utils.Logger.Errorf("failed to update job status to COMPLETED: %v", err)
 	}
 
