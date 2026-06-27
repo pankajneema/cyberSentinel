@@ -834,6 +834,13 @@ func Run(ctx context.Context, task executor.Task) (result executor.Result) {
 			// Cloud asset-type discovery: enumerate public cloud endpoints/buckets
 			// for the asset (reuses the real unauthenticated cloud OSINT tool).
 			seed := enhancedPipeline.AssetName
+			if seed == "" && enhancedPipeline.Pipeline[i].AssetID != "" {
+				// Same fallback as subfinder: resolve the seed from this step's asset_id.
+				if name, err := getAssetName(ctx, enhancedPipeline.Pipeline[i].AssetID); err == nil {
+					seed = name
+					enhancedPipeline.AssetName = name
+				}
+			}
 			if seed == "" {
 				utils.Logger.Warnf("no asset name for public_endpoint_detect job=%s step=%d", task.JobID, i)
 				output = map[string]interface{}{"resources": []interface{}{}, "count": 0}
