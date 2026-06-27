@@ -22,14 +22,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 
-const employees = [
-  { id: 1, name: "John Doe", email: "john.doe@company.com", department: "Engineering", exposedEmails: 3, breachedPasswords: 2, socialExposure: "high", riskScore: 85, phishingProb: 78 },
-  { id: 2, name: "Sarah Miller", email: "sarah.m@company.com", department: "Marketing", exposedEmails: 1, breachedPasswords: 0, socialExposure: "medium", riskScore: 45, phishingProb: 52 },
-  { id: 3, name: "Mike Johnson", email: "mike.j@company.com", department: "Sales", exposedEmails: 5, breachedPasswords: 3, socialExposure: "high", riskScore: 92, phishingProb: 88 },
-  { id: 4, name: "Emily Chen", email: "emily.c@company.com", department: "Engineering", exposedEmails: 0, breachedPasswords: 0, socialExposure: "low", riskScore: 15, phishingProb: 22 },
-  { id: 5, name: "David Wilson", email: "david.w@company.com", department: "Finance", exposedEmails: 2, breachedPasswords: 1, socialExposure: "medium", riskScore: 58, phishingProb: 61 },
-  { id: 6, name: "Lisa Brown", email: "lisa.b@company.com", department: "HR", exposedEmails: 4, breachedPasswords: 2, socialExposure: "high", riskScore: 76, phishingProb: 72 },
-];
+const employees = [];
 
 export function HumanAttackSurface() {
   const [searchQuery, setSearchQuery] = useState("");

@@ -43,22 +43,9 @@ interface Asset {
   trend: "up" | "down" | "stable";
 }
 
-const assets: Asset[] = [
-  { id: 1, name: "api.company.com", type: "domain", vulnerabilities: { critical: 2, high: 5, medium: 8, low: 12 }, lastScan: "2h ago", patchCompliance: 78, trend: "down" },
-  { id: 2, name: "app.company.com", type: "domain", vulnerabilities: { critical: 1, high: 3, medium: 12, low: 8 }, lastScan: "1d ago", patchCompliance: 85, trend: "up" },
-  { id: 3, name: "db-prod.company.com", type: "domain", vulnerabilities: { critical: 3, high: 8, medium: 5, low: 2 }, lastScan: "3h ago", patchCompliance: 62, trend: "stable" },
-  { id: 4, name: "192.168.1.100", type: "ip", vulnerabilities: { critical: 0, high: 2, medium: 6, low: 10 }, lastScan: "6h ago", patchCompliance: 91, trend: "up" },
-  { id: 5, name: "staging.app.com", type: "domain", vulnerabilities: { critical: 0, high: 4, medium: 15, low: 20 }, lastScan: "2d ago", patchCompliance: 75, trend: "down" },
-  { id: 6, name: "aws-prod-cluster", type: "cloud", vulnerabilities: { critical: 1, high: 6, medium: 10, low: 5 }, lastScan: "4h ago", patchCompliance: 70, trend: "stable" },
-];
+const assets: Asset[] = [];
 
-const assetVulnerabilities = [
-  { id: 1, cve: "CVE-2024-1234", title: "Remote Code Execution", severity: "critical" as const, status: "open", firstSeen: "2024-01-15" },
-  { id: 2, cve: "CVE-2024-5678", title: "SQL Injection Vulnerability", severity: "critical" as const, status: "in_progress", firstSeen: "2024-01-12" },
-  { id: 3, cve: "CVE-2024-9012", title: "Cross-Site Scripting", severity: "high" as const, status: "open", firstSeen: "2024-01-10" },
-  { id: 4, cve: "CVE-2024-3456", title: "Privilege Escalation", severity: "high" as const, status: "fixed", firstSeen: "2024-01-08" },
-  { id: 5, cve: "CVE-2024-7890", title: "Information Disclosure", severity: "medium" as const, status: "open", firstSeen: "2024-01-05" },
-];
+const assetVulnerabilities = [];
 
 export function VSAssetView() {
   const [searchQuery, setSearchQuery] = useState("");

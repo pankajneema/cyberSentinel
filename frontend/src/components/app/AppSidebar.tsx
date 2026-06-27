@@ -18,10 +18,11 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSidebar } from "@/contexts/SidebarContext";
-import { logout } from "@/lib/services/auth";
+import { supabase } from "@/lib/supabase";
+import { LogoMark } from "@/components/Logo";
 import { toast } from "@/hooks/use-toast";
 import { useEffect, useMemo, useState } from "react";
-import { getProfile } from "@/lib/services/profile";
+import { getMe } from "@/lib/services/auth";
 import { getCurrentPlan } from "@/lib/services/billing";
 
 const navItems = [
@@ -45,17 +46,18 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const { collapsed, toggleCollapsed } = useSidebar();
   const [profile, setProfile] = useState<{ full_name: string; email: string; role?: string; is_superadmin?: boolean } | null>(null);
-  const [plan, setPlan] = useState<string>("Pro Plan");
+  const [plan, setPlan] = useState<string>("Starter");
 
   useEffect(() => {
     const load = async () => {
       try {
-        const profileRes = await getProfile();
-        setProfile(profileRes);
-        if (profileRes?.is_superadmin) {
-          const planRes = await getCurrentPlan();
-          setPlan(planRes.plan || "Pro Plan");
-        }
+        // Real identity from the verified Supabase session.
+        const me = await getMe();
+        setProfile({
+          full_name: me.full_name || me.email,
+          email: me.email,
+          role: me.role,
+        });
       } catch {
         // silent fallback
       }
@@ -138,9 +140,7 @@ export function AppSidebar() {
       {/* Header */}
       <div className="h-16 flex items-center justify-between px-4 relative z-10">
         <Link to="/app/dashboard" className="flex items-center gap-3 group">
-          <div className="w-9 h-9 rounded-xl gradient-bg flex items-center justify-center shrink-0 shadow-lg group-hover:shadow-glow transition-shadow duration-300">
-            <Shield className="w-5 h-5 text-primary-foreground" />
-          </div>
+          <LogoMark className="w-9 h-9 shrink-0" />
           {!collapsed && (
             <span className="font-heading font-bold text-lg text-sidebar-foreground tracking-tight">
               CyberSentinel
@@ -184,12 +184,10 @@ export function AppSidebar() {
           type="button"
           onClick={async () => {
             try {
-              await logout();
+              await supabase.auth.signOut();
             } catch (error) {
               toast({ title: "Sign out failed", description: "Please try again." });
             } finally {
-              localStorage.removeItem("access_token");
-              localStorage.removeItem("user");
               navigate("/login");
             }
           }}

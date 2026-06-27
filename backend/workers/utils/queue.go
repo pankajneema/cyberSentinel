@@ -31,15 +31,55 @@ func Connect(rabbitURL, queueName string) (*Queue, error) {
 		return nil, err
 	}
 
+	// Enable publisher confirms so Publish() can detect broker-side failures.
+	if err := ch.Confirm(false); err != nil {
+		_ = ch.Close()
+		_ = conn.Close()
+		return nil, err
+	}
+
+	// Dead-letter topology: poison/expired messages route here instead of
+	// being requeued forever (audit M-1). Exchange + queue + binding.
+	dlxName := queueName + ".dlx"
+	dlqName := queueName + ".dlq"
+	if err := ch.ExchangeDeclare(dlxName, "fanout", true, false, false, false, nil); err != nil {
+		_ = ch.Close()
+		_ = conn.Close()
+		return nil, err
+	}
+	if _, err := ch.QueueDeclare(dlqName, true, false, false, false, nil); err != nil {
+		_ = ch.Close()
+		_ = conn.Close()
+		return nil, err
+	}
+	if err := ch.QueueBind(dlqName, "", dlxName, false, nil); err != nil {
+		_ = ch.Close()
+		_ = conn.Close()
+		return nil, err
+	}
+
+	// NOTE: an existing queue declared without these args cannot be redeclared
+	// with them (RabbitMQ returns PRECONDITION_FAILED). On first rollout, drain
+	// and delete the old queue so it is recreated with the dead-letter args.
 	q, err := ch.QueueDeclare(
 		queueName, // name
 		true,      // durable
 		false,     // autoDelete
 		false,     // exclusive
 		false,     // noWait
-		nil,       // args
+		amqp.Table{
+			"x-dead-letter-exchange": dlxName,
+		},
 	)
 	if err != nil {
+		_ = ch.Close()
+		_ = conn.Close()
+		return nil, err
+	}
+
+	// Prefetch: a consumer only holds a bounded number of unacked messages,
+	// enabling fair dispatch across workers (audit M-1).
+	if err := ch.Qos(16, 0, false); err != nil {
 		_ = ch.Close()
 		_ = conn.Close()
 		return nil, err

@@ -203,8 +203,10 @@ func runAliveCheck(ctx context.Context, ips []string) ([]string, []string) {
 
 	nmapPath, err := exec.LookPath("nmap")
 	if err == nil {
-		targetSpec := strings.Join(ips, " ")
-		cmd := exec.CommandContext(ctx, "bash", "-lc", fmt.Sprintf("%s -sn -n -T3 %s", nmapPath, targetSpec))
+		// No shell: pass args directly so a hostile target can never be
+		// interpreted by bash (audit H1, CWE-78). nmap accepts targets as args.
+		args := append([]string{"-sn", "-n", "-T3"}, ips...)
+		cmd := exec.CommandContext(ctx, nmapPath, args...)
 		out, runErr := cmd.CombinedOutput()
 		if runErr == nil || len(out) > 0 {
 			aliveSet := map[string]bool{}

@@ -15,7 +15,8 @@ import {
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { getProfile } from "@/lib/services/profile";
+import { getMe } from "@/lib/services/auth";
+import { can } from "@/lib/permissions";
 
 const services = [
   {
@@ -79,10 +80,10 @@ export default function Services() {
     let mounted = true;
     const loadProfile = async () => {
       try {
-        const profile = await getProfile();
+        const profile = await getMe();
         if (mounted) {
           setRole(profile.role ?? "reader");
-          setIsSuperadmin(Boolean(profile.is_superadmin));
+          setIsSuperadmin(false);
         }
       } catch {
         if (mounted) {
@@ -97,7 +98,7 @@ export default function Services() {
     };
   }, []);
 
-  if (role !== "admin" && !isSuperadmin) {
+  if (!can.manageTeam(role)) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center space-y-2">

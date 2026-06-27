@@ -54,39 +54,57 @@ export function login(payload: LoginPayload) {
   });
 }
 
-export function logout() {
-  return apiFetch<{ message: string }>("/auth/logout", {
-    method: "POST",
-  });
-}
-
-export function requestMagicLink(payload: MagicLinkPayload) {
-  return apiFetch<{ message: string }>("/auth/magic-link", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function refreshToken() {
-  return apiFetch<{ access_token: string }>("/auth/refresh", {
-    method: "POST",
-  });
-}
-
-export function forgotPassword(payload: ForgotPasswordPayload) {
-  return apiFetch<{ message: string }>("/auth/forgot-password", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function resetPassword(payload: ResetPasswordPayload) {
-  return apiFetch<{ message: string }>("/auth/reset-password", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
+// logout / magic-link / refresh / forgot-password / reset-password are now
+// handled entirely by Supabase (see contexts/AuthContext.tsx). The old backend
+// stubs were removed in Phase 1.
 
 export function verifyToken() {
   return apiFetch<{ valid: boolean; user: any }>("/auth/verify");
+}
+
+export interface MeResponse {
+  user_id: string;
+  email: string;
+  role: string;
+  org_id: string | null;
+  org_name: string | null;
+  full_name: string | null;
+  avatar_url: string | null;
+  phone: string | null;
+  country: string | null;
+}
+
+/** Verified identity + synced profile/org/role (Supabase era). */
+export function getMe() {
+  return apiFetch<MeResponse>("/auth/me");
+}
+
+export interface ProfileUpdate {
+  full_name?: string;
+  avatar_url?: string;
+  country?: string;
+  phone?: string;
+}
+
+export function updateProfile(payload: ProfileUpdate) {
+  return apiFetch<MeResponse>("/auth/profile", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export interface MemberSettings {
+  notifications: Record<string, unknown>;
+  preferences: Record<string, unknown>;
+}
+
+export function getMemberSettings() {
+  return apiFetch<MemberSettings>("/auth/settings");
+}
+
+export function putMemberSettings(payload: MemberSettings) {
+  return apiFetch<MemberSettings>("/auth/settings", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }

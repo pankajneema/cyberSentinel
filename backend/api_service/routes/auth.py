@@ -156,95 +156,16 @@ async def login(
 
 
 # ---------------------------------------------------
-# Logout
+# Logout / Magic-link / Refresh / Forgot / Reset
 # ---------------------------------------------------
-@router.post("/logout", response_model=MessageResponse)
-async def logout(
-    current_user: dict = Depends(get_current_user),
-):
-    """
-    Logout current user
-    """
-    # Token invalidation can be added via Redis blacklist later
-    return {"message": "Logged out successfully"}
-
-
-# ---------------------------------------------------
-# Request Magic Link
-# ---------------------------------------------------
-@router.post("/magic-link", response_model=MessageResponse)
-async def request_magic_link(
-    email: EmailStr,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Request a magic link for passwordless login
-    """
-
-    result = await db.execute(
-        select(User).where(User.email == email)
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-
-    # TODO: Generate magic link token & send email
-    return {"message": "Magic link sent to email"}
-
-
-# ---------------------------------------------------
-# Refresh Token
-# ---------------------------------------------------
-@router.post("/refresh")
-async def refresh_token(refresh_token: str):
-    """
-    Refresh access token using refresh token
-    """
-    # TODO: Implement refresh token flow
-    return {"access_token": "new_token", "token_type": "bearer"}
-
-
-# ---------------------------------------------------
-# Forgot Password
-# ---------------------------------------------------
-@router.post("/forgot-password", response_model=MessageResponse)
-async def forgot_password(
-    email: EmailStr,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Request password reset link
-    """
-
-    result = await db.execute(
-        select(User).where(User.email == email)
-    )
-    user = result.scalar_one_or_none()
-
-    # Security: do not reveal whether email exists
-    return {
-        "message": "If the email exists, a password reset link has been sent"
-    }
-
-
-# ---------------------------------------------------
-# Reset Password
-# ---------------------------------------------------
-@router.post("/reset-password", response_model=MessageResponse)
-async def reset_password(
-    token: str,
-    new_password: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Reset password using reset token
-    """
-    # TODO: Verify token and update password
-    return {"message": "Password reset successfully"}
+# REMOVED (Phase 1): these were non-functional stubs and a security risk
+#   - /logout              was a no-op (no token revocation)
+#   - /magic-link          never generated/sent anything
+#   - /refresh             returned a literal fake token
+#   - /forgot-password     did nothing
+#   - /reset-password      reported success while doing nothing (dangerous)
+# All of these are now handled entirely by Supabase via the frontend SDK
+# (supabase.auth.*). Do not reintroduce credential logic in the backend.
 
 
 # ---------------------------------------------------

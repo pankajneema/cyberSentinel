@@ -13,16 +13,13 @@ interface ActiveScan {
   status: "running" | "completed";
 }
 
-// Mock active scans - in real app this would come from context/state
-const mockActiveScans: ActiveScan[] = [
-  { id: "1", name: "API Endpoint Discovery", type: "asm", progress: 67, target: "api.company.com", status: "running" },
-  { id: "2", name: "Vulnerability Scan", type: "vuln", progress: 34, target: "*.company.com", status: "running" },
-];
+// Active scans come from the scan/discovery API. Empty until wired to live data.
+const initialScans: ActiveScan[] = [];
 
 export function LiveScanIndicator() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
-  const [scans, setScans] = useState<ActiveScan[]>(mockActiveScans);
+  const [scans, setScans] = useState<ActiveScan[]>(initialScans);
 
   // Simulate progress updates
   useEffect(() => {

@@ -298,3 +298,72 @@
     50% { transform: translateY(-10px); }
   }
 }
+
+/* ============================================
+   LANDING PAGE — Dark Immersive Theme
+   Scoped via .landing-dark — doesn't affect /app
+   ============================================ */
+
+html { scroll-behavior: smooth; }
+
+.landing-dark {
+  --bg-deep:        #050B14;
+  --bg-surface:     #0A1628;
+  --bg-card:        #0F1E35;
+  --bg-card-hover:  #162540;
+  --text-primary:   #F0F4FF;
+  --text-secondary: #8BA3C0;
+  --text-muted:     #4A6580;
+  --border-subtle:  rgba(255,255,255,0.06);
+  --border-active:  rgba(99,179,237,0.3);
+
+  --accent-primary: #6366F1;
+  --accent-cyan:    #06B6D4;
+  --accent-glow:    rgba(99,102,241,0.15);
+
+  --green-live:     #10B981;
+  --amber-warn:     #F59E0B;
+  --red-threat:     #EF4444;
+
+  background-color: var(--bg-deep);
+  color: var(--text-primary);
+}
+
+.landing-dark section:nth-child(even) {
+  background-color: var(--bg-surface);
+}
+
+.landing-dark .grad-text {
+  background: linear-gradient(135deg, #6366F1 0%, #06B6D4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.landing-dark .glow-border {
+  border: 1px solid var(--border-subtle);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.landing-dark .glow-border:hover {
+  border-color: var(--border-active);
+  box-shadow: 0 0 30px var(--accent-glow);
+}
+
+.landing-dark .dot-grid {
+  background-image: radial-gradient(circle, rgba(99,102,241,0.12) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.landing-dark .noise {
+  position: relative;
+}
+.landing-dark .noise::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  opacity: 0.4;
+  mix-blend-mode: overlay;
+}
+

@@ -1,0 +1,100 @@
+# Full local stack — infra + all app services (audit: previous compose left the
+# app services commented out). Credentials come from the environment / .env, not
+# hardcoded. Build contexts are the repo root because the Dockerfiles COPY from
+# backend/ and frontend/.
+
+services:
+  # NOTE: defaults below match the app's .env files for local dev
+  # (postgres/postgres, guest/guest, Redis no-password). Override via a root
+  # .env for anything beyond local development.
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cybersentinel}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports: ["5672:5672", "15672:15672"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/api_service/Dockerfile
+    env_file: [./backend/api_service/.env]
+    ports: ["8000:8000"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+    restart: unless-stopped
+
+  worker-control-plane:
+    build:
+      context: .
+      dockerfile: backend/workers/Dockerfile
+    command: ["control-plane"]
+    env_file: [./backend/workers/.env]
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+      postgres: {condition: service_healthy}
+    restart: unless-stopped
+
+  asm-consumer:
+    build:
+      context: .
+      dockerfile: backend/workers/Dockerfile
+    command: ["asm-consumer"]
+    env_file: [./backend/workers/.env]
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+    restart: unless-stopped
+
+  reporting:
+    build:
+      context: .
+      dockerfile: backend/reporting/Dockerfile
+    env_file: [./backend/api_service/.env]
+    depends_on:
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports: ["8080:8080"]
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  pgdata:

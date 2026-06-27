@@ -6,6 +6,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import Pricing from "./pages/Pricing";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
@@ -22,6 +24,11 @@ import Marketplace from "./pages/app/Marketplace";
 import Reports from "./pages/app/Reports";
 import Account from "./pages/app/Account";
 import Team from "./pages/app/Team";
+import Profile from "./pages/app/Profile";
+import Settings from "./pages/app/Settings";
+import ModuleDetail from "./pages/ModuleDetail";
+import { AuthProvider } from "./contexts/AuthContext";
+import { RequireAuth } from "./components/RequireAuth";
 
 const queryClient = new QueryClient();
 
@@ -31,19 +38,30 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <AuthProvider>
         <Routes>
           {/* Public routes */}
           <Route path="/" element={<Index />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/about" element={<About />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/services" element={<ServicesPage />} />
           <Route path="/invite/:token" element={<Invite />} />
-          
-          {/* App routes */}
-          <Route path="/app" element={<AppLayout />}>
+          <Route path="/modules/:moduleId" element={<ModuleDetail />} />
+
+          {/* App routes — guarded behind a valid Supabase session (audit S-1) */}
+          <Route
+            path="/app"
+            element={
+              <RequireAuth>
+                <AppLayout />
+              </RequireAuth>
+            }
+          >
             <Route index element={<Dashboard />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="team" element={<Team />} />
@@ -54,11 +72,14 @@ const App = () => (
             <Route path="marketplace" element={<Marketplace />} />
             <Route path="reports" element={<Reports />} />
             <Route path="account" element={<Account />} />
+            <Route path="profile" element={<Profile />} />
+            <Route path="settings" element={<Settings />} />
           </Route>
 
           {/* Catch-all */}
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

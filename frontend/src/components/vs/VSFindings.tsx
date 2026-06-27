@@ -73,23 +73,9 @@ interface Vulnerability {
   owner: string | null;
 }
 
-const vulnerabilities: Vulnerability[] = [
-  { id: 1, cve: "CVE-2024-1234", title: "Remote Code Execution in Apache Log4j", asset: "api.company.com", severity: "critical", cvss: 9.8, exploitability: "known", patchAvailable: true, firstSeen: "2024-01-15", lastSeen: "2024-01-20", status: "open", owner: null },
-  { id: 2, cve: "CVE-2024-5678", title: "SQL Injection in Login Endpoint", asset: "app.company.com", severity: "critical", cvss: 9.1, exploitability: "poc", patchAvailable: true, firstSeen: "2024-01-10", lastSeen: "2024-01-20", status: "in_progress", owner: "John D." },
-  { id: 3, cve: "CVE-2024-9012", title: "Cross-Site Scripting (XSS) in Search", asset: "staging.app.com", severity: "high", cvss: 7.5, exploitability: "none", patchAvailable: true, firstSeen: "2024-01-12", lastSeen: "2024-01-19", status: "open", owner: null },
-  { id: 4, cve: "CVE-2024-3456", title: "Outdated SSL/TLS Configuration", asset: "mail.company.com", severity: "medium", cvss: 5.3, exploitability: "none", patchAvailable: true, firstSeen: "2024-01-08", lastSeen: "2024-01-20", status: "fixed", owner: "DevOps Team" },
-  { id: 5, cve: "CVE-2024-7890", title: "Information Disclosure via HTTP Headers", asset: "cdn.company.com", severity: "low", cvss: 3.1, exploitability: "none", patchAvailable: false, firstSeen: "2024-01-05", lastSeen: "2024-01-15", status: "accepted_risk", owner: "Security Team" },
-  { id: 6, cve: "CVE-2024-2345", title: "Privilege Escalation in Admin Panel", asset: "admin.company.com", severity: "high", cvss: 8.8, exploitability: "poc", patchAvailable: true, firstSeen: "2024-01-14", lastSeen: "2024-01-20", status: "open", owner: null },
-  { id: 7, cve: "CVE-2024-6789", title: "Denial of Service in API Gateway", asset: "api.company.com", severity: "high", cvss: 7.2, exploitability: "known", patchAvailable: true, firstSeen: "2024-01-11", lastSeen: "2024-01-18", status: "in_progress", owner: "Sarah M." },
-  { id: 8, cve: "CVE-2024-0123", title: "Weak Password Policy", asset: "auth.company.com", severity: "medium", cvss: 6.5, exploitability: "none", patchAvailable: false, firstSeen: "2024-01-03", lastSeen: "2024-01-18", status: "open", owner: null },
-];
+const vulnerabilities: Vulnerability[] = [];
 
-const teamMembers = [
-  { id: "1", name: "John Smith", email: "john@company.com" },
-  { id: "2", name: "Sarah Johnson", email: "sarah@company.com" },
-  { id: "3", name: "Mike Chen", email: "mike@company.com" },
-  { id: "4", name: "Emily Davis", email: "emily@company.com" },
-];
+const teamMembers = [];
 
 interface VSFindingsProps {
   canWrite?: boolean;
@@ -560,11 +546,7 @@ export function VSFindings({ canWrite = true }: VSFindingsProps) {
                 </TabsContent>
 
                 <TabsContent value="history" className="space-y-4 mt-4">
-                  {[
-                    { action: "Vulnerability detected", user: "System", time: selectedVuln.firstSeen },
-                    { action: "Assigned to DevOps Team", user: "Admin", time: "2024-01-16" },
-                    { action: "Status changed to In Progress", user: "John D.", time: "2024-01-17" },
-                  ].map((event, i) => (
+                  {([] as { action: string; user: string; time: string }[]).map((event, i) => (
                     <div key={i} className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
                       <div className="w-2 h-2 rounded-full bg-primary mt-2" />
                       <div className="flex-1">

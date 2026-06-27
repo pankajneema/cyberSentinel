@@ -8,14 +8,13 @@ import { useEffect, useState } from "react";
 const TerminalAnimation = () => {
   const [lines, setLines] = useState<string[]>([]);
   const commands = [
-    "$ cybersentinel scan --target *.company.com",
-    "[+] Discovering subdomains...",
-    "[+] Found 156 assets",
-    "[!] Scanning for vulnerabilities...",
-    "[+] CVE-2024-1234 detected (Critical)",
-    "[+] CVE-2024-5678 detected (High)",
+    "$ cybersentinel scan --target yourdomain.com",
+    "[+] Discovering subdomains & assets...",
+    "[+] Probing services and TLS...",
+    "[+] Mapping your external attack surface...",
+    "[+] Scoring exposure...",
     "$ cybersentinel report --format pdf",
-    "[✓] Report generated successfully",
+    "[✓] Report ready",
   ];
 
   useEffect(() => {
@@ -269,12 +268,12 @@ export function Hero() {
               transition={{ delay: 0.8 }}
               className="mt-12 pt-8 border-t border-border/50"
             >
-              <p className="text-sm text-muted-foreground mb-5">Trusted by security teams worldwide</p>
+              <p className="text-sm text-muted-foreground mb-5">Built by CuriousDevs — an early-stage platform under active development</p>
               <div className="flex items-center gap-8 justify-center lg:justify-start">
                 {[
-                  { value: "500K+", label: "Vulnerabilities Found" },
-                  { value: "120+", label: "Organizations" },
-                  { value: "99.9%", label: "Uptime SLA" },
+                  { value: "6", label: "Integrated Modules" },
+                  { value: "15+", label: "Recon Tools" },
+                  { value: "Open", label: "Roadmap" },
                 ].map((stat, index) => (
                   <motion.div 
                     key={index} 

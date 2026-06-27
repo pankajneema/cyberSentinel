@@ -10,7 +10,8 @@ class AssetResponse(BaseModel):
     name: str
     type: str
     exposure: str
-    risk_score: int
+    risk_score: Optional[int] = None      # None = never scored ("Unscanned")
+    last_scored_at: Optional[str] = None
     tags: List[str]
     status: str
     last_seen: Optional[str]
@@ -50,3 +51,42 @@ class AssetUpdateRequest(BaseModel):
     status: Optional[str] = None
     risk_score: Optional[int] = None
     description: Optional[str] = None
+
+
+# ---------------------------------------------------
+# Bulk import (CSV-driven)
+# ---------------------------------------------------
+class AssetImportRow(BaseModel):
+    name: str
+    type: Literal["domain", "ip", "cloud", "repo", "saas", "user"] = "domain"
+    exposure: Literal["public", "internal"] = "internal"
+    tags: Optional[List[str]] = None
+    description: Optional[str] = None
+
+
+class AssetImportRequest(BaseModel):
+    assets: List[AssetImportRow]
+
+
+class AssetImportResult(BaseModel):
+    created: int
+    skipped: int
+    errors: List[str]
+
+
+# ---------------------------------------------------
+# Rescore (real exposure scoring from ASM data)
+# ---------------------------------------------------
+class ScoreFactorResponse(BaseModel):
+    name: str
+    points: float
+    detail: str
+
+
+class AssetRescoreResult(BaseModel):
+    scored: bool                       # False => no ASM scan data matched this asset
+    risk_score: Optional[int] = None
+    severity: Optional[str] = None     # critical|high|medium|low|info
+    factors: List[ScoreFactorResponse] = []
+    matched_ips: List[str] = []
+    message: Optional[str] = None

@@ -7,11 +7,15 @@ from typing import Optional, Iterable, List
 # =========================
 # SMTP CONFIG
 # =========================
+# No secret defaults in source. SMTP_PASSWORD must come from the environment;
+# if it is unset, send_email() no-ops (logs instead of sending). The previously
+# committed Gmail app password was removed and MUST be rotated in the Google
+# account console — treat it as compromised.
 SMTP_SERVER = config("SMTP_SERVER", default="smtp.gmail.com")
 SMTP_PORT = int(config("SMTP_PORT", default=587))
-SMTP_EMAIL = config("SMTP_EMAIL", default="thecuriousdevs@gmail.com")
-SMTP_PASSWORD = config("SMTP_PASSWORD", default="mztr rgqi hgsv tata")
-CONTACT_EMAIL = config("CONTACT_EMAIL", default="pankaj200321@gmail.com")
+SMTP_EMAIL = config("SMTP_EMAIL", default="")
+SMTP_PASSWORD = config("SMTP_PASSWORD", default="")
+CONTACT_EMAIL = config("CONTACT_EMAIL", default="")
 
 COMPANY_NAME = "CuriousDevs"
 PRODUCT_NAME = "CyberSentinel"
@@ -85,8 +89,8 @@ def send_email(
     is_html: bool = False,
     cc_list: Optional[Iterable[str]] = None,
 ):
-    if not SMTP_EMAIL or not SMTP_PASSWORD:
-        print(f"[EMAIL] Would send to {to_email}: {subject}")
+    if not SMTP_EMAIL or not SMTP_PASSWORD or not to_email:
+        print(f"[EMAIL] Skipped (SMTP not configured or no recipient): {subject}")
         return False
 
     try:

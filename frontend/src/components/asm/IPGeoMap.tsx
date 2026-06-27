@@ -1,348 +1,180 @@
-import { useEffect, useMemo, useState } from "react";
-import { MapPinned, Globe2, Building2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+// IP Geo Map — real interactive world map (react-simple-maps + world-atlas
+// topojson) with your discovered IPs plotted as markers. Hover for a quick look,
+// click to inspect; a country breakdown sits alongside.
+//
+// Requires:  npm install react-simple-maps
+
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from "react-simple-maps";
+import { Globe2, Building2, Network, X, MapPin } from "lucide-react";
 import { fetchIPGeoMap, type AsmIPGeoPoint } from "@/lib/services/asm";
+
+const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
+
+interface Cluster {
+  lon: number;
+  lat: number;
+  points: AsmIPGeoPoint[];
+}
 
 export function IPGeoMap() {
   const [points, setPoints] = useState<AsmIPGeoPoint[]>([]);
   const [countries, setCountries] = useState<Array<{ country: string; count: number }>>([]);
   const [loading, setLoading] = useState(true);
-  const [hoveredCluster, setHoveredCluster] = useState<{
-    x: number;
-    y: number;
-    count: number;
-    sample: AsmIPGeoPoint;
-  } | null>(null);
+  const [selected, setSelected] = useState<AsmIPGeoPoint | null>(null);
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      try {
-        const data = await fetchIPGeoMap(undefined, 3000);
-        setPoints(data.items || []);
-        setCountries(data.countries || []);
-      } catch (err) {
-        console.error("Failed to load geo map data:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+    fetchIPGeoMap(undefined, 3000)
+      .then((data: any) => {
+        setPoints((data.items ?? data.points ?? []).filter((p: AsmIPGeoPoint) => p.latitude != null && p.longitude != null));
+        setCountries(data.countries ?? []);
+      })
+      .catch(() => setPoints([]))
+      .finally(() => setLoading(false));
   }, []);
 
-  const maxCountryCount = useMemo(
-    () => Math.max(1, ...countries.map((c) => c.count)),
-    [countries]
-  );
-
-  const clusters = useMemo(() => {
-    const byLocation = new Map<string, { lat: number; lon: number; items: AsmIPGeoPoint[] }>();
+  // Cluster points that round to the same ~2° lon/lat cell.
+  const clusters = useMemo<Cluster[]>(() => {
+    const cell = 2;
+    const grid = new Map<string, Cluster>();
     for (const p of points) {
-      if (!Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) continue;
-      // Cluster nearby markers while keeping geo position stable.
-      const lat = Number(p.latitude.toFixed(1));
-      const lon = Number(p.longitude.toFixed(1));
-      const key = `${lat}:${lon}`;
-      const existing = byLocation.get(key);
-      if (existing) {
-        existing.items.push(p);
+      const lon = p.longitude as number;
+      const lat = p.latitude as number;
+      const key = `${Math.round(lon / cell)}:${Math.round(lat / cell)}`;
+      const c = grid.get(key);
+      if (c) {
+        c.points.push(p);
+        c.lon = (c.lon * (c.points.length - 1) + lon) / c.points.length;
+        c.lat = (c.lat * (c.points.length - 1) + lat) / c.points.length;
       } else {
-        byLocation.set(key, { lat, lon, items: [p] });
+        grid.set(key, { lon, lat, points: [p] });
       }
     }
-    return Array.from(byLocation.values());
+    return Array.from(grid.values());
   }, [points]);
 
-  const countryCenters = useMemo(() => {
-    const map = new Map<string, { country: string; count: number; latSum: number; lonSum: number }>();
-    for (const c of clusters) {
-      const sample = c.items[0];
-      const country = sample.country || "Unknown";
-      const existing = map.get(country);
-      if (existing) {
-        existing.count += c.items.length;
-        existing.latSum += c.lat * c.items.length;
-        existing.lonSum += c.lon * c.items.length;
-      } else {
-        map.set(country, {
-          country,
-          count: c.items.length,
-          latSum: c.lat * c.items.length,
-          lonSum: c.lon * c.items.length,
-        });
-      }
-    }
-    return Array.from(map.values())
-      .map((x) => ({
-        country: x.country,
-        count: x.count,
-        lat: x.latSum / x.count,
-        lon: x.lonSum / x.count,
-      }))
-      .sort((a, b) => b.count - a.count);
-  }, [clusters]);
-
-  const networkLinks = useMemo(() => {
-    const nodes = clusters.map((cluster) => {
-      const x = ((cluster.lon + 180) / 360) * 1000;
-      const y = ((90 - cluster.lat) / 180) * 500;
-      return { x, y, weight: cluster.items.length };
-    });
-
-    const links: Array<{ x1: number; y1: number; x2: number; y2: number; w: number }> = [];
-    for (let i = 0; i < nodes.length; i++) {
-      const src = nodes[i];
-      const nearest = nodes
-        .map((dst, j) => ({ j, d: Math.hypot(src.x - dst.x, src.y - dst.y) }))
-        .filter((v) => v.j !== i)
-        .sort((a, b) => a.d - b.d)
-        .slice(0, 3);
-
-      for (const n of nearest) {
-        if (n.d > 320) continue;
-        const dst = nodes[n.j];
-        const x1 = Math.min(src.x, dst.x);
-        const x2 = Math.max(src.x, dst.x);
-        const y1 = src.x <= dst.x ? src.y : dst.y;
-        const y2 = src.x <= dst.x ? dst.y : src.y;
-        links.push({ x1, y1, x2, y2, w: Math.min(src.weight, dst.weight) });
-      }
-    }
-    return links.slice(0, 140);
-  }, [clusters]);
-
-  const stars = useMemo(
-    () =>
-      Array.from({ length: 130 }).map((_, i) => {
-        const x = (i * 73) % 1000;
-        const y = (i * 41 + (i % 7) * 13) % 500;
-        const r = ((i * 37) % 100) < 12 ? 1.6 : ((i * 37) % 100) < 45 ? 1.1 : 0.8;
-        return { x, y, r };
-      }),
-    []
-  );
+  const maxCountry = countries[0]?.count || 1;
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border border-border bg-card p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <MapPinned className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold text-foreground">IP Geolocation Map</h3>
-        </div>
-
-        {loading ? (
-          <div className="py-16 text-center text-sm text-muted-foreground">Loading geolocation map...</div>
-        ) : points.length === 0 ? (
-          <div className="py-16 text-center text-sm text-muted-foreground">
-            No geolocation data found. Run `NORMAL` or `DEEP` discovery to enrich IPs.
-          </div>
-        ) : (
-          <div className="relative w-full overflow-hidden rounded-xl border border-[#1e3f78] bg-[#06102b]" style={{ aspectRatio: "2 / 1" }}>
-            <svg viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet" className="h-full w-full">
-              <defs>
-                <filter id="pointGlow" x="-300%" y="-300%" width="700%" height="700%">
-                  <feDropShadow dx="0" dy="0" stdDeviation="3.2" floodColor="#7cc5ff" floodOpacity="0.95" />
-                </filter>
-                <linearGradient id="mapBg" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#0b1b49" />
-                  <stop offset="100%" stopColor="#050d22" />
-                </linearGradient>
-              </defs>
-              <rect x="0" y="0" width="1000" height="500" fill="url(#mapBg)" />
-              <image
-                href="https://upload.wikimedia.org/wikipedia/commons/8/80/World_map_-_low_resolution.svg"
-                x="0"
-                y="0"
-                width="1000"
-                height="500"
-                preserveAspectRatio="none"
-                opacity="0.45"
-              />
-              {stars.map((s, i) => (
-                <circle key={`star-${i}`} cx={s.x} cy={s.y} r={s.r} fill="#b9d7ff" opacity="0.55" />
-              ))}
-
-              {[...Array(18)].map((_, i) => (
-                <line
-                  key={`lon-${i}`}
-                  x1={(i * 1000) / 17}
-                  y1="0"
-                  x2={(i * 1000) / 17}
-                  y2="500"
-                  stroke="#1a4a93"
-                  strokeWidth="1"
-                  opacity="0.42"
-                />
-              ))}
-              {[...Array(10)].map((_, i) => (
-                <line
-                  key={`lat-${i}`}
-                  x1="0"
-                  y1={(i * 500) / 9}
-                  x2="1000"
-                  y2={(i * 500) / 9}
-                  stroke="#1a4a93"
-                  strokeWidth="1"
-                  opacity="0.42"
-                />
-              ))}
-
-              {networkLinks.map((link, i) => (
-                <line
-                  key={`net-${i}`}
-                  x1={link.x1}
-                  y1={link.y1}
-                  x2={link.x2}
-                  y2={link.y2}
-                  stroke="#62afff"
-                  strokeOpacity={Math.min(0.42, 0.18 + link.w * 0.025)}
-                  strokeWidth={0.9}
-                />
-              ))}
-
-              {countryCenters.length > 1 &&
-                countryCenters.slice(1, 10).map((center, idx) => {
-                  const from = countryCenters[0];
-                  const x1 = ((from.lon + 180) / 360) * 1000;
-                  const y1 = ((90 - from.lat) / 180) * 500;
-                  const x2 = ((center.lon + 180) / 360) * 1000;
-                  const y2 = ((90 - center.lat) / 180) * 500;
-                  const ctrlX = (x1 + x2) / 2;
-                  const ctrlY = Math.min(y1, y2) - Math.max(30, Math.abs(x2 - x1) * 0.12);
-                  return (
-                    <path
-                      key={`arc-${center.country}-${idx}`}
-                      d={`M ${x1} ${y1} Q ${ctrlX} ${ctrlY} ${x2} ${y2}`}
-                      fill="none"
-                      stroke="#8bd0ff"
-                      strokeWidth="1.6"
-                      strokeOpacity="0.8"
-                      strokeDasharray="7 7"
-                    >
-                      <animate
-                        attributeName="stroke-dashoffset"
-                        values="0;28"
-                        dur={`${2.2 + idx * 0.25}s`}
-                        repeatCount="indefinite"
-                      />
-                    </path>
-                  );
-                })}
-
-              {clusters.map((cluster, idx) => {
-                const x = ((cluster.lon + 180) / 360) * 1000;
-                const y = ((90 - cluster.lat) / 180) * 500;
-                const count = cluster.items.length;
-                const radius = Math.min(14, 4 + Math.log2(count + 1) * 2.2);
-                const sample = cluster.items[0];
-
-                return (
-                  <g
-                    key={`${cluster.lat}-${cluster.lon}-${idx}`}
-                    onMouseEnter={() =>
-                      setHoveredCluster({
-                        x,
-                        y,
-                        count,
-                        sample,
-                      })
-                    }
-                    onMouseLeave={() => setHoveredCluster(null)}
-                  >
-                    <circle cx={x} cy={y} r={radius + 8} fill="#6fc2ff" opacity="0.13" />
-                    <circle cx={x} cy={y} r={radius + 3.4} fill="none" stroke="#9ddaff" strokeWidth="1.7" opacity="0.8" />
-                    <circle cx={x} cy={y} r={radius} fill="#b8ecff" filter="url(#pointGlow)">
-                      <animate attributeName="r" values={`${radius};${radius + 2};${radius}`} dur="1.8s" repeatCount="indefinite" />
-                    </circle>
-                    {count > 1 && (
-                      <text
-                        x={x}
-                        y={y + 1}
-                        textAnchor="middle"
-                        dominantBaseline="middle"
-                        fontSize="10"
-                        fill="#08335e"
-                        fontWeight="700"
-                      >
-                        {count}
-                      </text>
-                    )}
-                    <title>
-                      {count} IP(s) • {sample.city || "Unknown city"}, {sample.country || "Unknown country"}
-                    </title>
-                  </g>
-                );
-              })}
-            </svg>
-            {hoveredCluster && (
-              <div
-                className="pointer-events-none absolute z-20 w-64 rounded-lg border border-[#245aa4] bg-[#091b3d]/95 p-2 text-xs text-[#d8edff] shadow-lg"
-                style={{
-                  left: `${(hoveredCluster.x / 1000) * 100}%`,
-                  top: `${(hoveredCluster.y / 500) * 100}%`,
-                  transform: "translate(10px, -110%)",
-                }}
-              >
-                <div className="font-mono text-[#93d7ff]">{hoveredCluster.sample.ip_address}</div>
-                <div className="mt-1 text-[#d8edff]">
-                  {hoveredCluster.sample.city || "Unknown city"}, {hoveredCluster.sample.country || "Unknown country"}
-                </div>
-                <div className="mt-1 text-[#9eb9dc]">
-                  {hoveredCluster.sample.asn || "ASN N/A"} {hoveredCluster.sample.asn_org || ""}
-                </div>
-                <div className="mt-1 text-[#d8edff]">IPs at this location: {hoveredCluster.count}</div>
-              </div>
-            )}
-          </div>
-        )}
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-xl font-bold flex items-center gap-2">
+          <Globe2 className="w-5 h-5 text-primary" /> IP Geo Map
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Geolocation of your discovered internet-facing IPs. Scroll to zoom, drag to pan, hover a marker for a quick look, click to inspect.
+        </p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-border bg-card p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <Globe2 className="h-5 w-5 text-primary" />
-            <h3 className="font-semibold text-foreground">Country Distribution</h3>
-          </div>
-          {countries.length === 0 ? (
-            <div className="py-6 text-sm text-muted-foreground">No distribution data available.</div>
+      <div className="grid lg:grid-cols-[1fr_280px] gap-6">
+        {/* Map */}
+        <div className="relative rounded-xl border bg-[#0B1120] overflow-hidden">
+          {loading ? (
+            <div className="h-[420px] flex items-center justify-center text-sm text-slate-400">Loading map…</div>
           ) : (
-            <div className="space-y-2">
-              {countries.slice(0, 10).map((item) => (
-                <div key={item.country} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-foreground">{item.country}</span>
-                    <span className="text-muted-foreground">{item.count}</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-primary"
-                      style={{ width: `${(item.count / maxCountryCount) * 100}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
+            <ComposableMap
+              projection="geoEqualEarth"
+              projectionConfig={{ scale: 165 }}
+              style={{ width: "100%", height: "auto" }}
+            >
+              <ZoomableGroup zoom={1} center={[10, 25]} maxZoom={8}>
+                <Geographies geography={GEO_URL}>
+                  {({ geographies }: any) =>
+                    geographies.map((geo: any) => (
+                      <Geography
+                        key={geo.rsmKey}
+                        geography={geo}
+                        fill="#172033"
+                        stroke="#243049"
+                        strokeWidth={0.4}
+                        style={{
+                          default: { outline: "none" },
+                          hover: { fill: "#1e293b", outline: "none" },
+                          pressed: { outline: "none" },
+                        }}
+                      />
+                    ))
+                  }
+                </Geographies>
+
+                {clusters.map((c, i) => {
+                  const n = c.points.length;
+                  const r = Math.min(3 + Math.log2(n + 1) * 1.8, 11);
+                  const tip = `${c.points[0].ip_address}${c.points[0].country ? ` · ${c.points[0].country}` : ""}${n > 1 ? ` · +${n - 1} more` : ""}`;
+                  return (
+                    <Marker key={i} coordinates={[c.lon, c.lat]} onClick={() => setSelected(c.points[0])} style={{ default: { cursor: "pointer" } }}>
+                      <title>{tip}</title>
+                      <circle r={r + 2.5} fill="#22d3ee" opacity={0.15} />
+                      <circle r={r} fill="#22d3ee" stroke="#0B1120" strokeWidth={0.8} />
+                      {n > 1 && (
+                        <text textAnchor="middle" dy={3} fontSize={Math.min(r, 8)} fontWeight={700} fill="#04222b">
+                          {n}
+                        </text>
+                      )}
+                    </Marker>
+                  );
+                })}
+              </ZoomableGroup>
+            </ComposableMap>
+          )}
+
+          {!loading && points.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-400 pointer-events-none">
+              <div className="text-center">
+                <MapPin className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                No geolocated IPs yet. Run a discovery to populate the map.
+              </div>
             </div>
           )}
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <Building2 className="h-5 w-5 text-primary" />
-            <h3 className="font-semibold text-foreground">Sample Geocoded IPs</h3>
-          </div>
-          <div className="space-y-2">
-            {points.slice(0, 8).map((p) => (
-              <div key={p.id} className="flex items-center justify-between rounded-lg border border-border p-2 text-xs">
-                <div>
-                  <div className="font-mono text-foreground">{p.ip_address}</div>
-                  <div className="text-muted-foreground">{p.city || "Unknown city"}, {p.country || "Unknown country"}</div>
-                </div>
-                <Badge variant="outline">{p.asn || "ASN N/A"}</Badge>
+        {/* Side panel */}
+        <div className="space-y-4">
+          {selected ? (
+            <div className="rounded-xl border p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-sm">IP detail</h3>
+                <button onClick={() => setSelected(null)} className="text-muted-foreground hover:text-foreground">
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-            ))}
-            {points.length === 0 && (
-              <div className="py-6 text-sm text-muted-foreground">No geocoded IP rows found.</div>
-            )}
+              <div className="font-mono text-sm">{selected.ip_address}</div>
+              <dl className="space-y-1.5 text-xs">
+                {selected.subdomain && (
+                  <div className="flex justify-between"><dt className="text-muted-foreground">Host</dt><dd className="font-mono">{selected.subdomain}</dd></div>
+                )}
+                <div className="flex justify-between"><dt className="text-muted-foreground flex items-center gap-1"><Globe2 className="w-3 h-3" />Country</dt><dd>{selected.country || "—"}</dd></div>
+                {selected.city && <div className="flex justify-between"><dt className="text-muted-foreground">City</dt><dd>{selected.city}</dd></div>}
+                <div className="flex justify-between"><dt className="text-muted-foreground flex items-center gap-1"><Network className="w-3 h-3" />ASN</dt><dd>{selected.asn || "—"}</dd></div>
+                {selected.asn_org && <div className="flex justify-between"><dt className="text-muted-foreground flex items-center gap-1"><Building2 className="w-3 h-3" />Org</dt><dd className="text-right">{selected.asn_org}</dd></div>}
+              </dl>
+            </div>
+          ) : (
+            <div className="rounded-xl border p-4">
+              <h3 className="font-semibold text-sm mb-3">Countries ({countries.length})</h3>
+              {countries.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No data yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {countries.slice(0, 12).map((c) => (
+                    <Fragment key={c.country}>
+                      <div className="flex justify-between text-xs mb-0.5">
+                        <span>{c.country}</span>
+                        <span className="text-muted-foreground tabular-nums">{c.count}</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400" style={{ width: `${(c.count / maxCountry) * 100}%` }} />
+                      </div>
+                    </Fragment>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="rounded-xl border p-4 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between"><span>Total IPs</span><span className="font-semibold text-foreground tabular-nums">{points.length}</span></div>
+            <div className="flex items-center justify-between mt-1"><span>Marker clusters</span><span className="font-semibold text-foreground tabular-nums">{clusters.length}</span></div>
           </div>
         </div>
       </div>

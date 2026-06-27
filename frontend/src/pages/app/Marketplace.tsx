@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
-import { getProfile } from "@/lib/services/profile";
+import { getMe } from "@/lib/services/auth";
 
 const integrations = [
   { id: 1, name: "Slack", category: "notifications", description: "Get real-time security alerts in your Slack channels", icon: "💬", installed: true, rating: 4.8, downloads: "50K+" },
@@ -48,10 +48,10 @@ export default function Marketplace() {
     let mounted = true;
     const loadProfile = async () => {
       try {
-        const profile = await getProfile();
+        const profile = await getMe();
         if (mounted) {
           setRole(profile.role ?? "reader");
-          setIsSuperadmin(Boolean(profile.is_superadmin));
+          setIsSuperadmin(false);
         }
       } catch {
           setRole("reader");
@@ -64,7 +64,7 @@ export default function Marketplace() {
     };
   }, []);
   
-  const isAdmin = role === "admin" || Boolean(isSuperadmin);
+  const isAdmin = role === "admin" || role === "owner" || Boolean(isSuperadmin);
 
   const handleInstall = (id: number, name: string) => {
     setInstalledIntegrations([...installedIntegrations, id]);

@@ -38,6 +38,27 @@ async def get_queue_connection() -> aio_pika.RobustConnection | None:
 
 
 
+async def _declare_with_dlx(channel, queue_name: str):
+    """
+    Declare a durable queue with the dead-letter topology, matching the Go
+    worker's declaration (queue.go) exactly so both sides agree on the args.
+    A mismatch (one side with x-dead-letter-exchange, the other without) raises
+    PRECONDITION_FAILED.
+    """
+    dlx_name = f"{queue_name}.dlx"
+    dlq_name = f"{queue_name}.dlq"
+    dlx = await channel.declare_exchange(
+        dlx_name, aio_pika.ExchangeType.FANOUT, durable=True
+    )
+    dlq = await channel.declare_queue(dlq_name, durable=True)
+    await dlq.bind(dlx)
+    return await channel.declare_queue(
+        queue_name,
+        durable=True,
+        arguments={"x-dead-letter-exchange": dlx_name},
+    )
+
+
 async def publish_message(queue_name: str, message: dict) -> bool:
     """
     Publish message to queue (ASYNC)
@@ -50,10 +71,7 @@ async def publish_message(queue_name: str, message: dict) -> bool:
 
         channel = await connection.channel()
 
-        await channel.declare_queue(
-            queue_name,
-            durable=True
-        )
+        await _declare_with_dlx(channel, queue_name)
 
         await channel.default_exchange.publish(
             aio_pika.Message(
@@ -86,12 +104,9 @@ async def consume_messages(queue_name: str, callback):
             return
 
         channel = await connection.channel()
-        await channel.set_qos(prefetch_count=1)
+        await channel.set_qos(prefetch_count=16)
 
-        queue = await channel.declare_queue(
-            queue_name,
-            durable=True
-        )
+        queue = await _declare_with_dlx(channel, queue_name)
 
         logger.info(f"Consuming messages from {queue_name}")
 

@@ -1,12 +1,12 @@
 import { Link } from "react-router-dom";
 import { Shield, Mail, Twitter, Linkedin, Github } from "lucide-react";
+import { LogoMark } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 const footerLinks = {
   product: [
     { name: "Features", href: "/#features" },
-    { name: "Pricing", href: "/pricing" },
     { name: "Security", href: "/services" },
     { name: "Roadmap", href: "/services" },
   ],
@@ -38,9 +38,7 @@ export function Footer() {
           {/* Brand */}
           <div className="col-span-2">
             <Link to="/" className="flex items-center gap-2 mb-4">
-              <div className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center">
-                <Shield className="w-6 h-6 text-primary-foreground" />
-              </div>
+              <LogoMark className="w-10 h-10" />
               <div>
                 <span className="font-heading font-bold text-lg text-background">
                   CyberSentinel

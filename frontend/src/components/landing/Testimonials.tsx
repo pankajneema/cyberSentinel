@@ -1,29 +1,7 @@
 import { Star, Quote } from "lucide-react";
 import { motion } from "framer-motion";
 
-const testimonials = [
-  {
-    quote: "CyberSentinel transformed how we approach security. The unified view of our attack surface and vulnerabilities saves us hours every week.",
-    author: "Sarah Chen",
-    role: "CISO",
-    company: "TechCorp Inc.",
-    rating: 5,
-  },
-  {
-    quote: "The automated vulnerability scanning with contextual prioritization is a game-changer. We reduced our remediation time by 60%.",
-    author: "Michael Rodriguez",
-    role: "Security Engineer",
-    company: "FinanceFlow",
-    rating: 5,
-  },
-  {
-    quote: "Finally, a platform that brings together ASM and vulnerability scanning without the complexity. Our DevOps team loves it.",
-    author: "Emily Watson",
-    role: "VP of Engineering",
-    company: "CloudScale",
-    rating: 5,
-  },
-];
+const testimonials = [];
 
 export function Testimonials() {
   return (

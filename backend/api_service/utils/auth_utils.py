@@ -8,6 +8,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from config.settings import settings  # 👈 recommended
+from utils.database import get_db as _get_db_dep
 
 # -------------------------------------------------------------------
 # Config
@@ -24,7 +25,9 @@ pwd_context = CryptContext(
     deprecated="auto"
 )
 
-security = HTTPBearer(auto_error=True)
+# auto_error=False so a MISSING token returns 401 (session) rather than 403,
+# keeping 403 reserved for RBAC denials (which must NOT log the user out).
+security = HTTPBearer(auto_error=False)
 
 # -------------------------------------------------------------------
 # Password utils (CPU only → safe in async)
@@ -70,34 +73,75 @@ async def create_access_token(
 # Dependency: Get current user
 # -------------------------------------------------------------------
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    db=Depends(_get_db_dep),
 ):
     """
-    Validate JWT token and return user payload
+    Validate the bearer token and return a user payload.
+
+    Supabase is the current identity provider, so we verify the Supabase JWT
+    first (ES256 via JWKS, or legacy HS256). The user's REAL role + org come from
+    the `member_profiles` table (not the token's app_metadata), so every legacy
+    route gets correct RBAC. A legacy HS256 app token is accepted as a fallback.
+    `user_id` is the Supabase `sub`.
     """
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authentication token",
+        )
     token = credentials.credentials
 
+    # 1) Supabase token (the real identity now)
     try:
-        payload = jwt.decode(
-            token,
-            SECRET_KEY,
-            algorithms=[ALGORITHM],
-        )
+        from utils.supabase_auth import verify_supabase_jwt
 
+        claims = await verify_supabase_jwt(token)
+        sub = claims.get("sub")
+        email = claims.get("email") or (claims.get("user_metadata", {}) or {}).get("email")
+
+        # Resolve the real role + org from member_profiles (provision on first sight).
+        role = "reader"
+        org_id = None
+        try:
+            from utils.identity_sync import sync_profile_and_org
+
+            profile = await sync_profile_and_org(
+                db,
+                supabase_user_id=sub,
+                email=email,
+                full_name=(claims.get("user_metadata", {}) or {}).get("full_name", email),
+                role="reader",
+            )
+            role = profile.role
+            org_id = profile.org_id
+        except Exception:
+            # Identity tables not ready — fall back to token role.
+            role = (claims.get("app_metadata") or {}).get("role", "reader")
+
+        return {
+            "email": email,
+            "user_id": sub,
+            "role": role,
+            "org_id": org_id,
+            "supabase": True,
+        }
+    except HTTPException:
+        pass  # fall through to legacy verification
+
+    # 2) Legacy app-issued HS256 token (only if a legacy secret is configured)
+    try:
+        if not SECRET_KEY:
+            raise JWTError("no legacy secret configured")
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str | None = payload.get("sub")
         user_id: str | None = payload.get("user_id")
-
         if not email or not user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication token",
             )
-
-        return {
-            "email": email,
-            "user_id": user_id,
-        }
-
+        return {"email": email, "user_id": user_id}
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

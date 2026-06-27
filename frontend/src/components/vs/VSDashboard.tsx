@@ -29,32 +29,17 @@ interface VSDashboardProps {
 }
 
 const defaultSeverityData = {
-  critical: 12,
-  high: 34,
-  medium: 89,
-  low: 156,
+  critical: 0,
+  high: 0,
+  medium: 0,
+  low: 0,
 } as const;
 
-const topVulnerableAssets = [
-  { asset: "api.company.com", criticalCount: 5, highCount: 8, total: 23 },
-  { asset: "db-prod.company.com", criticalCount: 3, highCount: 12, total: 28 },
-  { asset: "app.company.com", criticalCount: 2, highCount: 6, total: 15 },
-  { asset: "staging.app.com", criticalCount: 1, highCount: 9, total: 18 },
-  { asset: "mail.company.com", criticalCount: 1, highCount: 4, total: 9 },
-];
+const topVulnerableAssets = [];
 
-const cvssDistribution = [
-  { range: "9.0-10.0", count: 12, color: "bg-destructive" },
-  { range: "7.0-8.9", count: 34, color: "bg-warning" },
-  { range: "4.0-6.9", count: 89, color: "bg-accent" },
-  { range: "0.1-3.9", count: 156, color: "bg-success" },
-];
+const cvssDistribution = [];
 
-const recentScans = [
-  { name: "Production API Scan", status: "completed", findings: 23, time: "2h ago" },
-  { name: "Weekly External Scan", status: "running", findings: 12, time: "In progress" },
-  { name: "Database Servers", status: "scheduled", findings: 0, time: "In 4h" },
-];
+const recentScans = [];
 
 export function VSDashboard({ onNavigateToScans, onNavigateToFindings, canWrite = true }: VSDashboardProps) {
   const [vs, setVs] = useState<VsDashboard | null>(null);

@@ -17,7 +17,13 @@ class Company(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     name = Column(String, nullable=False)
     plan = Column(String, default="starter")
-    owner_user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    # use_alter breaks the companies<->users circular FK: it is emitted as a
+    # separate ALTER TABLE after both tables exist (fixes Alembic create order).
+    owner_user_id = Column(
+        String,
+        ForeignKey("users.id", use_alter=True, name="fk_companies_owner_user_id"),
+        nullable=True,
+    )
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -29,7 +35,10 @@ class User(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     email = Column(String, unique=True, nullable=False, index=True)
     name = Column(String, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    # Deprecated: Supabase owns credentials now. Nullable while migrating; the
+    # column is dropped by migration 0002_drop_hashed_password once existing
+    # users are imported into Supabase. Do not write to this field in new code.
+    hashed_password = Column(String, nullable=True)
     role = Column(String, nullable=False)
     company_id = Column(String, ForeignKey("companies.id"), nullable=True)
     is_active = Column(Boolean, default=True)

@@ -55,14 +55,7 @@ interface VSScanManagerProps {
   canWrite?: boolean;
 }
 
-const availableAssets = [
-  { id: 1, name: "api.company.com", type: "Domain", lastScan: "2h ago" },
-  { id: 2, name: "app.company.com", type: "Domain", lastScan: "1d ago" },
-  { id: 3, name: "db-prod.company.com", type: "Domain", lastScan: "3d ago" },
-  { id: 4, name: "192.168.1.0/24", type: "IP Range", lastScan: "1w ago" },
-  { id: 5, name: "staging.app.com", type: "Domain", lastScan: "2d ago" },
-  { id: 6, name: "mail.company.com", type: "Domain", lastScan: "5d ago" },
-];
+const availableAssets = [];
 
 export function VSScanManager({ canWrite = true }: VSScanManagerProps) {
   const [searchQuery, setSearchQuery] = useState("");

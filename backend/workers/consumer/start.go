@@ -37,8 +37,11 @@ func Start(cfg *config.Config) error {
 
 			err := dispatch(msg.Body)
 			if err != nil {
-				utils.Logger.Errorf("message failed, requeueing: %v", err)
-				_ = queue.Nack(msg, true)
+				// Do NOT requeue (requeue=false) — a poison message would loop
+				// forever. It is routed to the dead-letter queue instead, where
+				// it can be inspected/replayed (audit M-1).
+				utils.Logger.Errorf("message failed, dead-lettering: %v", err)
+				_ = queue.Nack(msg, false)
 				continue
 			}
 

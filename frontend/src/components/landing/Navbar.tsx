@@ -3,10 +3,10 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Menu, X, Shield } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { LogoMark } from "@/components/Logo";
 
 const navLinks = [
   { name: "Services", href: "/services" },
-  { name: "Pricing", href: "/pricing" },
   { name: "About", href: "/about" },
   { name: "Contact", href: "/contact" },
 ];
@@ -35,9 +35,7 @@ export function Navbar() {
         <nav className="flex items-center justify-between h-16 lg:h-20">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 group">
-            <div className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center shadow-md group-hover:shadow-glow transition-shadow duration-300">
-              <Shield className="w-6 h-6 text-primary-foreground" />
-            </div>
+            <LogoMark className="w-10 h-10" />
             <div className="hidden sm:flex flex-col">
               <span className="font-heading font-bold text-lg text-foreground leading-none">
                 CyberSentinel

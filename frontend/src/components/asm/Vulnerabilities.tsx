@@ -51,17 +51,7 @@ const vulnerabilities: Array<{
   lastSeen: string;
   status: string;
   owner: string | null;
-}> = [
-  { id: 1, title: "Exposed MongoDB Database", asset: "db-prod.company.com", category: "Infra", cvss: 9.8, severity: "critical", firstSeen: "2024-01-15", lastSeen: "2024-01-20", status: "open", owner: null },
-  { id: 2, title: "Outdated SSL/TLS Certificate", asset: "api.company.com", category: "Web", cvss: 7.5, severity: "high", firstSeen: "2024-01-10", lastSeen: "2024-01-20", status: "open", owner: "John D." },
-  { id: 3, title: "Open SSH Port to Internet", asset: "192.168.1.100", category: "Infra", cvss: 8.1, severity: "high", firstSeen: "2024-01-12", lastSeen: "2024-01-19", status: "acknowledged", owner: "Sarah M." },
-  { id: 4, title: "Missing Security Headers", asset: "app.company.com", category: "Web", cvss: 5.3, severity: "medium", firstSeen: "2024-01-08", lastSeen: "2024-01-20", status: "open", owner: null },
-  { id: 5, title: "Public S3 Bucket", asset: "aws-s3-backup", category: "Cloud", cvss: 9.1, severity: "critical", firstSeen: "2024-01-05", lastSeen: "2024-01-20", status: "open", owner: "DevOps Team" },
-  { id: 6, title: "Permissive CORS Policy", asset: "cdn.company.com", category: "Web", cvss: 4.3, severity: "medium", firstSeen: "2024-01-01", lastSeen: "2024-01-15", status: "resolved", owner: "John D." },
-  { id: 7, title: "Weak Password Policy", asset: "auth.company.com", category: "Web", cvss: 6.5, severity: "medium", firstSeen: "2024-01-03", lastSeen: "2024-01-18", status: "open", owner: null },
-  { id: 8, title: "Exposed Admin Panel", asset: "admin.company.com", category: "Web", cvss: 8.8, severity: "high", firstSeen: "2024-01-14", lastSeen: "2024-01-20", status: "acknowledged", owner: "Security Team" },
-  { id: 9, title: "Information Disclosure", asset: "docs.company.com", category: "Web", cvss: 3.1, severity: "low", firstSeen: "2024-01-02", lastSeen: "2024-01-10", status: "open", owner: null },
-];
+}> = [];
 
 export function Vulnerabilities() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -318,14 +308,7 @@ export function Vulnerabilities() {
                   <div className="space-y-3">
                     <h4 className="font-medium text-foreground">Proof of Detection</h4>
                     <div className="p-4 bg-muted/50 rounded-lg font-mono text-xs overflow-x-auto">
-                      <pre>{`$ nmap -sV -p 27017 db-prod.company.com
-PORT      STATE SERVICE VERSION
-27017/tcp open  mongodb MongoDB 4.4.6
-
-$ mongosh --host db-prod.company.com
-Current Mongosh Log ID: 65abc123def456
-Connecting to: mongodb://db-prod.company.com:27017
-Connected successfully.`}</pre>
+                      <pre className="text-muted-foreground">No detection evidence captured yet.</pre>
                     </div>
                   </div>
 
@@ -388,11 +371,7 @@ Connected successfully.`}</pre>
 
                 <TabsContent value="history" className="mt-4">
                   <div className="space-y-4">
-                    {[
-                      { date: "2024-01-20", action: "Status changed to Open", user: "System" },
-                      { date: "2024-01-18", action: "Assigned to DevOps Team", user: "John D." },
-                      { date: "2024-01-15", action: "First detected", user: "Scanner" },
-                    ].map((event, i) => (
+                    {([] as { date: string; action: string; user: string }[]).map((event, i) => (
                       <div key={i} className="flex items-start gap-3 pb-4 border-b border-border last:border-0">
                         <div className="w-2 h-2 mt-2 rounded-full bg-primary" />
                         <div>
@@ -406,10 +385,7 @@ Connected successfully.`}</pre>
 
                 <TabsContent value="comments" className="mt-4 space-y-4">
                   <div className="space-y-4">
-                    {[
-                      { user: "John D.", date: "2024-01-19", text: "Working on implementing the fix. Should be done by EOD." },
-                      { user: "Sarah M.", date: "2024-01-18", text: "This needs to be prioritized. Assigning to DevOps." },
-                    ].map((comment, i) => (
+                    {([] as { user: string; date: string; text: string }[]).map((comment, i) => (
                       <div key={i} className="p-4 bg-muted/30 rounded-lg">
                         <div className="flex items-center justify-between mb-2">
                           <span className="font-medium text-sm">{comment.user}</span>

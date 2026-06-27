@@ -8,7 +8,7 @@ import { VSFindings } from "@/components/vs/VSFindings";
 import { VSAssetView } from "@/components/vs/VSAssetView";
 import { VSRemediation } from "@/components/vs/VSRemediation";
 import { VSSettings } from "@/components/vs/VSSettings";
-import { getProfile } from "@/lib/services/profile";
+import { getMe } from "@/lib/services/auth";
 
 const tabs = [
   { value: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -31,7 +31,7 @@ export default function VS() {
     let mounted = true;
     const loadProfile = async () => {
       try {
-        const profile = await getProfile();
+        const profile = await getMe();
         if (mounted) {
           setCurrentRole(profile.role ?? "reader");
         }

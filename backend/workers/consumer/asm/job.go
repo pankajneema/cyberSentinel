@@ -3,12 +3,17 @@ package asm
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"workers/config"
 	"workers/utils"
 )
+
+// Bounded HTTP client — a hung control-plane must not block the consumer forever.
+var controlPlaneClient = &http.Client{Timeout: 30 * time.Second}
 
 // JobMessage represents a job event (QUEUE → ASM API)
 type JobMessage struct {
@@ -78,7 +83,7 @@ func HandleJob(body []byte) error {
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := controlPlaneClient.Do(req)
 	if err != nil {
 		utils.Logger.Errorf(
 			"[ASM][HTTP_FAILED] job_id=%s error=%v",
@@ -98,7 +103,9 @@ func HandleJob(body []byte) error {
 			resp.StatusCode,
 			string(respBody),
 		)
-		return nil
+		// Return an error so the message is NOT acked — it dead-letters for
+		// inspection/replay instead of being silently dropped (job loss).
+		return fmt.Errorf("control-plane rejected job %s: status %d", job.ID, resp.StatusCode)
 	}
 
 	utils.Logger.Infof(

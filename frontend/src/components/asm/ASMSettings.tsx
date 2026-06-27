@@ -50,17 +50,8 @@ export function ASMSettings() {
     auto_verify_changes: true,
     auto_archive_stale: false,
   });
-  const [suppressionRules, setSuppressionRules] = useState<Array<{ pattern: string; reason: string; expires: string }>>([
-    { pattern: "*.internal.company.com", reason: "Internal assets - accepted exposure", expires: "Never" },
-    { pattern: "CVE-2021-44228", reason: "Mitigated via WAF", expires: "2024-06-01" },
-    { pattern: "dev-*", reason: "Development environment", expires: "Never" },
-  ]);
-  const [groupingRules, setGroupingRules] = useState<Array<{ pattern: string; group: string; tags: string[] }>>([
-    { pattern: "*.prod.*", tags: ["production", "critical"], group: "Production" },
-    { pattern: "*.dev.*", tags: ["development"], group: "Development" },
-    { pattern: "api.*", tags: ["api", "external"], group: "APIs" },
-    { pattern: "10.0.0.*", tags: ["internal", "network"], group: "Internal Network" },
-  ]);
+  const [suppressionRules, setSuppressionRules] = useState<Array<{ pattern: string; reason: string; expires: string }>>([]);
+  const [groupingRules, setGroupingRules] = useState<Array<{ pattern: string; group: string; tags: string[] }>>([]);
   const [newSuppression, setNewSuppression] = useState({ pattern: "", reason: "", expires: "never" });
   const [newGrouping, setNewGrouping] = useState({ pattern: "", group: "", tags: "" });
   const [saving, setSaving] = useState(false);

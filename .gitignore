@@ -1,0 +1,40 @@
+# --- Secrets (Phase 0: never commit these) ---
+.env
+*.env
+!*.env.example
+backend/**/.env
+frontend/.env
+**/serviceAccount*.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node / frontend ---
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+coverage/
+
+# --- Go ---
+bin/
+*.test
+*.out
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Logs / runtime ---
+logs/
+*.log

@@ -48,13 +48,7 @@ interface RemediationItem {
   comments: number;
 }
 
-const remediationItems: RemediationItem[] = [
-  { id: 1, vulnerability: "Remote Code Execution in Apache Log4j", cve: "CVE-2024-1234", severity: "critical", asset: "api.company.com", owner: "John D.", status: "in_progress", slaDeadline: "2024-01-22", slaOverdue: false, ticketId: "SEC-1234", comments: 5 },
-  { id: 2, vulnerability: "SQL Injection in Login", cve: "CVE-2024-5678", severity: "critical", asset: "app.company.com", owner: "Sarah M.", status: "pending_verification", slaDeadline: "2024-01-20", slaOverdue: true, ticketId: "SEC-1235", comments: 8 },
-  { id: 3, vulnerability: "Cross-Site Scripting (XSS)", cve: "CVE-2024-9012", severity: "high", asset: "staging.app.com", owner: "DevOps Team", status: "open", slaDeadline: "2024-01-25", slaOverdue: false, ticketId: null, comments: 2 },
-  { id: 4, vulnerability: "Privilege Escalation", cve: "CVE-2024-2345", severity: "high", asset: "admin.company.com", owner: "Security Team", status: "in_progress", slaDeadline: "2024-01-24", slaOverdue: false, ticketId: "SEC-1236", comments: 3 },
-  { id: 5, vulnerability: "Information Disclosure", cve: "CVE-2024-7890", severity: "medium", asset: "cdn.company.com", owner: "Unassigned", status: "open", slaDeadline: "2024-01-30", slaOverdue: false, ticketId: null, comments: 0 },
-];
+const remediationItems: RemediationItem[] = [];
 
 const slaConfig = {
   critical: "24 hours",
@@ -316,13 +310,7 @@ export function VSRemediation({ canWrite = true }: VSRemediationProps) {
                     <span className="font-medium text-sm">Comments ({selectedItem.comments})</span>
                   </div>
                   <div className="space-y-2 max-h-40 overflow-y-auto">
-                    <div className="p-3 bg-muted/30 rounded-lg text-sm">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium">John D.</span>
-                        <span className="text-xs text-muted-foreground">2h ago</span>
-                      </div>
-                      <p className="text-muted-foreground">Working on deploying the patch to production.</p>
-                    </div>
+                    <p className="text-sm text-muted-foreground">No comments yet.</p>
                   </div>
                   <div className="flex gap-2">
                     <Textarea 

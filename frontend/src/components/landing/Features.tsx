@@ -146,10 +146,10 @@ export function Features() {
           className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-8 mb-16 lg:mb-20"
         >
           {[
-            { value: "6+", label: "Security Modules", icon: Lock },
-            { value: "99.9%", label: "Uptime SLA", icon: Zap },
-            { value: "24/7", label: "Monitoring", icon: Shield },
-            { value: "500+", label: "Integrations", icon: Sparkles },
+            { value: "6", label: "Integrated Modules", icon: Lock },
+            { value: "ASM", label: "Live Today", icon: Zap },
+            { value: "Customer", label: "Configurable Scans", icon: Shield },
+            { value: "Open", label: "Roadmap", icon: Sparkles },
           ].map((stat, index) => (
             <div 
               key={index}

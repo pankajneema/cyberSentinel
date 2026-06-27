@@ -26,12 +26,7 @@ const values = [
   },
 ];
 
-const team = [
-  { name: "Alex Chen", role: "CEO & Co-Founder", avatar: "AC" },
-  { name: "Sarah Miller", role: "CTO & Co-Founder", avatar: "SM" },
-  { name: "James Wilson", role: "VP of Engineering", avatar: "JW" },
-  { name: "Emily Davis", role: "VP of Product", avatar: "ED" },
-];
+const team: { name: string; role: string; avatar: string }[] = [];
 
 export default function About() {
   return (

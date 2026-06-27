@@ -1,4 +1,16 @@
-import { apiFetch } from "../api";
+// Team service — proxies the legacy team UI onto the new /orgs/* endpoints
+// (Supabase-era org membership). Keeps the same exported types so the existing
+// Team page UI works unchanged.
+
+import {
+  listMembers as orgListMembers,
+  listInvites as orgListInvites,
+  createInvite as orgCreateInvite,
+  removeMember as orgRemoveMember,
+  changeMemberRole as orgChangeRole,
+  revokeInvite as orgRevokeInvite,
+  acceptInvite as orgAcceptInvite,
+} from "./orgs";
 
 export interface TeamMember {
   id: string;
@@ -25,57 +37,67 @@ export interface TeamRole {
   description?: string | null;
 }
 
-export function listMembers() {
-  return apiFetch<TeamMember[]>("/team/members");
+export async function listMembers(): Promise<TeamMember[]> {
+  const members = await orgListMembers();
+  return members.map((m) => ({
+    id: m.id,
+    name: m.full_name || m.email,
+    email: m.email,
+    role: m.role,
+    status: m.is_active ? "active" : "inactive",
+    avatar_url: null,
+  }));
 }
 
 export function removeMember(memberId: string) {
-  return apiFetch<{ message: string }>(`/team/members/${memberId}`, { method: "DELETE" });
+  return orgRemoveMember(memberId);
 }
 
-export function listInvites(status?: string) {
-  const qs = status ? `?status_filter=${encodeURIComponent(status)}` : "";
-  return apiFetch<TeamInvite[]>(`/team/invites${qs}`);
+export function changeMemberRole(memberId: string, role: string) {
+  return orgChangeRole(memberId, role);
+}
+
+export async function listInvites(): Promise<TeamInvite[]> {
+  const invites = await orgListInvites();
+  return invites.map((i) => ({
+    id: i.id,
+    email: i.email,
+    role: i.role,
+    status: i.status,
+    token: "",
+    created_at: i.created_at,
+  }));
 }
 
 export function createInvite(payload: { email: string; role: string }) {
-  return apiFetch<TeamInvite>("/team/invites", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  return orgCreateInvite(payload.email, payload.role);
+}
+
+export function revokeInvite(inviteId: string) {
+  return orgRevokeInvite(inviteId);
 }
 
 export function acceptInvite(token: string) {
-  return apiFetch<{ message: string }>(`/team/invites/${token}/accept`, { method: "POST" });
+  return orgAcceptInvite(token);
 }
 
-export function acceptInvitePublic(token: string, payload: { full_name: string; password: string }) {
-  return apiFetch<{
-    message: string;
-    access_token: string;
-    token_type: string;
-    user: { id: string; email: string; full_name: string; role: string };
-  }>(`/team/invites/${token}/accept-public`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+export function declineInvite(_token: string) {
+  // No server-side "decline" in the org model; just resolve so the UI can move on.
+  return Promise.resolve({ message: "Invitation declined" });
 }
 
-export function declineInvite(token: string) {
-  return apiFetch<{ message: string }>(`/team/invites/${token}/decline`, { method: "POST" });
+// Custom roles are not part of the new model — roles are fixed
+// (owner / admin / analyst / reader).
+export function listRoles(): Promise<TeamRole[]> {
+  return Promise.resolve([]);
 }
 
-export function listRoles() {
-  return apiFetch<TeamRole[]>("/team/roles");
+export function createRole(_payload: { name: string; description?: string }): Promise<TeamRole> {
+  return Promise.reject(
+    new Error("Custom roles aren't supported — use the built-in roles: admin, analyst, reader.")
+  );
 }
 
-export function createRole(payload: { name: string; description?: string }) {
-  return apiFetch<TeamRole>("/team/roles", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
-export function deleteRole(roleId: string) {
-  return apiFetch<{ message: string }>(`/team/roles/${roleId}`, { method: "DELETE" });
+export function deleteRole(_roleId: string): Promise<{ message: string }> {
+  return Promise.reject(new Error("Custom roles aren't supported."));
 }

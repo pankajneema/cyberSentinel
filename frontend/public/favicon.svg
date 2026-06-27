@@ -1,0 +1,15 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="CyberSentinel">
+  <defs>
+    <linearGradient id="fv-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366F1"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs>
+  <!-- gradient app tile -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#fv-g)"/>
+  <!-- white security shield + check -->
+  <path d="M32 16 L45 21.3 L45 32 C45 40.5 38.5 46 32 48.2 C25.5 46 19 40.5 19 32 L19 21.3 Z"
+        fill="#FFFFFF"/>
+  <path d="M26.4 32.6 L30.8 37.4 L38.6 26.4" fill="none" stroke="#4F46E5"
+        stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
