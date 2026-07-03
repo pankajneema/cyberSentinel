@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api_service.models.asm_models import AsmDiscovery, AsmDiscoveryRun, AsmUserAccount
 from backend.reporting.asm.assets.domain import get_user_id_from_discovery
+from backend.reporting.sanitize import clean_str, clean_deep
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +64,9 @@ async def store_user_accounts(
                     source=item.get("source"),
                     breached=bool(item.get("breached", False)),
                     breach_count=breach_count,
-                    exposed_data=exposed_data,
-                    severity=item.get("severity"),
-                    extra_info=item,
+                    exposed_data=clean_deep(exposed_data),
+                    severity=clean_str(item.get("severity")),
+                    extra_info=clean_deep(item),
                 )
                 .on_conflict_do_nothing(index_elements=["asm_discovery_id", "email", "source"])
                 .returning(AsmUserAccount.id)

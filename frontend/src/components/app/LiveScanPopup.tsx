@@ -11,6 +11,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
+import { useRealtime, RealtimeEvent } from "@/hooks/useRealtime";
 
 interface ScanNotification {
   id: string;
@@ -23,31 +24,53 @@ interface ScanNotification {
   severity?: "critical" | "high" | "medium" | "low";
 }
 
+const TERMINAL = new Set(["scan.completed", "scan.failed", "scan.stopped"]);
+
 export function LiveScanPopup() {
-  const [notifications, setNotifications] = useState<ScanNotification[]>([]);
+  const { events } = useRealtime();
+  const [running, setRunning] = useState<Record<string, ScanNotification>>({});
   const [dismissed, setDismissed] = useState<string[]>([]);
-  const [toasts, setToasts] = useState<ScanNotification[]>([]);
+  const [seen, setSeen] = useState<string>("");
 
   /**
-   * 🔌 REAL DATA INTEGRATION POINT
-   *
-   * Use this effect to:
-   * - subscribe to WebSocket
-   * - listen to SSE
-   * - poll backend API
-   *
-   * Example:
-   * socket.on("scan_update", (data) => setNotifications(...))
-   * socket.on("scan_event", (toast) => setToasts(...))
+   * Derive the live "running scans" set from the realtime event stream:
+   * a `scan.started` adds an entry keyed by discovery id; any terminal event
+   * (completed/failed/stopped) removes it. Toasts for terminal/finding events
+   * are handled globally by RealtimeProvider.
    */
   useEffect(() => {
-    return () => {
-      // cleanup socket / subscriptions here
-    };
-  }, []);
+    if (!events.length || events[0].id === seen) return;
+    // Process every event newer than the last one we handled (events is
+    // newest-first). Applying oldest->newest keeps start/terminal ordering
+    // correct so no scan card is missed or left stranded when several events
+    // land in one render batch.
+    const seenIdx = seen ? events.findIndex((e) => e.id === seen) : -1;
+    const fresh = (seenIdx === -1 ? events.slice() : events.slice(0, seenIdx)).reverse();
+    setSeen(events[0].id);
+    if (!fresh.length) return;
 
-  const activeScans = notifications.filter(
-    (n) => n.status === "running" && !dismissed.includes(n.id)
+    setRunning((prev) => {
+      const next = { ...prev };
+      for (const ev of fresh) {
+        const did = (ev.meta?.discovery_id as string) || ev.id;
+        if (ev.type === "scan.started") {
+          next[did] = {
+            id: did,
+            type: "asm",
+            title: ev.title || "ASM discovery",
+            target: (ev.body as string) || "",
+            status: "running",
+          };
+        } else if (TERMINAL.has(ev.type)) {
+          delete next[did];
+        }
+      }
+      return next;
+    });
+  }, [events, seen]);
+
+  const activeScans = Object.values(running).filter(
+    (n) => !dismissed.includes(n.id)
   );
 
   const getSeverityColor = (severity?: string) => {
@@ -63,7 +86,7 @@ export function LiveScanPopup() {
     }
   };
 
-  if (activeScans.length === 0 && toasts.length === 0) return null;
+  if (activeScans.length === 0) return null;
 
   return (
     <>
@@ -137,77 +160,6 @@ export function LiveScanPopup() {
               </motion.div>
             ))}
           </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Toast Notifications */}
-      <AnimatePresence>
-        {toasts.length > 0 && (
-          <div className="fixed bottom-24 right-4 z-50 space-y-2">
-            {toasts.map((toast) => (
-              <motion.div
-                key={toast.id}
-                initial={{ opacity: 0, x: 100, scale: 0.8 }}
-                animate={{ opacity: 1, x: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 100, scale: 0.8 }}
-                transition={{ type: "spring", damping: 20, stiffness: 300 }}
-                className="relative overflow-hidden"
-              >
-                <div
-                  className={`relative bg-gradient-to-r ${
-                    toast.status === "found"
-                      ? getSeverityColor(toast.severity)
-                      : "from-success to-emerald-600"
-                  } rounded-xl p-0.5 shadow-2xl`}
-                >
-                  <div className="bg-card/95 backdrop-blur-xl rounded-[10px] p-3 flex items-center gap-3">
-                    <div
-                      className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                        toast.status === "found"
-                          ? toast.severity === "critical"
-                            ? "bg-destructive/20"
-                            : "bg-warning/20"
-                          : "bg-success/20"
-                      }`}
-                    >
-                      {toast.status === "found" ? (
-                        <AlertTriangle
-                          className={`w-5 h-5 ${
-                            toast.severity === "critical"
-                              ? "text-destructive"
-                              : "text-warning"
-                          }`}
-                        />
-                      ) : (
-                        <CheckCircle2 className="w-5 h-5 text-success" />
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm font-semibold">
-                        {toast.title}
-                      </span>
-                      {toast.message && (
-                        <p className="text-xs text-muted-foreground">
-                          {toast.message}
-                        </p>
-                      )}
-                      <p className="text-[10px] text-muted-foreground/70">
-                        {toast.target}
-                      </p>
-                    </div>
-
-                    <Link
-                      to={toast.type === "asm" ? "/app/asm" : "/app/vs"}
-                      className="text-primary hover:text-primary/80"
-                    >
-                      <ArrowRight className="w-4 h-4" />
-                    </Link>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
         )}
       </AnimatePresence>
     </>

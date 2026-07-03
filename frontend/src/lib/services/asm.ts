@@ -409,6 +409,27 @@ export function runDiscovery(discoveryId: string) {
   });
 }
 
+/** Pause a recurring schedule (scheduler skips PAUSED discoveries). */
+export function pauseDiscovery(discoveryId: string) {
+  return apiFetch<AsmDiscovery>(`/asm/discoveries/${discoveryId}/pause`, {
+    method: "POST",
+  });
+}
+
+/** Resume a paused schedule; next_run_at is recomputed from now. */
+export function resumeDiscovery(discoveryId: string) {
+  return apiFetch<AsmDiscovery>(`/asm/discoveries/${discoveryId}/resume`, {
+    method: "POST",
+  });
+}
+
+/** Stop an in-flight run and clear its next scheduled fire. */
+export function stopDiscovery(discoveryId: string) {
+  return apiFetch<AsmDiscovery>(`/asm/discoveries/${discoveryId}/stop`, {
+    method: "POST",
+  });
+}
+
 export function getAsmSettings() {
   return apiFetch<AsmSettingsResponse>("/asm/settings");
 }

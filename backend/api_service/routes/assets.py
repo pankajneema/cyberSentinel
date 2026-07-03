@@ -180,26 +180,51 @@ async def create_asset(
 # defensible scoring engine (scoring/exposure.py). No fake/random numbers:
 # if there is no scan data for the asset, it stays "Unscanned".
 # ---------------------------------------------------------------------------
-async def _gather_asset_signals(
-    db: AsyncSession, org_id: str, asset: AssetModel
-) -> tuple[AssetSignals | None, list[str]]:
-    """Collect real ASM signals (open ports, TLS issues) for an asset, matched
-    by name within the org's discoveries. Returns (signals, matched_ips).
-    signals is None when no scan data matches the asset."""
+async def _load_org_scan_data(db: AsyncSession, org_id: str) -> dict:
+    """Load an org's discovery ids + all IPs/certs/open-ports once. Used to
+    memoize per-org scan data across a batch of assets (kills the auto-score
+    N+1: the scheduler passes a shared cache so this runs once per org per tick
+    instead of 3-4 full scans per asset)."""
     disc_ids = (
         await db.execute(
             select(AsmDiscoveryModel.id).filter(AsmDiscoveryModel.org_id == org_id)
         )
     ).scalars().all()
     if not disc_ids:
+        return {"disc_ids": [], "ips": [], "certs": [], "ports": []}
+    ips = (await db.execute(
+        select(AsmIPModel).filter(AsmIPModel.asm_discovery_id.in_(disc_ids)))).scalars().all()
+    certs = (await db.execute(
+        select(AsmSSLCertModel).filter(AsmSSLCertModel.asm_discovery_id.in_(disc_ids)))).scalars().all()
+    ports = (await db.execute(
+        select(AsmPortModel).filter(
+            AsmPortModel.asm_discovery_id.in_(disc_ids),
+            AsmPortModel.status == "open"))).scalars().all()
+    return {"disc_ids": disc_ids, "ips": ips, "certs": certs, "ports": ports}
+
+
+async def _gather_asset_signals(
+    db: AsyncSession, org_id: str, asset: AssetModel, cache: dict | None = None
+) -> tuple[AssetSignals | None, list[str]]:
+    """Collect real ASM signals (open ports, TLS issues) for an asset, matched
+    by name within the org's discoveries. Returns (signals, matched_ips).
+    signals is None when no scan data matches the asset.
+
+    `cache` (optional): a dict keyed by org_id memoizing the org's scan rows so a
+    batch of assets shares one set of bulk queries (see _load_org_scan_data)."""
+    if cache is not None:
+        data = cache.get(org_id)
+        if data is None:
+            data = await _load_org_scan_data(db, org_id)
+            cache[org_id] = data
+    else:
+        data = await _load_org_scan_data(db, org_id)
+    disc_ids = data["disc_ids"]
+    if not disc_ids:
         return None, []
 
     name = (asset.name or "").strip().lower()
-    ip_rows = (
-        await db.execute(
-            select(AsmIPModel).filter(AsmIPModel.asm_discovery_id.in_(disc_ids))
-        )
-    ).scalars().all()
+    ip_rows = data["ips"]
 
     matched_ips: set[str] = set()
     if asset.type == "ip":
@@ -223,11 +248,7 @@ async def _gather_asset_signals(
     # TLS issues on hosts that belong to this asset (expired certs).
     tls_issues: list[str] = []
     if asset.type in ("domain", "ip"):
-        certs = (
-            await db.execute(
-                select(AsmSSLCertModel).filter(AsmSSLCertModel.asm_discovery_id.in_(disc_ids))
-            )
-        ).scalars().all()
+        certs = data["certs"]
         now = datetime.utcnow()
         for c in certs:
             host = (c.host or "").lower()
@@ -246,19 +267,13 @@ async def _gather_asset_signals(
     open_ports: list[int] = []
     services: list[str] = []
     if matched_ips:
-        port_rows = (
-            await db.execute(
-                select(AsmPortModel).filter(
-                    AsmPortModel.asm_discovery_id.in_(disc_ids),
-                    AsmPortModel.ip_address.in_(matched_ips),
-                    AsmPortModel.status == "open",
-                )
-            )
-        ).scalars().all()
-        for p in port_rows:
-            open_ports.append(p.port)
-            if p.service:
-                services.append(p.service)
+        matched_set = set(matched_ips)
+        # Filter the org's open ports (already loaded) in memory.
+        for p in data["ports"]:
+            if p.ip_address in matched_set:
+                open_ports.append(p.port)
+                if p.service:
+                    services.append(p.service)
 
     signals = AssetSignals(
         open_ports=open_ports,

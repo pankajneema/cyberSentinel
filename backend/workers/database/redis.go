@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"workers/config"
@@ -9,6 +10,19 @@ import (
 
 	"github.com/redis/go-redis/v9"
 )
+
+// Publish marshals payload to JSON and publishes it on a Redis pub/sub channel.
+// Best-effort: a nil client (Redis disabled) is a no-op, not an error.
+func Publish(ctx context.Context, channel string, payload interface{}) error {
+	if RedisClient == nil {
+		return nil
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return RedisClient.Publish(ctx, channel, data).Err()
+}
 
 var RedisClient *redis.Client
 

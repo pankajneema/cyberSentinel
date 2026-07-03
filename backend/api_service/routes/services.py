@@ -1,5 +1,11 @@
-# services.py
-from fastapi import APIRouter, Depends, HTTPException
+# services.py — module catalog.
+#
+# This is the product module catalog (which CyberSentinel modules exist and their
+# availability). It is intentionally STATIC config, not user data — but it must be
+# HONEST: only modules that actually work are marked "available". Everything else is
+# "coming-soon". No fake purchase/activation success is returned for capabilities that
+# are not backed by a real entitlements/billing system.
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,15 +27,63 @@ async def _require_admin(db: AsyncSession, current_user: dict):
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
-# Mock services database
-services_db = {}
 
 class ServiceInfo(BaseModel):
     id: str
     name: str
     description: str
-    status: str  # available, coming-soon
+    status: str  # available | coming-soon
     price: Optional[float] = None
+
+
+# Honest, immutable catalog. Only ASM is production; the rest are on the roadmap.
+_SERVICE_CATALOG: tuple[ServiceInfo, ...] = (
+    ServiceInfo(
+        id="asm",
+        name="Attack Surface Management",
+        description="Continuously discover and manage all your external assets",
+        status="available",
+        price=None,
+    ),
+    ServiceInfo(
+        id="vs",
+        name="Vulnerability Scanning",
+        description="High-fidelity vulnerability scanning with prioritization",
+        status="coming-soon",
+        price=None,
+    ),
+    ServiceInfo(
+        id="bas",
+        name="Breach & Attack Simulation",
+        description="Automated adversary emulation",
+        status="coming-soon",
+        price=None,
+    ),
+    ServiceInfo(
+        id="threat-intel",
+        name="Threat Intelligence",
+        description="Real-time threat feeds and IOC correlation",
+        status="coming-soon",
+        price=None,
+    ),
+    ServiceInfo(
+        id="ir",
+        name="Incident Response Orchestration",
+        description="Automated playbooks and response workflows",
+        status="coming-soon",
+        price=None,
+    ),
+    ServiceInfo(
+        id="compliance",
+        name="Compliance & Audit",
+        description="Automated compliance checks and audit reports",
+        status="coming-soon",
+        price=None,
+    ),
+)
+
+_CATALOG_BY_ID = {s.id: s for s in _SERVICE_CATALOG}
+
 
 @router.get("", response_model=List[ServiceInfo])
 async def list_services(
@@ -37,50 +91,8 @@ async def list_services(
     current_user: dict = Depends(get_current_user),
 ):
     await _require_admin(db, current_user)
-    if not services_db:
-        services_db["asm"] = {
-            "id": "asm",
-            "name": "Attack Surface Management",
-            "description": "Continuously discover and manage all your external assets",
-            "status": "available",
-            "price": None
-        }
-        services_db["vs"] = {
-            "id": "vs",
-            "name": "Vulnerability Scanning",
-            "description": "High-fidelity vulnerability scanning with prioritization",
-            "status": "available",
-            "price": None
-        }
-        services_db["bas"] = {
-            "id": "bas",
-            "name": "Breach & Attack Simulation",
-            "description": "Automated adversary emulation",
-            "status": "coming-soon",
-            "price": None
-        }
-        services_db["threat-intel"] = {
-            "id": "threat-intel",
-            "name": "Threat Intelligence",
-            "description": "Real-time threat feeds and IOC correlation",
-            "status": "coming-soon",
-            "price": None
-        }
-        services_db["ir"] = {
-            "id": "ir",
-            "name": "Incident Response Orchestration",
-            "description": "Automated playbooks and response workflows",
-            "status": "coming-soon",
-            "price": None
-        }
-        services_db["compliance"] = {
-            "id": "compliance",
-            "name": "Compliance & Audit",
-            "description": "Automated compliance checks and audit reports",
-            "status": "coming-soon",
-            "price": None
-        }
-    return [ServiceInfo(**s) for s in services_db.values()]
+    return list(_SERVICE_CATALOG)
+
 
 @router.get("/{service_id}", response_model=ServiceInfo)
 async def get_service(
@@ -89,10 +101,26 @@ async def get_service(
     current_user: dict = Depends(get_current_user),
 ):
     await _require_admin(db, current_user)
-    service = services_db.get(service_id)
+    service = _CATALOG_BY_ID.get(service_id)
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
-    return ServiceInfo(**service)
+    return service
+
+
+def _lifecycle_unavailable(service_id: str):
+    """Purchase / activate / deactivate are not backed by a real entitlements or
+    billing system yet. Return an honest 501 instead of faking success."""
+    service = _CATALOG_BY_ID.get(service_id)
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail=(
+            "Module purchase/activation is not available yet. "
+            f"'{service.name}' is currently '{service.status}'."
+        ),
+    )
+
 
 @router.post("/{service_id}/purchase")
 async def purchase_service(
@@ -101,10 +129,8 @@ async def purchase_service(
     current_user: dict = Depends(get_current_user),
 ):
     await _require_admin(db, current_user)
-    service = services_db.get(service_id)
-    if not service:
-        raise HTTPException(status_code=404, detail="Service not found")
-    return {"message": f"Service {service_id} purchased", "service_id": service_id}
+    _lifecycle_unavailable(service_id)
+
 
 @router.post("/{service_id}/activate")
 async def activate_service(
@@ -113,10 +139,8 @@ async def activate_service(
     current_user: dict = Depends(get_current_user),
 ):
     await _require_admin(db, current_user)
-    service = services_db.get(service_id)
-    if not service:
-        raise HTTPException(status_code=404, detail="Service not found")
-    return {"message": f"Service {service_id} activated", "service_id": service_id}
+    _lifecycle_unavailable(service_id)
+
 
 @router.post("/{service_id}/deactivate")
 async def deactivate_service(
@@ -125,7 +149,4 @@ async def deactivate_service(
     current_user: dict = Depends(get_current_user),
 ):
     await _require_admin(db, current_user)
-    service = services_db.get(service_id)
-    if not service:
-        raise HTTPException(status_code=404, detail="Service not found")
-    return {"message": f"Service {service_id} deactivated", "service_id": service_id}
+    _lifecycle_unavailable(service_id)

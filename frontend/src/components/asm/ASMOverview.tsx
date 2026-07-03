@@ -79,15 +79,15 @@ export function ASMOverview({ onNavigateToScans, onNavigateToReports }: ASMOverv
   // Use API data for recent activity, fallback to empty array
   const recentActivity = asm?.recent_activity || [];
   
-  // Generate trend data from exposure_trend if available, otherwise empty
-  const trendData = asm?.exposure_trend !== undefined ? [
-    { month: "Jan", score: Math.max(0, Math.min(100, (asm.attack_surface_index || 0) + (asm.exposure_trend || 0) * 2)) },
-    { month: "Feb", score: Math.max(0, Math.min(100, (asm.attack_surface_index || 0) + (asm.exposure_trend || 0) * 1.5)) },
-    { month: "Mar", score: Math.max(0, Math.min(100, (asm.attack_surface_index || 0) + (asm.exposure_trend || 0) * 1)) },
-    { month: "Apr", score: Math.max(0, Math.min(100, (asm.attack_surface_index || 0) + (asm.exposure_trend || 0) * 0.5)) },
-    { month: "May", score: Math.max(0, Math.min(100, (asm.attack_surface_index || 0))) },
-    { month: "Jun", score: Math.max(0, Math.min(100, asm.attack_surface_index || 0)) },
-  ] : [];
+  // Real exposure-trend history. We do not fabricate a multi-month curve from the
+  // current index (that was fake data). Until the backend persists point-in-time
+  // attack-surface-index snapshots, we plot the real points the API actually returns
+  // in `exposure_history` (if present); otherwise the chart shows an honest empty state.
+  const trendData = Array.isArray((asm as any)?.exposure_history)
+    ? (asm as any).exposure_history
+        .filter((p: any) => p && typeof p.score === "number" && (p.month || p.label))
+        .map((p: any) => ({ month: p.month || p.label, score: Math.max(0, Math.min(100, p.score)) }))
+    : [];
 
   return (
     <div className="space-y-6">
@@ -221,8 +221,8 @@ export function ASMOverview({ onNavigateToScans, onNavigateToReports }: ASMOverv
                 ))}
               </div>
             ) : (
-              <div className="h-32 flex items-center justify-center text-sm text-muted-foreground">
-                No trend data available
+              <div className="h-32 flex items-center justify-center text-center text-sm text-muted-foreground px-4">
+                Trend appears after repeated scans build up exposure history.
               </div>
             )}
           </div>

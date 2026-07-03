@@ -127,22 +127,10 @@ async def get_current_user(
             "supabase": True,
         }
     except HTTPException:
-        pass  # fall through to legacy verification
-
-    # 2) Legacy app-issued HS256 token (only if a legacy secret is configured)
-    try:
-        if not SECRET_KEY:
-            raise JWTError("no legacy secret configured")
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str | None = payload.get("sub")
-        user_id: str | None = payload.get("user_id")
-        if not email or not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication token",
-            )
-        return {"email": email, "user_id": user_id}
-    except JWTError:
+        # Supabase is the sole identity provider. The legacy app-issued HS256
+        # fallback was removed: it returned a payload with no org_id/role (so a
+        # forged token defaulted to reader + self-scoped data) and was an
+        # unnecessary token-forgery surface if SECRET_KEY were ever set.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",

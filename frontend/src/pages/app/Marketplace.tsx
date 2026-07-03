@@ -5,8 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Search,
-  Star,
-  Download,
   ExternalLink,
   Shield,
   Cloud,
@@ -21,15 +19,18 @@ import { motion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
 import { getMe } from "@/lib/services/auth";
 
+// NOTE: These are the integrations we PLAN to offer. There is no integrations
+// backend yet, so no ratings/downloads/"installed" state is fabricated — the
+// catalog is presented honestly as an upcoming-feature preview.
 const integrations = [
-  { id: 1, name: "Slack", category: "notifications", description: "Get real-time security alerts in your Slack channels", icon: "💬", installed: true, rating: 4.8, downloads: "50K+" },
-  { id: 2, name: "Jira", category: "ticketing", description: "Create tickets automatically for vulnerabilities", icon: "🎫", installed: true, rating: 4.7, downloads: "45K+" },
-  { id: 3, name: "Microsoft Teams", category: "notifications", description: "Security notifications in Teams channels", icon: "👥", installed: false, rating: 4.6, downloads: "35K+" },
-  { id: 4, name: "ServiceNow", category: "ticketing", description: "ITSM integration for incident management", icon: "🔧", installed: false, rating: 4.5, downloads: "25K+" },
-  { id: 5, name: "PagerDuty", category: "notifications", description: "Critical alert escalation and on-call management", icon: "📟", installed: false, rating: 4.9, downloads: "30K+" },
-  { id: 6, name: "Splunk", category: "siem", description: "Forward findings to Splunk for correlation", icon: "📊", installed: false, rating: 4.7, downloads: "40K+" },
-  { id: 7, name: "AWS Security Hub", category: "cloud", description: "Sync findings with AWS Security Hub", icon: "☁️", installed: false, rating: 4.6, downloads: "28K+" },
-  { id: 8, name: "Azure Sentinel", category: "siem", description: "Integration with Microsoft Azure Sentinel", icon: "🔷", installed: false, rating: 4.5, downloads: "22K+" },
+  { id: 1, name: "Slack", category: "notifications", description: "Get real-time security alerts in your Slack channels", icon: "💬" },
+  { id: 2, name: "Jira", category: "ticketing", description: "Create tickets automatically for vulnerabilities", icon: "🎫" },
+  { id: 3, name: "Microsoft Teams", category: "notifications", description: "Security notifications in Teams channels", icon: "👥" },
+  { id: 4, name: "ServiceNow", category: "ticketing", description: "ITSM integration for incident management", icon: "🔧" },
+  { id: 5, name: "PagerDuty", category: "notifications", description: "Critical alert escalation and on-call management", icon: "📟" },
+  { id: 6, name: "Splunk", category: "siem", description: "Forward findings to Splunk for correlation", icon: "📊" },
+  { id: 7, name: "AWS Security Hub", category: "cloud", description: "Sync findings with AWS Security Hub", icon: "☁️" },
+  { id: 8, name: "Azure Sentinel", category: "siem", description: "Integration with Microsoft Azure Sentinel", icon: "🔷" },
 ];
 
 const expertServices = [
@@ -41,7 +42,8 @@ const expertServices = [
 
 export default function Marketplace() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [installedIntegrations, setInstalledIntegrations] = useState<number[]>([1, 2]);
+  // No integrations backend yet — nothing is actually installed.
+  const [installedIntegrations] = useState<number[]>([]);
   const [role, setRole] = useState<string>("reader");
   const [isSuperadmin, setIsSuperadmin] = useState(false);
   useEffect(() => {
@@ -66,19 +68,12 @@ export default function Marketplace() {
   
   const isAdmin = role === "admin" || role === "owner" || Boolean(isSuperadmin);
 
-  const handleInstall = (id: number, name: string) => {
-    setInstalledIntegrations([...installedIntegrations, id]);
+  // Integrations aren't wired to a backend yet. Register interest honestly
+  // instead of faking an install that persists nothing.
+  const handleInstall = (_id: number, name: string) => {
     toast({
-      title: "Integration Installed",
-      description: `${name} has been successfully installed.`,
-    });
-  };
-
-  const handleUninstall = (id: number, name: string) => {
-    setInstalledIntegrations(installedIntegrations.filter(i => i !== id));
-    toast({
-      title: "Integration Removed",
-      description: `${name} has been uninstalled.`,
+      title: "Coming soon",
+      description: `${name} integration isn't available yet — we'll notify you when it ships.`,
     });
   };
 
@@ -142,39 +137,17 @@ export default function Marketplace() {
                   </div>
                   <h3 className="font-semibold text-foreground mb-1">{integration.name}</h3>
                   <p className="text-sm text-muted-foreground mb-3 line-clamp-2">{integration.description}</p>
-                  <div className="flex items-center gap-3 text-sm text-muted-foreground mb-4">
-                    <span className="flex items-center gap-1">
-                      <Star className="w-3 h-3 text-warning fill-warning" />
-                      {integration.rating}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Download className="w-3 h-3" />
-                      {integration.downloads}
-                    </span>
+                  <div className="mb-4">
+                    <Badge variant="outline" className="text-xs text-muted-foreground">Coming soon</Badge>
                   </div>
-                  {isInstalled ? (
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" className="flex-1">
-                        Configure
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => handleUninstall(integration.id, integration.name)}
-                      >
-                        Uninstall
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button 
-                      variant="gradient" 
-                      size="sm" 
-                      className="w-full"
-                      onClick={() => handleInstall(integration.id, integration.name)}
-                    >
-                      Install
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => handleInstall(integration.id, integration.name)}
+                  >
+                    Notify me
+                  </Button>
                 </motion.div>
               );
             })}
@@ -206,15 +179,6 @@ export default function Marketplace() {
                   <Button variant="outline" size="sm" className="flex-1">
                     Configure
                   </Button>
-                  {isAdmin && (
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => handleUninstall(integration.id, integration.name)}
-                    >
-                      Remove
-                    </Button>
-                  )}
                 </div>
               </motion.div>
             ))}

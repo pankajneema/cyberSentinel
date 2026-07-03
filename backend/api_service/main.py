@@ -16,7 +16,7 @@ from utils.queue import close_queue, get_queue_connection
 from utils.clickhouse_client import close_clickhouse, get_clickhouse
 
 # Import all routes
-from routes import auth, users, profile, accounts, billing, services, asm, vs, settings_route, activity, assets, tasks, team, marketing, reports, notifications
+from routes import billing, services, asm, vs, activity, assets, tasks, marketing, reports, notifications
 from routes import auth_supabase  # Supabase-era identity router (Phase 1)
 from routes import auth_webhook    # Supabase provisioning webhook
 from routes import orgs            # Phase 2: organizations & memberships
@@ -78,12 +78,23 @@ async def startup_event():
     except Exception as e:
         print(f"Warning: scheduler not started: {e}")
 
+    # Realtime notification bus: fan-out subscriber + worker-event bridge.
+    try:
+        import asyncio
+        from notificationservice.realtime import run_subscriber
+        from notificationservice.worker_bridge import run_worker_event_subscriber
+        app.state.rt_task = asyncio.create_task(run_subscriber())
+        app.state.worker_evt_task = asyncio.create_task(run_worker_event_subscriber())
+    except Exception as e:
+        print(f"Warning: realtime bus not started: {e}")
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Close connections on shutdown"""
-    task = getattr(app.state, "scheduler_task", None)
-    if task:
-        task.cancel()
+    for attr in ("scheduler_task", "rt_task", "worker_evt_task"):
+        task = getattr(app.state, attr, None)
+        if task:
+            task.cancel()
     await close_db()
     await close_redis()
     await close_queue()
@@ -127,6 +138,14 @@ async def readyz():
     except Exception:  # noqa: BLE001
         checks["redis"] = "degraded"
 
+    # RabbitMQ (best-effort — degraded, not fatal, so the API can still serve reads)
+    try:
+        from utils.queue import get_queue_connection
+        conn = await get_queue_connection()
+        checks["rabbitmq"] = "ok" if (conn is not None and not conn.is_closed) else "degraded"
+    except Exception:  # noqa: BLE001
+        checks["rabbitmq"] = "degraded"
+
     status_code = 200 if ok else 503
     from fastapi.responses import JSONResponse
     return JSONResponse(status_code=status_code, content={"ready": ok, "checks": checks})
@@ -148,18 +167,15 @@ app.include_router(activity.router)
 app.include_router(assets.router)
 app.include_router(reports.router)
 app.include_router(notifications.router)
+from routes import ws as ws_route  # realtime WebSocket (/ws/realtime)
+app.include_router(ws_route.router)
 app.include_router(tasks.router)
 app.include_router(marketing.router)
 
-# --- REMOVED legacy routers (dead + insecure; superseded by Supabase auth + /orgs).
-# users.router carried a cross-tenant IDOR (audit C-2); auth/profile/accounts/
-# settings_route/team are unused by the frontend. Files kept but not mounted.
-# app.include_router(auth.router)
-# app.include_router(users.router)
-# app.include_router(profile.router)
-# app.include_router(accounts.router)
-# app.include_router(settings_route.router)
-# app.include_router(team.router)
+# NOTE: the legacy auth/users/profile/accounts/settings_route/team route modules
+# were DELETED (dead + insecure — users carried a cross-tenant IDOR, audit C-2).
+# Identity is Supabase (auth_supabase) and membership is /orgs. test_routes_security
+# guards that none of these paths ever come back.
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

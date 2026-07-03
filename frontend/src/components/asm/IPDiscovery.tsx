@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { exportRowsToCsv } from "@/lib/csv";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -80,7 +81,11 @@ export function IPDiscovery() {
           </p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline">
+          <Button
+            variant="outline"
+            disabled={ips.length === 0}
+            onClick={() => exportRowsToCsv(ips as unknown as Record<string, unknown>[], "asm-ips-export")}
+          >
             <Download className="w-4 h-4 mr-2" />
             Export
           </Button>

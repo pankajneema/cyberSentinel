@@ -1,9 +1,16 @@
 """
 Defensible attack-surface exposure scoring.
 
-Replaces the legacy magic-number heuristic (`len(ports) * 3 + 12/sensitive-port`)
-with a transparent, configurable, explainable risk model that an enterprise
-security team can defend in an audit.
+Intended to replace the legacy magic-number heuristic (`len(ports) * 3 +
+12/sensitive-port` in workers/executor/runner/ip.go) with a transparent,
+configurable, explainable risk model that an enterprise security team can defend
+in an audit.
+
+STATUS: this engine currently drives Asset.risk_score (via /rescore + scheduler
+auto-score). The scan pipeline still emits the legacy Go heuristic to
+AsmIP.exposure_score, and the CVSS/EPSS/KEV branch below is not yet fed
+(AssetSignals.cves is empty in production — no nuclei/CVE persistence exists).
+See docs/SCORING.md "Current status". Do NOT describe the CVE path as live.
 
 Design principles
 -----------------

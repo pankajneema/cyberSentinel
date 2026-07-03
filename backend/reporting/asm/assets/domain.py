@@ -4,7 +4,9 @@ Domain ASM Reporting - Process discovered subdomains from pipeline results
 
 import logging
 import asyncio
+import hashlib
 import ipaddress
+import json
 import re
 from typing import Any
 from datetime import datetime
@@ -18,6 +20,7 @@ from backend.api_service.models.asm_models import (
     AsmPort, AsmService, AsmSSLCert, AsmAPIEndpoint,
     AsmCloudResource, AsmAdminEndpoint, AsmBackupFile, AsmChange
 )
+from backend.reporting.sanitize import clean_str, clean_deep
 
 logger = logging.getLogger(__name__)
 
@@ -875,7 +878,9 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         all_ips = ip_result.scalars().all()
         for ip_obj in all_ips:
             key = (ip_obj.asset_id, ip_obj.ip_address.strip())
-            ip_lookup[key] = ip_obj.id
+            # Store the ORM object (not just id) so store_ports can resolve
+            # subdomain_id from memory instead of a per-row SELECT.
+            ip_lookup[key] = ip_obj
 
         # Store data from all completed steps
         ports_inserted = 0
@@ -964,16 +969,21 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
 
             if computed_changes:
                 try:
-                    db.add(
-                        AsmChange(
-                            asm_discovery_id=job_id,
-                            asset_id=asset_id,
-                            changes=computed_changes,
-                            message="Snapshot diff computed from previous to current DEEP discovery run",
+                    # Idempotent: skip re-inserting an identical diff on replay.
+                    content_hash = _change_content_hash(computed_changes)
+                    if await _change_already_persisted(db, job_id, content_hash):
+                        logger.debug("Skipping duplicate DEEP change diff for job=%s", job_id)
+                    else:
+                        db.add(
+                            AsmChange(
+                                asm_discovery_id=job_id,
+                                asset_id=asset_id,
+                                changes=computed_changes,
+                                message="Snapshot diff computed from previous to current DEEP discovery run",
+                            )
                         )
-                    )
-                    await db.flush()
-                    changes_inserted += 1
+                        await db.flush()
+                        changes_inserted += 1
                 except Exception as diff_err:
                     logger.warning("Failed to persist computed DEEP changes for job=%s: %s", job_id, diff_err)
             else:
@@ -1159,8 +1169,8 @@ async def store_step_data(
         all_ips = ip_result.scalars().all()
         for ip_obj in all_ips:
             key = (ip_obj.asset_id, ip_obj.ip_address.strip())
-            ip_lookup[key] = ip_obj.id
-    
+            ip_lookup[key] = ip_obj  # ORM object, see note in process_domain_asm
+
     # Route to appropriate storage function based on step name
     if step_name == "common_port_scan":
         counts["ports"] = await store_ports(db, job_id, result, asset_id, ip_lookup, subdomain_lookup)
@@ -1215,20 +1225,13 @@ async def store_ports(
         if not ip_address or not port:
             continue
         
-        # Find IP ID
-        ip_id = None
+        # Resolve IP id + parent subdomain_id from the in-memory map built once
+        # per run (no per-row SELECT).
         lookup_key = (asset_id, ip_address.strip())
-        ip_id = ip_lookup.get(lookup_key)
-        
-        # Find subdomain_id from IP
-        subdomain_id = None
-        if ip_id:
-            ip_query = select(AsmIP).where(AsmIP.id == ip_id)
-            ip_result = await db.execute(ip_query)
-            ip_obj = ip_result.scalar_one_or_none()
-            if ip_obj:
-                subdomain_id = ip_obj.subdomain_id
-        
+        ip_obj = ip_lookup.get(lookup_key)
+        ip_id = ip_obj.id if ip_obj is not None else None
+        subdomain_id = ip_obj.subdomain_id if ip_obj is not None else None
+
         try:
             stmt = (
                 insert(AsmPort)
@@ -1241,8 +1244,8 @@ async def store_ports(
                     port=int(port),
                     protocol=protocol,
                     status="open",
-                    service=port_item.get("service"),
-                    banner=port_item.get("banner"),
+                    service=clean_str(port_item.get("service")),
+                    banner=clean_str(port_item.get("banner")),
                 )
                 .on_conflict_do_nothing(index_elements=["asm_discovery_id", "ip_address", "port", "protocol"])
                 .returning(AsmPort.id)
@@ -1254,6 +1257,40 @@ async def store_ports(
             logger.warning(f"Error inserting port {ip_address}:{port}: {e}")
     
     return inserted
+
+
+def _change_content_hash(changes_payload: Any) -> str:
+    """Deterministic sha256 of a change payload's normalized content.
+
+    sort_keys makes the hash stable regardless of dict ordering; default=str
+    keeps it robust against non-JSON-native scalars.
+    """
+    return hashlib.sha256(
+        json.dumps(changes_payload, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+
+
+async def _change_already_persisted(
+    db: AsyncSession, job_id: str, content_hash: str
+) -> bool:
+    """Idempotency guard for AsmChange inserts.
+
+    The AsmChange model has no spare column to store a content hash, so we
+    dedupe in Python: load the change rows already persisted for this
+    discovery and compare the hash of their normalized `changes` content.
+    Re-processing the same run therefore no longer duplicates the Changes tab.
+    Follow-up (separate migration task): add a `content_hash` column + unique
+    index (asm_discovery_id, content_hash) to enforce this at the DB level.
+    """
+    existing = (
+        await db.execute(
+            select(AsmChange.changes).where(AsmChange.asm_discovery_id == job_id)
+        )
+    ).scalars().all()
+    for changes in existing:
+        if _change_content_hash(changes) == content_hash:
+            return True
+    return False
 
 
 async def store_changes(
@@ -1271,6 +1308,13 @@ async def store_changes(
         changes_data = []
 
     try:
+        # Idempotent: skip if an identical change payload is already persisted
+        # for this discovery (prevents duplicates on run replay).
+        content_hash = _change_content_hash(changes_data)
+        if await _change_already_persisted(db, job_id, content_hash):
+            logger.debug("Skipping duplicate change payload for job=%s", job_id)
+            return 0
+
         obj = AsmChange(
             asm_discovery_id=job_id,
             asset_id=asset_id,
@@ -1305,37 +1349,40 @@ async def store_services(
         return 0
     
     logger.info(f"store_services: Found {len(services_data)} services in result")
-    
+
+    # Pre-load (ip_address, port) -> port_id once per run instead of a
+    # per-row SELECT ... LIMIT 1 for every service.
+    port_lookup: dict[tuple[str, int], str] = {}
+    port_rows = (
+        await db.execute(
+            select(AsmPort.ip_address, AsmPort.port, AsmPort.id).where(
+                AsmPort.asm_discovery_id == job_id,
+                AsmPort.asset_id == asset_id,
+            )
+        )
+    ).all()
+    for row_ip, row_port, row_id in port_rows:
+        port_lookup[(row_ip.strip(), int(row_port))] = row_id
+
     for service_item in services_data:
         if not isinstance(service_item, dict):
             continue
-        
+
         ip_address = service_item.get("ip", "")
         port = service_item.get("port")
         service_name = service_item.get("service", "")
-        
+
         if not ip_address or not port or not service_name:
             continue
-        
-        # Find IP ID
-        ip_id = None
+
+        # Resolve IP id from the in-memory map (ORM object, not per-row SELECT).
         lookup_key = (asset_id, ip_address.strip())
-        ip_id = ip_lookup.get(lookup_key)
-        
-        # Find port_id
-        port_id = None
-        if ip_id:
-            port_query = select(AsmPort).where(
-                AsmPort.asm_discovery_id == job_id,
-                AsmPort.asset_id == asset_id,
-                AsmPort.ip_address == ip_address.strip(),
-                AsmPort.port == int(port)
-            ).limit(1)
-            port_result = await db.execute(port_query)
-            port_obj = port_result.scalar_one_or_none()
-            if port_obj:
-                port_id = port_obj.id
-        
+        ip_obj = ip_lookup.get(lookup_key)
+        ip_id = ip_obj.id if ip_obj is not None else None
+
+        # Resolve port_id from the pre-built map.
+        port_id = port_lookup.get((ip_address.strip(), int(port)))
+
         try:
             stmt = (
                 insert(AsmService)
@@ -1347,9 +1394,9 @@ async def store_services(
                     port_id=port_id,
                     ip_id=ip_id,
                     service_name=service_name,
-                    version=service_item.get("version"),
-                    product=service_item.get("product"),
-                    extra_info=service_item.get("extra_info"),
+                    version=clean_str(service_item.get("version")),
+                    product=clean_str(service_item.get("product")),
+                    extra_info=clean_deep(service_item.get("extra_info")),
                 )
                 .on_conflict_do_nothing(index_elements=["asm_discovery_id", "ip_address", "port", "service_name"])
                 .returning(AsmService.id)
@@ -1413,12 +1460,12 @@ async def store_ssl_certs(
                     host=host.strip(),
                     port=int(port),
                     subdomain_id=subdomain_id,
-                    protocol=_clean_ansi(ssl_item.get("protocol")),
-                    cipher=_clean_ansi(ssl_item.get("cipher")),
-                    certificate_issuer=_clean_ansi(ssl_item.get("issuer")),
-                    certificate_subject=_clean_ansi(ssl_item.get("certificate")),
+                    protocol=clean_str(_clean_ansi(ssl_item.get("protocol"))),
+                    cipher=clean_str(_clean_ansi(ssl_item.get("cipher"))),
+                    certificate_issuer=clean_str(_clean_ansi(ssl_item.get("issuer"))),
+                    certificate_subject=clean_str(_clean_ansi(ssl_item.get("certificate"))),
                     valid_until=_parse_cert_datetime(ssl_item.get("valid_until")),
-                    certificate_details=_clean_ansi_obj(ssl_item),
+                    certificate_details=clean_deep(_clean_ansi_obj(ssl_item)),
                 )
                 .on_conflict_do_nothing(index_elements=["asm_discovery_id", "host", "port"])
                 .returning(AsmSSLCert.id)
@@ -1480,10 +1527,10 @@ async def store_api_endpoints(
                     asset_id=asset_id,
                     url=url.strip(),
                     subdomain_id=subdomain_id,
-                    method=endpoint_item.get("method"),
+                    method=clean_str(endpoint_item.get("method")),
                     status_code=endpoint_item.get("status"),
-                    endpoint_type=endpoint_item.get("type", "api"),
-                    extra_info=endpoint_item,
+                    endpoint_type=clean_str(endpoint_item.get("type", "api")),
+                    extra_info=clean_deep(endpoint_item),
                 )
                 .on_conflict_do_nothing(index_elements=["asm_discovery_id", "url"])
                 .returning(AsmAPIEndpoint.id)
@@ -1527,11 +1574,11 @@ async def store_cloud_resources(
                 .values(
                     asm_discovery_id=job_id,
                     asset_id=asset_id,
-                    service=service,
-                    resource_type=resource_type,
+                    service=clean_str(service),
+                    resource_type=clean_str(resource_type),
                     resource_name=resource_name.strip(),
-                    access_status=resource_item.get("status"),
-                    extra_info=resource_item,
+                    access_status=clean_str(resource_item.get("status")),
+                    extra_info=clean_deep(resource_item),
                 )
                 .on_conflict_do_nothing(index_elements=["asm_discovery_id", "resource_name"])
                 .returning(AsmCloudResource.id)
@@ -1589,7 +1636,7 @@ async def store_admin_endpoints(
                     status_code=admin_item.get("status"),
                     response_size=admin_item.get("size"),
                     endpoint_type="admin",
-                    extra_info=admin_item,
+                    extra_info=clean_deep(admin_item),
                 )
                 .on_conflict_do_nothing(index_elements=["asm_discovery_id", "url"])
                 .returning(AsmAdminEndpoint.id)
@@ -1644,9 +1691,9 @@ async def store_backup_files(
                     asset_id=asset_id,
                     file_url=file_url.strip(),
                     subdomain_id=subdomain_id,
-                    file_extension=backup_item.get("extension"),
-                    status=backup_item.get("status", "checked"),
-                    extra_info=backup_item,
+                    file_extension=clean_str(backup_item.get("extension")),
+                    status=clean_str(backup_item.get("status", "checked")),
+                    extra_info=clean_deep(backup_item),
                 )
                 .on_conflict_do_nothing(index_elements=["asm_discovery_id", "file_url"])
                 .returning(AsmBackupFile.id)

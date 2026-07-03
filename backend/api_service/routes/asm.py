@@ -3,11 +3,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, false as sql_false
 from datetime import datetime
 
 from utils.database import get_db
+import os
 from utils.queue import publish_message
+from notificationservice import events as _NOTIF
 from utils.auth_utils import get_current_user
 from models.asm_models import (
     AsmDiscovery as AsmDiscoveryModel,
@@ -108,6 +110,25 @@ async def _company_user_ids(
     return ids
 
 
+def _org_filter(model, current_user: dict):
+    """Tenant-scoping predicate for ASM owner models (discoveries, runs, assets).
+
+    Scans MUST be isolated by `org_id`, not by the set of member user-ids. The
+    old `user_id.in_(org_members)` approach leaked a member's historical scan
+    data across orgs: an ASM row keeps the `org_id` it was created under, but if
+    that member later joins another org their `user_id` enters the new org's
+    member set and their old rows matched. Scoping on `org_id` fixes that. When
+    there is no org context, fall back to the caller's own rows only.
+    """
+    org_id = current_user.get("org_id")
+    if org_id:
+        return model.org_id == org_id
+    self_id = current_user.get("user_id")
+    if self_id:
+        return model.user_id == self_id
+    return sql_false()
+
+
 async def _require_write_access(
     db: AsyncSession,
     current_user: dict,
@@ -119,8 +140,10 @@ async def _require_write_access(
     return current_user
 
 
-async def _user_discovery_ids(db: AsyncSession, user_ids: list[str]) -> list[str]:
-    disc_query = select(AsmDiscoveryModel.id).where(AsmDiscoveryModel.user_id.in_(user_ids))
+async def _user_discovery_ids(db: AsyncSession, current_user: dict) -> list[str]:
+    # Org-scoped so child data (IPs, ports, SSL, subdomains) routed through these
+    # discovery ids inherits correct tenant isolation.
+    disc_query = select(AsmDiscoveryModel.id).where(_org_filter(AsmDiscoveryModel, current_user))
     disc_result = await db.execute(disc_query)
     return [row[0] for row in disc_result.all()]
 
@@ -205,6 +228,26 @@ async def update_asm_settings(
 # ---------------------------------------------------
 # Create Discovery
 # ---------------------------------------------------
+async def _emit_scan_event(
+    db, current_user: dict, discovery, event_type: str,
+    title: str, body: str = "", severity: str = "info",
+) -> None:
+    """Best-effort notification emit for a scan lifecycle change. Never raises."""
+    try:
+        from notificationservice import dispatcher
+        org_id = current_user.get("org_id")
+        if not org_id:
+            return
+        await dispatcher.dispatch(
+            db, org_id, event_type, title, body=body, severity=severity,
+            link=f"/app/asm?discovery={getattr(discovery, 'id', '')}",
+            meta={"discovery_id": getattr(discovery, "id", None)},
+            owner_user_id=getattr(discovery, "user_id", None) or current_user.get("user_id"),
+        )
+    except Exception:  # noqa: BLE001 - notifications must not break scan ops
+        pass
+
+
 @router.post("/discoveries", response_model=AsmDiscoveryResponse)
 async def create_discovery(
     payload: AsmDiscoveryCreateRequest,
@@ -212,6 +255,17 @@ async def create_discovery(
     current_user: dict = Depends(get_current_user),
 ):
     await _require_write_access(db, current_user)
+
+    # SSRF / scan-abuse guard: reject manual targets that point at loopback,
+    # cloud-metadata (169.254.169.254), or private/reserved ranges — regardless
+    # of intensity. The worker applies the authoritative post-DNS-resolution
+    # filter to defeat rebinding.
+    if payload.target_source == "MANUAL_ENTRY":
+        from utils.target_guard import validate_scan_targets
+        try:
+            validate_scan_targets(payload.manual_targets)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     # Authorization-to-scan: active (NORMAL/DEEP) discoveries may only target
     # assets whose ownership has been verified, so the platform can't be used to
@@ -243,6 +297,13 @@ async def create_discovery(
                        "POST /api/v1/assets/{id}/verify before running an active scan, or use LIGHT intensity.",
             )
 
+    # We enqueue the first run immediately below, so next_run_at must be the *next*
+    # fire AFTER now — otherwise the scheduler would double-fire a recurring job on
+    # its next 60s tick. QUICK schedules never recur (next_run_at = None).
+    from utils.schedule_math import compute_next_run
+    _now = datetime.utcnow()
+    _next_run = compute_next_run(payload.schedule_type, payload.schedule_value, _now)
+
     discovery = AsmDiscoveryModel(
         user_id=current_user["user_id"],
         org_id=current_user.get("org_id"),
@@ -254,7 +315,8 @@ async def create_discovery(
         intensity=payload.intensity,
         schedule_type=payload.schedule_type,
         schedule_value=payload.schedule_value,
-        next_run_at=datetime.utcnow(),
+        last_run_at=_now,
+        next_run_at=_next_run,
         status="PENDING",
     )
 
@@ -283,6 +345,11 @@ async def create_discovery(
             detail="Not able to schedule this discovery",
         )
 
+    await _emit_scan_event(
+        db, current_user, discovery, _NOTIF.SCAN_STARTED,
+        title=f"Discovery queued: {discovery.name or discovery.id}",
+        body=f"{discovery.asset_type} · {discovery.intensity} intensity",
+    )
     return discovery_data
 
 
@@ -301,16 +368,27 @@ async def asm_exposure(
     legacy magic-number score. Returns the factor breakdown so the UI can show
     *why* each asset scored what it did.
     """
-    user_ids = await _company_user_ids(db, current_user)
-    discovery_ids = await _user_discovery_ids(db, user_ids)
+    discovery_ids = await _user_discovery_ids(db, current_user)
     if not discovery_ids:
-        return {"items": [], "total": 0, "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}}
+        return {"items": [], "total": 0, "truncated": False, "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}}
 
+    # Bound the working set: this endpoint scores every IP in Python (the
+    # defensible model needs per-IP ports/services/TLS), so an unbounded load
+    # would OOM a large tenant. Cap the rows scored and flag truncation. The full
+    # fix (SQL GROUP BY/ORDER BY on a persisted exposure_score) depends on wiring
+    # the Python scorer at ingest time — see the reporting/scoring rewrite.
+    MAX_EXPOSURE_IPS = int(os.getenv("ASM_MAX_EXPOSURE_IPS", "10000"))
+    total_ips = (await db.execute(
+        select(func.count()).select_from(AsmIPModel).where(
+            AsmIPModel.asm_discovery_id.in_(discovery_ids))
+    )).scalar() or 0
     ips = (await db.execute(
         select(AsmIPModel).where(AsmIPModel.asm_discovery_id.in_(discovery_ids))
+        .limit(MAX_EXPOSURE_IPS)
     )).scalars().all()
+    truncated = total_ips > len(ips)
     if not ips:
-        return {"items": [], "total": 0, "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}}
+        return {"items": [], "total": 0, "truncated": False, "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}}
 
     open_ports = (await db.execute(
         select(AsmPortModel).where(
@@ -359,7 +437,7 @@ async def asm_exposure(
         })
 
     items.sort(key=lambda r: r["score"], reverse=True)
-    return {"items": items[:limit], "total": len(items), "summary": summary}
+    return {"items": items[:limit], "total": len(items), "truncated": truncated, "summary": summary}
 
 
 # ---------------------------------------------------
@@ -377,7 +455,7 @@ async def list_discoveries(
 ):
     user_ids = await _company_user_ids(db, current_user)
     base_query = select(AsmDiscoveryModel).where(
-        AsmDiscoveryModel.user_id.in_(user_ids)
+        _org_filter(AsmDiscoveryModel, current_user)
     )
     if q:
         like = f"%{q}%"
@@ -436,7 +514,7 @@ async def get_discovery(
     user_ids = await _company_user_ids(db, current_user)
     query = select(AsmDiscoveryModel).where(
         AsmDiscoveryModel.id == discovery_id,
-        AsmDiscoveryModel.user_id.in_(user_ids),
+        _org_filter(AsmDiscoveryModel, current_user),
     )
 
     result = await db.execute(query)
@@ -462,7 +540,7 @@ async def update_discovery(
     user_ids = await _company_user_ids(db, current_user)
     query = select(AsmDiscoveryModel).where(
         AsmDiscoveryModel.id == discovery_id,
-        AsmDiscoveryModel.user_id.in_(user_ids),
+        _org_filter(AsmDiscoveryModel, current_user),
     )
 
     result = await db.execute(query)
@@ -499,7 +577,7 @@ async def run_discovery(
     user_ids = await _company_user_ids(db, current_user)
     query = select(AsmDiscoveryModel).where(
         AsmDiscoveryModel.id == discovery_id,
-        AsmDiscoveryModel.user_id.in_(user_ids),
+        _org_filter(AsmDiscoveryModel, current_user),
     )
     result = await db.execute(query)
     discovery = result.scalar_one_or_none()
@@ -507,8 +585,13 @@ async def run_discovery(
     if not discovery:
         raise HTTPException(status_code=404, detail="Discovery not found")
 
+    # Run now, and set next_run_at to the *next* scheduled fire (not now) so a
+    # recurring discovery isn't immediately re-fired by the scheduler tick.
+    from utils.schedule_math import compute_next_run
+    _now = datetime.utcnow()
     discovery.status = "PENDING"
-    discovery.next_run_at = datetime.utcnow()
+    discovery.last_run_at = _now
+    discovery.next_run_at = compute_next_run(discovery.schedule_type, discovery.schedule_value, _now)
     await db.commit()
     await db.refresh(discovery)
 
@@ -523,6 +606,95 @@ async def run_discovery(
     if not await publish_message("jobs.asm", queue_message):
         raise HTTPException(status_code=500, detail="Not able to schedule this discovery")
 
+    await _emit_scan_event(
+        db, current_user, discovery, _NOTIF.SCAN_STARTED,
+        title=f"Discovery started: {discovery.name or discovery.id}",
+        body=f"{discovery.asset_type} · {discovery.intensity} intensity",
+    )
+    return discovery.to_dict()
+
+
+# ---------------------------------------------------
+# Pause / Resume recurring schedule
+# ---------------------------------------------------
+async def _get_owned_discovery(discovery_id: str, db: AsyncSession, current_user: dict):
+    await _require_write_access(db, current_user)
+    user_ids = await _company_user_ids(db, current_user)
+    result = await db.execute(
+        select(AsmDiscoveryModel).where(
+            AsmDiscoveryModel.id == discovery_id,
+            _org_filter(AsmDiscoveryModel, current_user),
+        )
+    )
+    discovery = result.scalar_one_or_none()
+    if not discovery:
+        raise HTTPException(status_code=404, detail="Discovery not found")
+    return discovery
+
+
+@router.post("/discoveries/{discovery_id}/pause", response_model=AsmDiscoveryResponse)
+async def pause_discovery(
+    discovery_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Pause a recurring schedule. The scheduler skips PAUSED discoveries; an
+    in-flight run (RUNNING) is left to finish — use /stop to cancel that."""
+    discovery = await _get_owned_discovery(discovery_id, db, current_user)
+    if discovery.status == "RUNNING":
+        raise HTTPException(status_code=409, detail="Discovery is currently running; stop it first.")
+    discovery.status = "PAUSED"
+    discovery.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(discovery)
+    await _emit_scan_event(
+        db, current_user, discovery, _NOTIF.SCAN_PAUSED,
+        title=f"Schedule paused: {discovery.name or discovery.id}",
+    )
+    return discovery.to_dict()
+
+
+@router.post("/discoveries/{discovery_id}/resume", response_model=AsmDiscoveryResponse)
+async def resume_discovery(
+    discovery_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Resume a paused schedule and recompute the next fire time from now."""
+    from utils.schedule_math import compute_next_run
+    discovery = await _get_owned_discovery(discovery_id, db, current_user)
+    _now = datetime.utcnow()
+    discovery.status = "PENDING"
+    discovery.next_run_at = compute_next_run(discovery.schedule_type, discovery.schedule_value, _now)
+    discovery.updated_at = _now
+    await db.commit()
+    await db.refresh(discovery)
+    await _emit_scan_event(
+        db, current_user, discovery, _NOTIF.SCAN_RESUMED,
+        title=f"Schedule resumed: {discovery.name or discovery.id}",
+    )
+    return discovery.to_dict()
+
+
+@router.post("/discoveries/{discovery_id}/stop", response_model=AsmDiscoveryResponse)
+async def stop_discovery(
+    discovery_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Stop an in-flight run. Flips status so the scheduler won't re-enqueue and the
+    UI reflects a cancelled run. (Cooperative worker-side cancellation is Phase A.)"""
+    discovery = await _get_owned_discovery(discovery_id, db, current_user)
+    discovery.status = "FAILED"
+    discovery.next_run_at = None
+    discovery.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(discovery)
+    await _emit_scan_event(
+        db, current_user, discovery, _NOTIF.SCAN_STOPPED,
+        title=f"Discovery stopped: {discovery.name or discovery.id}",
+        severity="medium",
+    )
     return discovery.to_dict()
 
 
@@ -539,7 +711,7 @@ async def delete_discovery(
     user_ids = await _company_user_ids(db, current_user)
     query = select(AsmDiscoveryModel).where(
         AsmDiscoveryModel.id == discovery_id,
-        AsmDiscoveryModel.user_id.in_(user_ids),
+        _org_filter(AsmDiscoveryModel, current_user),
     )
 
     result = await db.execute(query)
@@ -566,7 +738,7 @@ async def asm_dashboard(
     # Total discoveries
     total_query = select(func.count()).select_from(
         select(AsmDiscoveryModel)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
         .subquery()
     )
     total_result = await db.execute(total_query)
@@ -576,7 +748,7 @@ async def asm_dashboard(
     active_query = select(func.count()).select_from(
         select(AsmDiscoveryModel)
         .where(
-            AsmDiscoveryModel.user_id.in_(user_ids),
+            _org_filter(AsmDiscoveryModel, current_user),
             AsmDiscoveryModel.status == "RUNNING",
         )
         .subquery()
@@ -587,15 +759,22 @@ async def asm_dashboard(
     # Last discovery run
     last_run_query = (
         select(AsmDiscoveryRunModel)
-        .where(AsmDiscoveryRunModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryRunModel, current_user))
         .order_by(AsmDiscoveryRunModel.started_at.desc())
         .limit(1)
     )
     last_run_result = await db.execute(last_run_query)
     last_run = last_run_result.scalar_one_or_none()
 
+    # Attack Surface Score = real average of asset exposure scores (0–100), the same
+    # figure the /dashboard/overview endpoint reports. No placeholder: if no assets
+    # are scored yet it is 0 (auto-scoring populates it after a scan).
+    avg_q = select(func.avg(AssetModel.risk_score)).where(_org_filter(AssetModel, current_user))
+    avg_score = (await db.execute(avg_q)).scalar() or 0
+    attack_surface_score = int(avg_score)
+
     return AsmDashboardResponse(
-        attack_surface_score=75,  # placeholder
+        attack_surface_score=attack_surface_score,
         total_discoveries=total,
         active_discoveries=active,
         last_discovery_run=last_run.started_at.isoformat() if last_run and last_run.started_at else None,
@@ -614,13 +793,13 @@ async def asm_overview(
 
     # total discoveries
     total_query = select(func.count()).select_from(
-        select(AsmDiscoveryModel).where(AsmDiscoveryModel.user_id.in_(user_ids)).subquery()
+        select(AsmDiscoveryModel).where(_org_filter(AsmDiscoveryModel, current_user)).subquery()
     )
     total = (await db.execute(total_query)).scalar() or 0
 
     # active discoveries
     active_query = select(func.count()).select_from(
-        select(AsmDiscoveryModel).where(AsmDiscoveryModel.user_id.in_(user_ids), AsmDiscoveryModel.status == "RUNNING").subquery()
+        select(AsmDiscoveryModel).where(_org_filter(AsmDiscoveryModel, current_user), AsmDiscoveryModel.status == "RUNNING").subquery()
     )
     active = (await db.execute(active_query)).scalar() or 0
 
@@ -628,7 +807,7 @@ async def asm_overview(
     subdomain_query = select(func.count()).select_from(
         select(AsmSubdomainModel)
         .join(AsmDiscoveryModel, AsmSubdomainModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
         .subquery()
     )
     total_subdomains = (await db.execute(subdomain_query)).scalar() or 0
@@ -637,7 +816,7 @@ async def asm_overview(
     ip_query = select(func.count()).select_from(
         select(AsmIPModel)
         .join(AsmDiscoveryModel, AsmIPModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
         .subquery()
     )
     total_ips_discovered = (await db.execute(ip_query)).scalar() or 0
@@ -645,7 +824,7 @@ async def asm_overview(
     # last discovery run
     last_run_query = (
         select(AsmDiscoveryRunModel)
-        .where(AsmDiscoveryRunModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryRunModel, current_user))
         .order_by(AsmDiscoveryRunModel.started_at.desc())
         .limit(1)
     )
@@ -654,32 +833,41 @@ async def asm_overview(
 
     # Asset counts
     total_assets_q = select(func.count()).select_from(
-        select(AssetModel).where(AssetModel.user_id.in_(user_ids)).subquery()
+        select(AssetModel).where(_org_filter(AssetModel, current_user)).subquery()
     )
     total_assets = (await db.execute(total_assets_q)).scalar() or 0
 
     total_domains_q = select(func.count()).select_from(
-        select(AssetModel).where(AssetModel.user_id.in_(user_ids), AssetModel.type == 'domain').subquery()
+        select(AssetModel).where(_org_filter(AssetModel, current_user), AssetModel.type == 'domain').subquery()
     )
     total_domains = (await db.execute(total_domains_q)).scalar() or 0
 
     total_cloud_q = select(func.count()).select_from(
-        select(AssetModel).where(AssetModel.user_id.in_(user_ids), AssetModel.type == 'cloud').subquery()
+        select(AssetModel).where(_org_filter(AssetModel, current_user), AssetModel.type == 'cloud').subquery()
     )
     total_cloud = (await db.execute(total_cloud_q)).scalar() or 0
 
     total_ips_q = select(func.count()).select_from(
-        select(AssetModel).where(AssetModel.user_id.in_(user_ids), AssetModel.type == 'ip').subquery()
+        select(AssetModel).where(_org_filter(AssetModel, current_user), AssetModel.type == 'ip').subquery()
     )
     total_ips = (await db.execute(total_ips_q)).scalar() or 0
 
-    # services not modeled explicitly; default to 0
-    total_services = 0
+    # Real count of discovered services (fingerprinted open ports) for the org,
+    # scoped through the discovery join like the other ASM child tables.
+    total_services_q = (
+        select(func.count())
+        .select_from(AsmServiceModel)
+        .join(AsmDiscoveryModel, AsmServiceModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(_org_filter(AsmDiscoveryModel, current_user))
+    )
+    total_services = (await db.execute(total_services_q)).scalar() or 0
 
-    # Load ASM settings for thresholds
+    # Load ASM settings for thresholds — the CALLER's own settings only.
+    # AsmSettings is per-user (unique user_id); scoping by the whole member set
+    # could surface another member's thresholds.
     settings_query = (
         select(AsmSettingsModel)
-        .where(AsmSettingsModel.user_id.in_(user_ids))
+        .where(AsmSettingsModel.user_id == current_user.get("user_id"))
         .order_by(AsmSettingsModel.updated_at.desc(), AsmSettingsModel.created_at.desc())
         .limit(1)
     )
@@ -700,7 +888,7 @@ async def asm_overview(
     # Exposure-based buckets (using exposure_score mapped from risk_score for ASM)
     high_exposure_q = select(func.count()).select_from(
         select(AssetModel).where(
-            AssetModel.user_id.in_(user_ids),
+            _org_filter(AssetModel, current_user),
             AssetModel.risk_score >= high_threshold
         ).subquery()
     )
@@ -708,38 +896,62 @@ async def asm_overview(
     
     medium_exposure_q = select(func.count()).select_from(
         select(AssetModel).where(
-            AssetModel.user_id.in_(user_ids),
+            _org_filter(AssetModel, current_user),
             AssetModel.risk_score.between(medium_threshold, high_threshold - 1)
         ).subquery()
     )
     medium_exposure_count = (await db.execute(medium_exposure_q)).scalar() or 0
-    
-    low_exposure_count = total_assets - (high_exposure_count + medium_exposure_count)
+
+    # Low = SCORED assets below the medium threshold. Unscanned assets
+    # (risk_score IS NULL) are NOT low-exposure — they are unknown, and must be
+    # reported separately rather than padded into "low" (which reads as safe).
+    low_exposure_q = select(func.count()).select_from(
+        select(AssetModel).where(
+            _org_filter(AssetModel, current_user),
+            AssetModel.risk_score.isnot(None),
+            AssetModel.risk_score < medium_threshold,
+        ).subquery()
+    )
+    low_exposure_count = (await db.execute(low_exposure_q)).scalar() or 0
+
+    unscanned_q = select(func.count()).select_from(
+        select(AssetModel).where(
+            _org_filter(AssetModel, current_user),
+            AssetModel.risk_score.is_(None),
+        ).subquery()
+    )
+    unscanned_count = (await db.execute(unscanned_q)).scalar() or 0
 
     # Attack Surface Index: average exposure score (0-100)
-    avg_q = select(func.avg(AssetModel.risk_score)).where(AssetModel.user_id.in_(user_ids))
+    avg_q = select(func.avg(AssetModel.risk_score)).where(_org_filter(AssetModel, current_user))
     avg_res = await db.execute(avg_q)
     avg_score = avg_res.scalar() or 0
     attack_surface_index = int(avg_score)
 
     # Exposure summary
     public_assets_q = select(func.count()).select_from(
-        select(AssetModel).where(AssetModel.user_id.in_(user_ids), AssetModel.exposure == 'public').subquery()
+        select(AssetModel).where(_org_filter(AssetModel, current_user), AssetModel.exposure == 'public').subquery()
     )
     public_assets = (await db.execute(public_assets_q)).scalar() or 0
     
-    # Internet-facing services: for now, count public assets with service-like types
-    # This is a placeholder - in a real system, you'd have a services table
-    internet_facing_services = 0
-    
+    # Internet-facing services = real count of open ports discovered by ASM (ASM scans
+    # external targets, so a discovered open port is an internet-facing service).
+    ifs_q = (
+        select(func.count())
+        .select_from(AsmPortModel)
+        .join(AsmDiscoveryModel, AsmPortModel.asm_discovery_id == AsmDiscoveryModel.id)
+        .where(_org_filter(AsmDiscoveryModel, current_user), AsmPortModel.status == "open")
+    )
+    internet_facing_services = (await db.execute(ifs_q)).scalar() or 0
+
     # Unknown ownership: assets without clear ownership tags
     unknown_assets_q = select(func.count()).select_from(
-        select(AssetModel).where(AssetModel.user_id.in_(user_ids), AssetModel.tags == []).subquery()
+        select(AssetModel).where(_org_filter(AssetModel, current_user), AssetModel.tags == []).subquery()
     )
     unknown_assets = (await db.execute(unknown_assets_q)).scalar() or 0
 
     # Top exposed assets by exposure_score (mapped from risk_score)
-    top_q = select(AssetModel).where(AssetModel.user_id.in_(user_ids)).order_by(AssetModel.risk_score.desc()).limit(5)
+    top_q = select(AssetModel).where(_org_filter(AssetModel, current_user)).order_by(AssetModel.risk_score.desc()).limit(5)
     top_res = await db.execute(top_q)
     top_assets_raw = top_res.scalars().all()
     
@@ -756,6 +968,7 @@ async def asm_overview(
         {"label": "high", "count": int(high_exposure_count)},
         {"label": "medium", "count": int(medium_exposure_count)},
         {"label": "low", "count": int(low_exposure_count)},
+        {"label": "unscanned", "count": int(unscanned_count)},
     ]
 
     # Recent activity — real org events from the audit trail (last ~10).
@@ -834,7 +1047,7 @@ async def list_subdomains(
         select(AsmSubdomainModel, AssetModel.name.label("asset_name"), AssetModel.type.label("asset_type"))
         .join(AsmDiscoveryModel, AsmSubdomainModel.asm_discovery_id == AsmDiscoveryModel.id)
         .outerjoin(AssetModel, AsmSubdomainModel.asset_id == AssetModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
     )
 
     if discovery_id:
@@ -844,7 +1057,7 @@ async def list_subdomains(
     total_base = (
         select(AsmSubdomainModel)
         .join(AsmDiscoveryModel, AsmSubdomainModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
     )
     if discovery_id:
         total_base = total_base.where(AsmSubdomainModel.asm_discovery_id == discovery_id)
@@ -919,7 +1132,7 @@ async def list_subdomain_ips(
         .join(AsmDiscoveryModel, AsmSubdomainModel.asm_discovery_id == AsmDiscoveryModel.id)
         .where(
             AsmSubdomainModel.id == subdomain_id,
-            AsmDiscoveryModel.user_id.in_(user_ids)
+            _org_filter(AsmDiscoveryModel, current_user)
         )
     )
     subdomain_result = await db.execute(subdomain_query)
@@ -1004,7 +1217,7 @@ async def get_subdomain_detail(
         .outerjoin(AssetModel, AsmSubdomainModel.asset_id == AssetModel.id)
         .where(
             AsmSubdomainModel.id == subdomain_id,
-            AsmDiscoveryModel.user_id.in_(user_ids)
+            _org_filter(AsmDiscoveryModel, current_user)
         )
     )
     subdomain_result = await db.execute(subdomain_query)
@@ -1060,7 +1273,7 @@ async def list_all_ips(
     if page_size > 100:
         page_size = 100
     
-    discovery_ids = await _user_discovery_ids(db, user_ids)
+    discovery_ids = await _user_discovery_ids(db, current_user)
     
     if not discovery_ids:
         return AsmIPListResponse(
@@ -1138,7 +1351,7 @@ async def list_ip_geo_map(
     for map and graph views in the UI.
     """
     user_ids = await _company_user_ids(db, current_user)
-    discovery_ids = await _user_discovery_ids(db, user_ids)
+    discovery_ids = await _user_discovery_ids(db, current_user)
     if discovery_id:
         if discovery_id not in discovery_ids:
             raise HTTPException(status_code=404, detail="Discovery not found")
@@ -1217,7 +1430,7 @@ async def list_ports(
     base = (
         select(AsmPortModel)
         .join(AsmDiscoveryModel, AsmPortModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
     )
     if discovery_id:
         base = base.where(AsmPortModel.asm_discovery_id == discovery_id)
@@ -1281,7 +1494,7 @@ async def list_services(
     base = (
         select(AsmServiceModel)
         .join(AsmDiscoveryModel, AsmServiceModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
     )
     if discovery_id:
         base = base.where(AsmServiceModel.asm_discovery_id == discovery_id)
@@ -1342,7 +1555,7 @@ async def list_ssl_certs(
     base = (
         select(AsmSSLCertModel)
         .join(AsmDiscoveryModel, AsmSSLCertModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
     )
     if discovery_id:
         base = base.where(AsmSSLCertModel.asm_discovery_id == discovery_id)
@@ -1404,7 +1617,7 @@ async def list_api_endpoints(
     base = (
         select(AsmAPIEndpointModel)
         .join(AsmDiscoveryModel, AsmAPIEndpointModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
     )
     if discovery_id:
         base = base.where(AsmAPIEndpointModel.asm_discovery_id == discovery_id)
@@ -1463,7 +1676,7 @@ async def list_cloud_resources(
     base = (
         select(AsmCloudResourceModel)
         .join(AsmDiscoveryModel, AsmCloudResourceModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
     )
     if discovery_id:
         base = base.where(AsmCloudResourceModel.asm_discovery_id == discovery_id)
@@ -1523,7 +1736,7 @@ async def list_admin_endpoints(
     base = (
         select(AsmAdminEndpointModel)
         .join(AsmDiscoveryModel, AsmAdminEndpointModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
     )
     if discovery_id:
         base = base.where(AsmAdminEndpointModel.asm_discovery_id == discovery_id)
@@ -1580,7 +1793,7 @@ async def list_backup_files(
     base = (
         select(AsmBackupFileModel)
         .join(AsmDiscoveryModel, AsmBackupFileModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
     )
     if discovery_id:
         base = base.where(AsmBackupFileModel.asm_discovery_id == discovery_id)
@@ -1639,7 +1852,7 @@ async def list_changes(
     base = (
         select(AsmChangeModel)
         .join(AsmDiscoveryModel, AsmChangeModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
     )
     if discovery_id:
         base = base.where(AsmChangeModel.asm_discovery_id == discovery_id)
@@ -1688,7 +1901,7 @@ async def list_discovery_runs(
     # Ensure user owns the discovery
     disc_q = select(AsmDiscoveryModel).where(
         AsmDiscoveryModel.id == discovery_id,
-        AsmDiscoveryModel.user_id.in_(user_ids)
+        _org_filter(AsmDiscoveryModel, current_user)
     )
     disc_res = await db.execute(disc_q)
     disc = disc_res.scalar_one_or_none()
@@ -1772,7 +1985,7 @@ async def list_all_discovery_runs(
 
     # Get all runs for discoveries owned by the user
     # First, get all discovery IDs owned by the user
-    disc_query = select(AsmDiscoveryModel.id).where(AsmDiscoveryModel.user_id.in_(user_ids))
+    disc_query = select(AsmDiscoveryModel.id).where(_org_filter(AsmDiscoveryModel, current_user))
     disc_result = await db.execute(disc_query)
     discovery_ids = [row[0] for row in disc_result.all()]
 
@@ -1864,7 +2077,7 @@ async def get_run_detail(
     user_ids = await _company_user_ids(db, current_user)
     disc_q = select(AsmDiscoveryModel).where(
         AsmDiscoveryModel.id == run.asm_discovery_id,
-        AsmDiscoveryModel.user_id.in_(user_ids),
+        _org_filter(AsmDiscoveryModel, current_user),
     )
     disc_res = await db.execute(disc_q)
     disc = disc_res.scalar_one_or_none()
@@ -1905,7 +2118,7 @@ async def list_repo_findings(
     base = (
         select(AsmRepoFindingModel)
         .join(AsmDiscoveryModel, AsmRepoFindingModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
     )
     if discovery_id:
         base = base.where(AsmRepoFindingModel.asm_discovery_id == discovery_id)
@@ -1941,7 +2154,7 @@ async def list_saas_apps(
     base = (
         select(AsmSaasAppModel)
         .join(AsmDiscoveryModel, AsmSaasAppModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
     )
     if discovery_id:
         base = base.where(AsmSaasAppModel.asm_discovery_id == discovery_id)
@@ -1977,7 +2190,7 @@ async def list_user_accounts(
     base = (
         select(AsmUserAccountModel)
         .join(AsmDiscoveryModel, AsmUserAccountModel.asm_discovery_id == AsmDiscoveryModel.id)
-        .where(AsmDiscoveryModel.user_id.in_(user_ids))
+        .where(_org_filter(AsmDiscoveryModel, current_user))
     )
     if discovery_id:
         base = base.where(AsmUserAccountModel.asm_discovery_id == discovery_id)

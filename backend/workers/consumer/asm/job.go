@@ -12,8 +12,12 @@ import (
 	"workers/utils"
 )
 
-// Bounded HTTP client — a hung control-plane must not block the consumer forever.
-var controlPlaneClient = &http.Client{Timeout: 30 * time.Second}
+// Bounded HTTP client. The control-plane now executes the scan SYNCHRONOUSLY and
+// only responds when the job reaches a terminal state (ACK-after-success), so this
+// timeout must exceed the worst-case scan time (TASK_TIMEOUT_SECONDS, default 15m)
+// plus a margin. Keep it just above the job budget so a truly hung control-plane
+// still can't block the consumer forever.
+var controlPlaneClient = &http.Client{Timeout: 20 * time.Minute}
 
 // JobMessage represents a job event (QUEUE → ASM API)
 type JobMessage struct {

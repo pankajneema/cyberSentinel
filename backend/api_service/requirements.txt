@@ -19,3 +19,5 @@ clickhouse_connect
 bcrypt==3.2.2
 python-decouple==3.8
 alembic
+croniter==2.0.5
+reportlab==4.2.2

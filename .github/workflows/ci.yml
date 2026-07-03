@@ -75,7 +75,9 @@ jobs:
         with:
           node-version: "20"
       - run: npm ci
-      - run: npm run lint || true   # non-blocking until baseline is clean
+      - run: npm run lint || true   # quality gate: soft until lint baseline is cleaned
+      - name: Typecheck (tsc)
+        run: npx tsc --noEmit   # BLOCKING — type errors fail the build
       - run: npm run build
 
   sast:
@@ -87,7 +89,7 @@ jobs:
         uses: returntocorp/semgrep-action@v1
         with:
           config: p/ci p/security-audit p/secrets
-        continue-on-error: true   # report-only until baseline is triaged
+        # BLOCKING — SAST findings fail the build (was report-only)
 
   sca:
     name: SCA (dependency scan)
@@ -100,13 +102,13 @@ jobs:
       - name: pip-audit (backend)
         run: |
           pip install pip-audit
-          pip-audit -r backend/api_service/requirements.txt || true   # report-only initially
+          pip-audit -r backend/api_service/requirements.txt   # BLOCKING — vulnerable deps fail the build
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
       - name: npm audit (frontend)
         working-directory: frontend
-        run: npm audit --audit-level=high || true
+        run: npm audit --audit-level=high   # BLOCKING on high+ severity
 
   container-scan:
     name: Container scan (Trivy)
@@ -120,4 +122,4 @@ jobs:
         with:
           image-ref: cybersentinel-api:ci
           severity: HIGH,CRITICAL
-          exit-code: "0"   # report-only until images are clean
+          exit-code: "1"   # BLOCKING — HIGH/CRITICAL image vulns fail the build

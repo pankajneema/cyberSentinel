@@ -16,6 +16,7 @@ import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { getMe } from "@/lib/services/auth";
+import { requestEarlyAccess } from "@/lib/services/marketing";
 import { can } from "@/lib/permissions";
 
 const services = [
@@ -33,7 +34,7 @@ const services = [
     title: "Vulnerability Scanning",
     description: "High-fidelity vulnerability scanning with contextual prioritization and remediation guidance. Identify CVEs before attackers do.",
     features: ["Automated Scanning", "CVE Detection", "Prioritization", "Remediation Guides"],
-    status: "available",
+    status: "coming-soon",
     href: "/app/vs",
     color: "accent",
   },
@@ -109,13 +110,18 @@ export default function Services() {
     );
   }
 
-  const handleNotify = (serviceName: string) => {
+  const handleNotify = async (serviceName: string) => {
     if (!email) {
       toast.error("Please enter your email address");
       return;
     }
-    toast.success(`You'll be notified when ${serviceName} launches!`);
-    setEmail("");
+    try {
+      await requestEarlyAccess({ email, service: serviceName });
+      toast.success(`You'll be notified when ${serviceName} launches!`);
+      setEmail("");
+    } catch {
+      toast.error("Could not register your interest. Please try again.");
+    }
   };
 
   return (

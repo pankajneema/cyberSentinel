@@ -39,6 +39,7 @@ type TabKey =
 export function ASMFindings() {
   const [active, setActive] = useState<TabKey>("subdomains");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [q, setQ] = useState("");
@@ -55,6 +56,7 @@ export function ASMFindings() {
       return;
     }
     setLoading(true);
+    setError(null);
     try {
       if (tab === "ports") {
         const res = await fetchPorts({ page, page_size: pageSize, q, sort_by: sortBy, sort_dir: sortDir });
@@ -85,6 +87,18 @@ export function ASMFindings() {
         setData(res.items);
         setTotal(res.total);
       }
+    } catch (e: any) {
+      // Surface the failure instead of silently showing an empty table.
+      let msg = "Failed to load findings. Please retry.";
+      try {
+        const parsed = JSON.parse(e?.message);
+        msg = parsed.detail || parsed.message || msg;
+      } catch {
+        if (e?.message) msg = e.message;
+      }
+      setError(msg);
+      setData([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
@@ -187,6 +201,18 @@ export function ASMFindings() {
             <TabsTrigger value="changes">Changes</TabsTrigger>
           </TabsList>
         </div>
+
+        {error && (
+          <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive flex items-center justify-between gap-3">
+            <span>{error}</span>
+            <button
+              className="underline font-medium shrink-0"
+              onClick={() => load(active)}
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         <TabsContent value="subdomains" forceMount className="mt-3 data-[state=inactive]:hidden">
           <SubdomainDiscovery />

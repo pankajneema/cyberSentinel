@@ -29,6 +29,7 @@ import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { fetchAssets, fetchSubdomains, type ApiAsset, type AsmSubdomain } from "@/lib/api";
 import { fetchSubdomainIPs, fetchAllIPs, type AsmIP } from "@/lib/services/asm";
+import { exportRowsToCsv } from "@/lib/csv";
 
 interface GraphNode {
   id: string;
@@ -397,7 +398,17 @@ export function AttackSurfaceGraph() {
 
         {/* RIGHT: Actions */}
         <div className="flex items-center gap-2 sm:ml-auto">
-          <Button variant="outline" size="sm">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={filteredNodes.length === 0}
+            onClick={() =>
+              exportRowsToCsv(
+                filteredNodes.map((n) => ({ id: n.id, type: n.type, label: n.label })) as unknown as Record<string, unknown>[],
+                "asm-attack-surface-graph",
+              )
+            }
+          >
             <Download className="w-4 h-4 mr-2" />
             Export
           </Button>
@@ -623,8 +634,6 @@ export function AttackSurfaceGraph() {
                     { type: "Domain", shape: "Hex" },
                     { type: "Subdomain", shape: "Square" },
                     { type: "IP Address", shape: "Circle" },
-                    { type: "Port", shape: "Diamond" },
-                    { type: "Service", shape: "Triangle" },
                   ].map((item) => (
                     <div key={item.type} className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground">{item.type}</span>

@@ -131,10 +131,13 @@ const discoveryTypes = [
 
 const scheduleOptions = [
   { value: "QUICK", label: "Quick (Run Once)", intervalValue: null },
+  { value: "INTERVAL", label: "Hourly", intervalValue: "1h" },
   { value: "INTERVAL", label: "Every 5 Hours", intervalValue: "5h" },
+  { value: "INTERVAL", label: "Every 12 Hours", intervalValue: "12h" },
   { value: "INTERVAL", label: "Daily", intervalValue: "24h" },
   { value: "INTERVAL", label: "Weekly", intervalValue: "168h" },
   { value: "INTERVAL", label: "Monthly", intervalValue: "720h" },
+  { value: "CRON", label: "Custom (CRON)", intervalValue: null },
 ];
 
 export function ScanManager() {
@@ -680,10 +683,12 @@ export function ScanManager() {
         );
 
       case 3:
-        const selectedSchedule = scheduleOptions.find(opt => 
-          opt.value === newDiscovery.schedule_type && opt.intervalValue === newDiscovery.schedule_value
-        ) || scheduleOptions.find(opt => opt.value === "QUICK");
-        
+        const selectedSchedule = newDiscovery.schedule_type === "CRON"
+          ? scheduleOptions.find(opt => opt.value === "CRON")
+          : (scheduleOptions.find(opt =>
+              opt.value === newDiscovery.schedule_type && opt.intervalValue === newDiscovery.schedule_value
+            ) || scheduleOptions.find(opt => opt.value === "QUICK"));
+
         return (
           <motion.div
             initial={{ opacity: 0, x: 20 }}
@@ -727,6 +732,24 @@ export function ScanManager() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {newDiscovery.schedule_type === "CRON" && (
+                <div className="space-y-2">
+                  <Label>CRON expression</Label>
+                  <Input
+                    placeholder="*/10 * * * *"
+                    value={newDiscovery.schedule_value || ""}
+                    onChange={(e) =>
+                      setNewDiscovery({ ...newDiscovery, schedule_value: e.target.value })
+                    }
+                    className="h-12 font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Standard 5-field CRON (min hour day month weekday). Example:
+                    <span className="font-mono"> 0 */6 * * *</span> = every 6 hours.
+                  </p>
+                </div>
+              )}
 
               <div className="p-4 bg-muted/30 rounded-xl space-y-4">
                 <div className="flex items-center justify-between">
@@ -800,6 +823,11 @@ export function ScanManager() {
               <div className="text-sm text-muted-foreground capitalize">
                 {discovery.asset_type} • {discovery.intensity} intensity
               </div>
+              {discovery.next_run_at && (
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  Next run: {new Date(discovery.next_run_at).toLocaleString()}
+                </div>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1169,16 +1197,17 @@ export function ScanManager() {
                   </Button>
                 </div>
                 <div className="bg-primary/5 rounded-lg p-3">
-                  <div className="text-xs text-muted-foreground mb-2">Discovery Progress</div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <motion.div 
-                      className="h-full bg-primary"
-                      initial={{ width: "0%" }}
-                      animate={{ width: "65%" }}
-                      transition={{ duration: 2, ease: "easeInOut" }}
+                  <div className="text-xs text-muted-foreground mb-2">Discovery in progress</div>
+                  {/* Indeterminate bar: the backend exposes scan status, not a
+                      percentage, so we show honest activity — not a fake number. */}
+                  <div className="h-2 bg-muted rounded-full overflow-hidden relative">
+                    <motion.div
+                      className="h-full w-2/5 bg-primary rounded-full absolute"
+                      animate={{ left: ["-40%", "100%"] }}
+                      transition={{ duration: 1.4, ease: "easeInOut", repeat: Infinity }}
                     />
                   </div>
-                  <div className="text-xs text-muted-foreground mt-2">Scanning targets...</div>
+                  <div className="text-xs text-muted-foreground mt-2">Scanning targets…</div>
                 </div>
               </motion.div>
             ))}

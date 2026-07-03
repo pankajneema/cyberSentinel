@@ -1,6 +1,7 @@
 package asm
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -85,6 +86,22 @@ func StartJob(c *gin.Context) {
 
 	// 4️⃣ Register job
 	if err := orchestration.RegisterJob(job); err != nil {
+		// Idempotent redelivery: the discovery is already COMPLETED or actively
+		// RUNNING on another worker. Respond 200 so the consumer ACKs the message
+		// (it is not a failure and must not be dead-lettered / retried).
+		if errors.Is(err, orchestration.ErrAlreadyProcessed) {
+			utils.Logger.Infof(
+				"[ASM][ALREADY_PROCESSED] request_id=%s job_id=%s — acking without re-run",
+				requestID, job.ID,
+			)
+			c.JSON(http.StatusOK, gin.H{
+				"status": "skipped",
+				"job_id": job.ID,
+				"reason": "already processed",
+			})
+			return
+		}
+
 		utils.Logger.Errorf(
 			"[ASM][REGISTER_FAILED] request_id=%s job_id=%s error=%v",
 			requestID,
@@ -98,20 +115,42 @@ func StartJob(c *gin.Context) {
 		return
 	}
 
-	// 5️⃣ Log success
+	// 5️⃣ Execute SYNCHRONOUSLY (ACK-after-success).
+	// The gin router already runs each request in its own goroutine, so concurrent
+	// scans are still parallel across requests. Running the pipeline here (instead
+	// of a detached `go executeJob`) means this HTTP request — and therefore the
+	// RabbitMQ ACK in the consumer — only completes once the scan reaches a
+	// terminal state. A worker crash mid-scan leaves the queue message un-ACKed,
+	// so it is dead-lettered (requeue=false, no automatic retry) rather than
+	// silently dropped; recovery is via the reaper or a DLQ replay.
+	if err := orchestration.ExecuteJob(job.ID); err != nil {
+		utils.Logger.Errorf(
+			"[ASM][EXECUTE_FAILED] request_id=%s job_id=%s error=%v",
+			requestID, job.ID, err,
+		)
+		_ = orchestration.RemoveJob(job.ID)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":  err.Error(),
+			"job_id": job.ID,
+		})
+		return
+	}
+
+	// Drop the completed job from the in-memory registry (no leak).
+	_ = orchestration.RemoveJob(job.ID)
+
+	// 6️⃣ Log success
 	utils.Logger.Infof(
-		"[ASM][JOB_QUEUED] request_id=%s job_id=%s user_id=%s state=%s",
+		"[ASM][JOB_COMPLETED] request_id=%s job_id=%s user_id=%s",
 		requestID,
 		job.ID,
 		job.UserID,
-		job.State,
 	)
 
-	// 6️⃣ Response
-	c.JSON(http.StatusAccepted, gin.H{
-		"status": "accepted",
+	// 7️⃣ Response
+	c.JSON(http.StatusOK, gin.H{
+		"status": "completed",
 		"job_id": job.ID,
-		"state":  job.State,
 		"type":   job.Type,
 	})
 }

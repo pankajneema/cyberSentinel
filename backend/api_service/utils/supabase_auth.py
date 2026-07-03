@@ -65,12 +65,18 @@ def _decode_hs256(token: str) -> dict[str, Any]:
     )
 
 
+# Server-side allow-list of asymmetric algorithms. NEVER derive the algorithm
+# from the (unverified) token header — doing so enables alg-confusion/downgrade
+# attacks (e.g. forcing an unexpected alg against a JWKS key). Only `kid` is
+# read from the header, and solely to select the signing key.
+_ASYMMETRIC_ALGS = ["ES256", "RS256"]
+
+
 async def _decode_asymmetric(token: str) -> dict[str, Any]:
     """Verify an asymmetric (ES256/RS256) token via the project's JWKS."""
     jwks = await _get_jwks()
     headers = jwt.get_unverified_header(token)
     kid = headers.get("kid")
-    alg = headers.get("alg", "ES256")
     key = next((k for k in jwks.get("keys", []) if k.get("kid") == kid), None)
     if key is None:
         # Refresh once in case keys rotated, then retry.
@@ -82,7 +88,7 @@ async def _decode_asymmetric(token: str) -> dict[str, Any]:
     return jwt.decode(
         token,
         key,
-        algorithms=[alg],
+        algorithms=_ASYMMETRIC_ALGS,  # pinned server-side, not from token header
         audience="authenticated",
         options={"verify_aud": True},
     )

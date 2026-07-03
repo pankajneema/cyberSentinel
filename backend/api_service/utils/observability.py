@@ -57,19 +57,63 @@ def init_tracing(app) -> None:  # noqa: ANN001
         logger.warning("Tracing not initialized: %s", exc)
 
 
+async def _dependency_up() -> dict[str, int]:
+    """Live 1/0 liveness for critical dependencies (shared by /metrics + /readyz)."""
+    up = {"database": 0, "redis": 0, "rabbitmq": 0}
+    try:
+        from sqlalchemy import text
+        from utils.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as s:
+            await s.execute(text("SELECT 1"))
+        up["database"] = 1
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from utils.redis_client import get_redis
+        client = await get_redis()
+        if client is not None:
+            await client.ping()
+            up["redis"] = 1
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from utils.queue import get_queue_connection
+        conn = await get_queue_connection()
+        if conn is not None and not conn.is_closed:
+            up["rabbitmq"] = 1
+    except Exception:  # noqa: BLE001
+        pass
+    return up
+
+
 def install_metrics(app) -> None:  # noqa: ANN001
     """
-    Placeholder /metrics endpoint. Returns 501 until a real Prometheus registry
-    (prometheus-fastapi-instrumentator) is wired in.
+    Real /metrics endpoint in Prometheus text-exposition format — no extra
+    dependency required. Emits process + dependency-liveness gauges. Swap for
+    prometheus-fastapi-instrumentator later for full request histograms.
     """
+    import resource
     from fastapi.responses import PlainTextResponse
 
     @app.get("/metrics")
-    async def _metrics():  # pragma: no cover
-        return PlainTextResponse(
-            "# metrics not yet implemented — see docs/OBSERVABILITY.md\n",
-            status_code=501,
-        )
+    async def _metrics():
+        deps = await _dependency_up()
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        lines = [
+            "# HELP cybersentinel_up Service is up (1).",
+            "# TYPE cybersentinel_up gauge",
+            "cybersentinel_up 1",
+            "# HELP cybersentinel_dependency_up Dependency liveness (1=up,0=down).",
+            "# TYPE cybersentinel_dependency_up gauge",
+        ]
+        for dep, val in deps.items():
+            lines.append(f'cybersentinel_dependency_up{{dependency="{dep}"}} {val}')
+        lines += [
+            "# HELP process_max_resident_memory_bytes Peak RSS (platform units).",
+            "# TYPE process_max_resident_memory_bytes gauge",
+            f"process_max_resident_memory_bytes {rss}",
+        ]
+        return PlainTextResponse("\n".join(lines) + "\n")
 
 
 def install_observability(app) -> None:  # noqa: ANN001

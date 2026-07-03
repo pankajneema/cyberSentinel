@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,56 @@ var (
 	jobs   = make(map[string]*Job)
 	jobMux sync.RWMutex
 )
+
+// ErrAlreadyProcessed signals RegisterJob refused a redelivered message because
+// the discovery is already terminal (COMPLETED) or actively RUNNING on another
+// worker within the reaper window. Callers should ACK such a message (it is not
+// a failure) rather than dead-letter it. See idempotency guard (audit H4).
+var ErrAlreadyProcessed = errors.New("discovery already processed")
+
+// shouldSkipExecution decides whether a (re)delivered discovery must NOT be
+// executed again. A COMPLETED discovery is always skipped. A RUNNING discovery
+// is skipped only while its last heartbeat (updated_at) is within the reaper
+// window — beyond that it is assumed to belong to a crashed worker and is
+// reprocessed. The window is the per-job execution budget (TASK_TIMEOUT_SECONDS).
+func shouldSkipExecution(status string, updatedAtRaw interface{}) (bool, string) {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "COMPLETED":
+		return true, "already COMPLETED"
+	case "RUNNING":
+		updatedAt, ok := parseDBTime(updatedAtRaw)
+		if !ok {
+			// Unknown heartbeat: be safe and reprocess rather than strand the job.
+			return false, ""
+		}
+		window := time.Duration(config.Load().TaskTimeoutSec) * time.Second
+		if time.Since(updatedAt) < window {
+			return true, "already RUNNING on another worker within reaper window"
+		}
+		return false, "stale RUNNING (past reaper window), reprocessing"
+	}
+	return false, ""
+}
+
+// parseDBTime parses a timestamp emitted by row_to_json (with or without a
+// timezone offset / fractional seconds).
+func parseDBTime(raw interface{}) (time.Time, bool) {
+	s, ok := raw.(string)
+	if !ok || s == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05.999999",
+		"2006-01-02T15:04:05",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
 
 // initDBConnection ensures database connections are established
 func initDBConnection() error {
@@ -102,6 +153,16 @@ func RegisterJob(job *Job) error {
 
 	status, _ := jobData["status"].(string)
 
+	// Idempotency guard (audit H4): a redelivered RabbitMQ message for a discovery
+	// that already reached COMPLETED — or is actively RUNNING on another worker
+	// within the reaper window — must not re-run the whole scan. Skip execution and
+	// signal the caller (control-plane -> consumer) to ACK instead of dead-letter.
+	if skip, reason := shouldSkipExecution(status, jobData["updated_at"]); skip {
+		delete(jobs, job.ID)
+		utils.Logger.Infof("skipping already-processed job id=%s status=%s reason=%s", job.ID, status, reason)
+		return ErrAlreadyProcessed
+	}
+
 	// Extract asset_ids array from jobData (if present). Support multiple shapes.
 	var assetIDs []string
 	if rawIDs, ok := jobData["asset_ids"]; ok && rawIDs != nil {
@@ -180,10 +241,13 @@ func RegisterJob(job *Job) error {
 		utils.Logger.Infof("pipeline stored in redis key=asm:pipeline:%s", job.ID)
 	}
 
-	//TODO FOR FUTURES HERE MAKE A LOAD BALANCE AND SHARDING LOGIC========================= #TODO
-	go executeJob(job.ID)
-
-	// Update job status to RUNNING in DB
+	// Mark RUNNING in DB (fast; safe to do under the registry lock). The actual
+	// scan is executed SYNCHRONOUSLY by the caller via ExecuteJob AFTER this
+	// returns — this is what lets the RabbitMQ consumer ACK only after the work
+	// reaches a terminal state (ACK-after-success). A crash mid-scan then leaves
+	// the message un-ACKed; on channel close it is dead-lettered (the consumer
+	// Nacks with requeue=false — there is no automatic redelivery/retry, so a
+	// failed one-shot job must be re-run via the reaper or a DLQ replay).
 	job.State = JobRunning
 	updateQuery := `UPDATE asm_discoveries SET status = 'RUNNING', updated_at = NOW() WHERE id = $1;`
 	if err := database.Exec(ctx, updateQuery, job.ID); err != nil {
@@ -199,8 +263,46 @@ func RegisterJob(job *Job) error {
 	return nil
 }
 
+// publishScanEvent notifies the API (via Redis pub/sub) of a scan lifecycle
+// change so it can raise realtime/panel/email/Slack notifications. Best-effort:
+// a publish failure is logged and never affects scan execution. The stable
+// event id (discoveryID:event) lets the API dedup across replicas.
+func publishScanEvent(discoveryID, event, errMsg string) {
+	// Fire-and-forget: never couple scan-completion latency (and the queue ACK
+	// that follows it) to Redis health. A stalled Redis just drops the event.
+	go publishScanEventSync(discoveryID, event, errMsg)
+}
+
+func publishScanEventSync(discoveryID, event, errMsg string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	// event_id is unique PER RUN (includes the emit timestamp). The message is
+	// published once, so every API replica sees the same id and the cross-replica
+	// dedup lock still elects one processor — but a recurring scan that completes
+	// again minutes later gets a fresh id and is NOT suppressed by the dedup TTL.
+	payload := map[string]interface{}{
+		"event_id":     fmt.Sprintf("%s:%s:%d", discoveryID, event, time.Now().UnixNano()),
+		"discovery_id": discoveryID,
+		"event":        event,
+	}
+	if errMsg != "" {
+		payload["error"] = errMsg
+	}
+	if err := database.Publish(ctx, "asm:worker:events", payload); err != nil {
+		utils.Logger.Warnf("failed to publish scan event %s for %s: %v", event, discoveryID, err)
+	}
+}
+
+// ExecuteJob runs a registered job's pipeline synchronously and returns its
+// terminal result. It is the exported entry point the control-plane HTTP handler
+// calls so that the request (and therefore the queue ACK) completes only after
+// the scan finishes. executeJob writes the COMPLETED/FAILED status to the DB.
+func ExecuteJob(jobID string) error {
+	return executeJob(jobID)
+}
+
 func executeJob(jobID string) error {
-	utils.Logger.Info("Job Executor start and job id is : %s",jobID)
+	utils.Logger.Infof("Job Executor start and job id is : %s", jobID)
 	// Bound the whole job by the configured timeout so a hung tool cannot block
 	// a worker forever (audit C4). TASK_TIMEOUT_SECONDS, default 900.
 	ctx, cancel := runner.NewTimeoutContext(config.Load().TaskTimeoutSec)
@@ -210,7 +312,7 @@ func executeJob(jobID string) error {
 		JobID: jobID, // 🔑 ONLY JOB ID PASSED
 	}
 	result := runner.Run(ctx, task)
-    utils.Logger.Info("Job Executed and Result %s for Job id %s",result,jobID)
+	utils.Logger.Infof("Job Executed and Result %v for Job id %s", result, jobID)
 
 	// Final status writes must NOT reuse the job ctx: if a slow tool consumed the
 	// whole TASK_TIMEOUT budget, ctx is already past its deadline and every write
@@ -231,6 +333,7 @@ func executeJob(jobID string) error {
 			jobID,
 			result.Error,
 		)
+		publishScanEvent(jobID, "failed", result.Error)
 		return fmt.Errorf("job execution failed: %s", result.Error)
 	}
 
@@ -241,6 +344,7 @@ func executeJob(jobID string) error {
 	}
 
 	utils.Logger.Infof("job_manager job completed job=%s", jobID)
+	publishScanEvent(jobID, "completed", "")
 	return nil
 }
 

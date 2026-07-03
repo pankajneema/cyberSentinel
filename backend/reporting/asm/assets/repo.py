@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api_service.models.asm_models import AsmDiscovery, AsmDiscoveryRun, AsmRepoFinding
 from backend.reporting.asm.assets.domain import get_user_id_from_discovery
+from backend.reporting.sanitize import clean_str, clean_deep
 
 logger = logging.getLogger(__name__)
 
@@ -56,14 +57,14 @@ async def store_repo_findings(
                     org_id=org_id,
                     asset_id=asset_id,
                     repo_url=str(repo_url).strip(),
-                    finding_type=item.get("finding_type"),
+                    finding_type=clean_str(item.get("finding_type")),
                     rule=item.get("rule"),
-                    severity=item.get("severity"),
+                    severity=clean_str(item.get("severity")),
                     file_path=item.get("file_path"),
                     line=line,
-                    secret=item.get("secret"),
-                    commit=item.get("commit"),
-                    extra_info=item,
+                    secret=clean_str(item.get("secret")),
+                    commit=clean_str(item.get("commit")),
+                    extra_info=clean_deep(item),
                 )
                 .on_conflict_do_nothing(
                     index_elements=["asm_discovery_id", "repo_url", "rule", "file_path", "line"]

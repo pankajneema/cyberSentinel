@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api_service.models.asm_models import AsmDiscovery, AsmDiscoveryRun, AsmSaasApp
 from backend.reporting.asm.assets.domain import get_user_id_from_discovery
+from backend.reporting.sanitize import clean_str, clean_deep
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +48,12 @@ async def store_saas_apps(
                     org_id=org_id,
                     asset_id=asset_id,
                     app_name=str(app_name).strip(),
-                    vendor=item.get("vendor"),
-                    category=item.get("category"),
-                    url=item.get("url"),
-                    status=item.get("status"),
-                    discovery_method=item.get("discovery_method"),
-                    extra_info=item,
+                    vendor=clean_str(item.get("vendor")),
+                    category=clean_str(item.get("category")),
+                    url=clean_str(item.get("url")),
+                    status=clean_str(item.get("status")),
+                    discovery_method=clean_str(item.get("discovery_method")),
+                    extra_info=clean_deep(item),
                 )
                 .on_conflict_do_nothing(index_elements=["asm_discovery_id", "app_name"])
                 .returning(AsmSaasApp.id)

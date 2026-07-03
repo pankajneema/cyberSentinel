@@ -12,12 +12,15 @@ from config.settings import settings
 from utils.database import Base
 
 # Import all model modules so their tables register on Base.metadata.
-import models.auth_models       # noqa: F401
-import models.asm_models        # noqa: F401
-import models.asset_models      # noqa: F401
-import models.billing_model     # noqa: F401
-import models.marketing_models  # noqa: F401
-import models.tenancy_models    # noqa: F401
+import models.auth_models         # noqa: F401
+import models.asm_models          # noqa: F401
+import models.asset_models        # noqa: F401
+import models.billing_model       # noqa: F401
+import models.marketing_models    # noqa: F401
+import models.tenancy_models      # noqa: F401
+import models.notification_models # noqa: F401  # was missing → autogenerate would DROP notifications
+import models.report_models       # noqa: F401  # was missing → autogenerate would DROP reports
+import models.task_models         # noqa: F401  # was missing → autogenerate would DROP tasks
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

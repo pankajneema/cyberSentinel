@@ -77,6 +77,24 @@ func buildIPSeedTargets(ctx context.Context, jobID, assetID string) ([]ipSeed, [
 	return seeds, ips, nil
 }
 
+// isForbiddenScanIP reports whether an address must never be scanned: loopback,
+// RFC1918/ULA private, link-local (incl. 169.254.169.254 cloud metadata),
+// multicast, or the unspecified address. This is the authoritative SSRF guard
+// (CWE-918) applied AFTER DNS resolution/CIDR expansion, so it also defeats DNS
+// rebinding where a tenant-owned domain resolves to an internal address.
+func isForbiddenScanIP(s string) bool {
+	ip, err := netip.ParseAddr(s)
+	if err != nil {
+		return true // unparseable -> drop
+	}
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsMulticast() ||
+		ip.IsUnspecified()
+}
+
 func expandIPTargets(raw string) []string {
 	cleaned := strings.TrimSpace(raw)
 	if cleaned == "" {
@@ -94,7 +112,7 @@ func expandIPTargets(raw string) []string {
 		}
 		if strings.Contains(part, "/") {
 			for _, ip := range expandCIDR(part, 4096) {
-				if !seen[ip] {
+				if !seen[ip] && !isForbiddenScanIP(ip) {
 					seen[ip] = true
 					results = append(results, ip)
 				}
@@ -103,7 +121,7 @@ func expandIPTargets(raw string) []string {
 		}
 		if ip, err := netip.ParseAddr(part); err == nil {
 			ipStr := ip.String()
-			if !seen[ipStr] {
+			if !seen[ipStr] && !isForbiddenScanIP(ipStr) {
 				seen[ipStr] = true
 				results = append(results, ipStr)
 			}
@@ -186,6 +204,11 @@ func dedupeIPs(ips []string) []string {
 	for _, ip := range ips {
 		ip = strings.TrimSpace(ip)
 		if ip == "" || seen[ip] {
+			continue
+		}
+		// Authoritative SSRF guard: drop internal/reserved addresses that
+		// reached us via DNS resolution or CIDR expansion (defeats rebinding).
+		if isForbiddenScanIP(ip) {
 			continue
 		}
 		seen[ip] = true

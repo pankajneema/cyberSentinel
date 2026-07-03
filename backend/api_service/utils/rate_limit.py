@@ -27,12 +27,25 @@ WINDOW_SECONDS = 60
 
 _WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
+# Number of trusted reverse-proxy hops in front of the app. `X-Forwarded-For` is
+# client-controlled and MUST NOT be trusted blindly — a spoofed header would
+# rotate the limiter bucket key and bypass the limit entirely. Only the value
+# appended by our own proxy (the Nth-from-right entry) is trustworthy. Default 0
+# = ignore XFF and use the real socket peer.
+TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS", "0"))
+
 
 def _client_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    peer = request.client.host if request.client else "unknown"
+    if TRUSTED_PROXY_HOPS > 0:
+        fwd = request.headers.get("x-forwarded-for")
+        if fwd:
+            chain = [p.strip() for p in fwd.split(",") if p.strip()]
+            # The rightmost entries are appended by infrastructure closest to us;
+            # take the one our trusted proxy set, not the leftmost client-spoofable one.
+            if len(chain) >= TRUSTED_PROXY_HOPS:
+                return chain[-TRUSTED_PROXY_HOPS]
+    return peer
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):

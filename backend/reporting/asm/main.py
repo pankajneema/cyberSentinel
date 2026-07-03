@@ -100,7 +100,11 @@ async def handle_step_event(event: dict[str, Any]) -> None:
         # Don't fail the entire event processing if incremental storage fails
 
 async def handle_final_event(event: dict[str, Any], redis_client=None) -> None:
-    """Handle final pipeline completion event - trigger scoring and processing"""
+    """Handle final pipeline completion event: persist the scan results.
+
+    NOTE: exposure scoring is NOT performed here. Assets are scored
+    asynchronously by the API service's scheduler tick (_auto_score_assets),
+    which reads the persisted rows. This handler's job is durable persistence."""
     job_id = event.get("job_id")
     status = event.get("status")
     progress = event.get("progress", 100)
@@ -123,7 +127,7 @@ async def handle_final_event(event: dict[str, Any], redis_client=None) -> None:
         logger.error(f"Failed to parse pipeline state for job {job_id}: {e}", exc_info=True)
         return
     
-    # Process the complete pipeline (this triggers scoring)
+    # Persist the complete pipeline (scoring runs later via the API scheduler tick)
     asset_type = job_detail.get("asset_type")
     if not asset_type:
         logger.error(f"Missing asset_type in pipeline state for job {job_id}")

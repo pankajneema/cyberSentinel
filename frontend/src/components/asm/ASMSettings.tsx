@@ -249,7 +249,10 @@ export function ASMSettings() {
             transition={{ delay: 0.1 }}
             className="card-elevated p-6"
           >
-            <h3 className="font-semibold text-foreground mb-4">Exposure Signals</h3>
+            <h3 className="font-semibold text-foreground mb-1">Exposure Signals</h3>
+            <p className="text-xs text-muted-foreground mb-4">
+              Indicative weighting of the factors the exposure model considers — reference only, not editable here.
+            </p>
             <div className="space-y-4">
               {[
                 { label: "Internet-facing assets", value: 30 },
@@ -293,8 +296,6 @@ export function ASMSettings() {
                 { key: "medium_exposure", label: "Medium exposure assets", description: "Notify for medium exposure assets" },
                 { key: "new_assets", label: "New assets discovered", description: "Alert when new assets are found" },
                 { key: "discovery_completed", label: "Discovery completed", description: "Notify when discovery runs finish" },
-                { key: "daily_summary", label: "Daily summary", description: "Send daily digest of discoveries" },
-                { key: "weekly_report", label: "Weekly report", description: "Send weekly executive summary" },
               ].map((rule) => (
                 <div key={rule.key} className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
                   <div>

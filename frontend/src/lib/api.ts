@@ -65,7 +65,6 @@ export * from "./services/scans";
 export * from "./services/vs";
 export * from "./services/tasks";
 export * from "./services/reports";
-export * from "./services/settings";
 export * from "./services/activity";
 export * from "./services/team";
 export * from "./services/notifications";

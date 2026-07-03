@@ -1,9 +1,9 @@
 import { Outlet } from "react-router-dom";
 import { AppSidebar } from "@/components/app/AppSidebar";
 import { AppHeader } from "@/components/app/AppHeader";
-import { LiveScanIndicator } from "@/components/app/LiveScanIndicator";
 import { LiveScanPopup } from "@/components/app/LiveScanPopup";
 import { SidebarProvider, useSidebar } from "@/contexts/SidebarContext";
+import { RealtimeProvider } from "@/hooks/useRealtime";
 import { cn } from "@/lib/utils";
 
 function AppLayoutContent() {
@@ -30,7 +30,6 @@ function AppLayoutContent() {
       </div>
       
       {/* Live Scan Indicators */}
-      <LiveScanIndicator />
       <LiveScanPopup />
     </div>
   );
@@ -38,8 +37,10 @@ function AppLayoutContent() {
 
 export function AppLayout() {
   return (
-    <SidebarProvider>
-      <AppLayoutContent />
-    </SidebarProvider>
+    <RealtimeProvider>
+      <SidebarProvider>
+        <AppLayoutContent />
+      </SidebarProvider>
+    </RealtimeProvider>
   );
 }

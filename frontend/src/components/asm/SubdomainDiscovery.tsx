@@ -345,7 +345,9 @@ export function SubdomainDiscovery() {
         name: subdomain.subdomain,
         type: "subdomain",
         asset_id: subdomain.asset_id,
-        risk: "medium", // Default risk, can be enhanced later
+        // No fabricated severity: a bare subdomain is low-signal; real exposure
+        // is scored on its resolved IPs/ports separately, not invented here.
+        risk: "low" as SubdomainNode["risk"],
         status: (subdomain.status || "active") as "active" | "inactive",
         ip_count: subdomain.ip_count || 0,
         resolved: subdomain.resolved ?? null,  // DNS resolution status
@@ -407,25 +409,34 @@ export function SubdomainDiscovery() {
     return hierarchicalStructure.map(filterNode).filter((n): n is SubdomainNode => n !== null);
   }, [hierarchicalStructure, searchQuery, resolvedFilter]);
 
+  // Subdomains are DISCOVERED by ASM scans, not manually managed — there is no
+  // backend endpoint to add/remove/rescan an individual subdomain. These handlers
+  // tell the truth instead of showing a fake success for an action that no-ops.
   const handleAddSubdomain = () => {
-    if (!newSubdomain || !parentDomain) {
-      toast({ title: "Error", description: "Please enter subdomain and select parent domain", variant: "destructive" });
-      return;
-    }
-    toast({ title: "Subdomain Added", description: `${newSubdomain} has been added under ${parentDomain}` });
+    toast({
+      title: "Not available",
+      description: "Subdomains are found automatically by discovery scans. Run a discovery to enumerate them.",
+    });
     setIsAddOpen(false);
     setNewSubdomain("");
     setParentDomain("");
   };
 
   const handleDelete = (id: string, name: string) => setDeleteConfirm({ id, name });
-  const confirmDelete = () => { 
-    if (deleteConfirm) { 
-      toast({ title: "Subdomain Removed", description: `${deleteConfirm.name} has been removed` }); 
-      setDeleteConfirm(null); 
-    } 
+  const confirmDelete = () => {
+    if (deleteConfirm) {
+      toast({
+        title: "Not available",
+        description: "Discovered subdomains can't be deleted manually — they reflect real scan results.",
+      });
+      setDeleteConfirm(null);
+    }
   };
-  const handleRescan = (name: string) => toast({ title: "Re-scanning", description: `Scanning ${name}...` });
+  const handleRescan = (name: string) =>
+    toast({
+      title: "Not available",
+      description: `Re-run the discovery for ${name}'s domain to refresh its subdomains.`,
+    });
 
   const domainAssets = assets.filter(a => a.type === "domain");
 

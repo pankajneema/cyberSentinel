@@ -3,9 +3,15 @@ package utils
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
+
+// publishConfirmTimeout bounds how long Publish waits for a broker ack when the
+// caller's context carries no deadline of its own.
+const publishConfirmTimeout = 10 * time.Second
 
 // Queue wraps RabbitMQ connection & channel
 type Queue struct {
@@ -92,9 +98,14 @@ func Connect(rabbitURL, queueName string) (*Queue, error) {
 	}, nil
 }
 
-// Publish sends a message to the queue
+// Publish sends a message to the queue and waits for the broker's publisher
+// confirm before returning. The channel is in confirm mode (see Connect), so a
+// successful return means RabbitMQ has durably accepted the message; a broker
+// nack or a confirm timeout is surfaced as an error so callers (which already
+// treat publish failure as fatal / dead-letter-worthy) can react instead of
+// silently losing the message.
 func (q *Queue) Publish(ctx context.Context, body []byte) error {
-	return q.channel.PublishWithContext(
+	conf, err := q.channel.PublishWithDeferredConfirmWithContext(
 		ctx,
 		"",           // exchange
 		q.queue.Name, // routing key
@@ -106,6 +117,27 @@ func (q *Queue) Publish(ctx context.Context, body []byte) error {
 			DeliveryMode: amqp.Persistent,
 		},
 	)
+	if err != nil {
+		return err
+	}
+
+	// Bound the wait: honor the caller's deadline if it has one, otherwise apply
+	// a default timeout so a stalled broker cannot block the caller forever.
+	waitCtx := ctx
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		waitCtx, cancel = context.WithTimeout(ctx, publishConfirmTimeout)
+		defer cancel()
+	}
+
+	acked, err := conf.WaitContext(waitCtx)
+	if err != nil {
+		return fmt.Errorf("publish confirm wait failed: %w", err)
+	}
+	if !acked {
+		return errors.New("publish nacked by broker")
+	}
+	return nil
 }
 
 // Consume starts consuming messages
