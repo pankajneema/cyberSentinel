@@ -1249,25 +1249,17 @@ func Run(ctx context.Context, task executor.Task) (result executor.Result) {
 				output = runIPDiff(ctx, task.JobID, enhancedPipeline.Pipeline[i].AssetID, ips, currentPorts)
 
 			case "ip_exposure_score":
-				var currentPorts []map[string]interface{}
-				for j := i - 1; j >= 0; j-- {
-					if enhancedPipeline.Pipeline[j].Status != "COMPLETED" {
-						continue
-					}
-					if enhancedPipeline.Pipeline[j].Step != "common_port_scan" {
-						continue
-					}
-					if p, ok := enhancedPipeline.Pipeline[j].Result["ports"].([]interface{}); ok {
-						for _, item := range p {
-							if portMap, ok := item.(map[string]interface{}); ok {
-								currentPorts = append(currentPorts, portMap)
-							}
-						}
-					}
-					break
-				}
+				// Exposure scoring is now performed by the SINGLE defensible model
+				// (scoring/exposure.py) at the API layer, so the worker no longer
+				// emits the legacy len(ports)*3 magic-number here. We deliberately
+				// do NOT return a "scores" key: the reporting consumer therefore
+				// leaves AsmIP.exposure_score/level NULL, and the scheduler's
+				// IP-scoring pass fills them from the real model — keeping the IP
+				// surface and the Exposure tab consistent.
 				output = map[string]interface{}{
-					"scores": scoreExposure(currentPorts),
+					"note":         "exposure scoring deferred to the API exposure model",
+					"scored_by":    "scoring/exposure.py",
+					"legacy_score": false,
 				}
 
 			case "ip_findings_summary":

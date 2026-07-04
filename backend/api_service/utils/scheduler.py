@@ -121,6 +121,70 @@ async def _reap_stale(db, now: datetime) -> list[dict]:
     ]
 
 
+# severity (5 bands) -> AsmIP.exposure_level (3 bands the UI renders)
+_IP_LEVEL = {"critical": "high", "high": "high", "medium": "medium", "low": "low", "info": "low"}
+
+
+async def _score_discovered_ips(db, limit: int = 2000) -> int:
+    """Score discovered AsmIP rows with the SINGLE defensible model
+    (scoring/exposure.py) and persist exposure_score/level/explanation.
+
+    This retires the legacy Go magic-number: the worker no longer computes an IP
+    score, so the number shown on the IP surface now comes from the same model as
+    the Exposure tab. Selection is keyed off `score_explanation IS NULL` — the
+    model always writes its factor breakdown there, so a freshly discovered IP (or
+    one left unscored by the old heuristic) is picked up exactly once per state."""
+    from models.asm_models import AsmIP, AsmPort, AsmSSLCert
+    from scoring import score_exposure, AssetSignals
+
+    ips = (await db.execute(
+        select(AsmIP).where(AsmIP.score_explanation.is_(None)).limit(limit)
+    )).scalars().all()
+    if not ips:
+        return 0
+
+    disc_ids = list({ip.asm_discovery_id for ip in ips})
+    ports = (await db.execute(
+        select(AsmPort).where(
+            AsmPort.asm_discovery_id.in_(disc_ids), AsmPort.status == "open")
+    )).scalars().all()
+    ports_by: dict[tuple, list[int]] = {}
+    svc_by: dict[tuple, list[str]] = {}
+    for p in ports:
+        k = (p.asm_discovery_id, p.ip_address)
+        ports_by.setdefault(k, []).append(p.port)
+        if p.service:
+            svc_by.setdefault(k, []).append(p.service)
+
+    certs = (await db.execute(
+        select(AsmSSLCert).where(AsmSSLCert.asm_discovery_id.in_(disc_ids))
+    )).scalars().all()
+    now = datetime.utcnow()
+    tls_by: dict[tuple, list[str]] = {}
+    for c in certs:
+        if c.valid_until and c.valid_until < now:
+            tls_by.setdefault((c.asm_discovery_id, c.host), []).append("expired")
+
+    scored = 0
+    for ip in ips:
+        k = (ip.asm_discovery_id, ip.ip_address)
+        sc = score_exposure(AssetSignals(
+            open_ports=ports_by.get(k, []),
+            services=svc_by.get(k, []),
+            is_public=True,                 # externally-discovered = internet-facing
+            tls_issues=tls_by.get(k, []),
+            asset_criticality="normal",
+        ))
+        ip.exposure_score = sc.score
+        ip.exposure_level = _IP_LEVEL.get(sc.severity, "low")
+        ip.score_explanation = sc.to_dict().get("factors")
+        scored += 1
+    await db.commit()
+    if scored:
+        logger.info("scored %d discovered IP(s) with the exposure model", scored)
+    return scored
+
+
 async def _auto_score_assets(db, limit: int = 200) -> int:
     """Automatically score assets that have ASM scan data but no (or stale) score.
 
@@ -272,6 +336,13 @@ async def _tick() -> int:
             await _auto_score_assets(db)
         except Exception as exc:  # noqa: BLE001
             logger.warning("auto-score pass failed: %s", exc)
+
+        # 3b) Score freshly discovered IPs with the same defensible model so the
+        #     IP surface and the Exposure tab agree (retires the Go heuristic).
+        try:
+            await _score_discovered_ips(db)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("IP scoring pass failed: %s", exc)
 
         # 4) Fire due scheduled reports so recurring reports actually generate.
         try:
