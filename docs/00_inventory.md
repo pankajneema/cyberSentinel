@@ -63,7 +63,7 @@ flowchart LR
 | `infrastructure/kubernetes/` | K8s manifests | Cluster deployment | [infra.md](04_infra_and_api_guide/infra.md) |
 | `infrastructure/terraform/` | Terraform | Cloud resource provisioning | [infra.md](04_infra_and_api_guide/infra.md) |
 | `.github/workflows/` | GitHub Actions | CI (lint/test/build per service) | [infra.md](04_infra_and_api_guide/infra.md) |
-| `startup/`, `dev.sh`, `Makefile`, `docker-compose.yml` | Shell / Compose | Local dev orchestration | [Local Setup](03_local_setup_guide.md) |
+| `startup/`, `scripts/dev.sh`, `Makefile`, `docker-compose.yml` | Shell / Compose | Local dev orchestration | [Local Setup](03_local_setup_guide.md) |
 | `docs/` | Markdown | This documentation set | — |
 
 > **Note:** `backend/notificationservice/` is imported by `api_service` at runtime (its parent `backend/` is prepended to `sys.path`), so the notification bus runs *inside* the API process, not as a separate deployed container. See [notificationservice.md](01_developer_guide/notificationservice.md).

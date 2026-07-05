@@ -2,7 +2,7 @@
 #
 # CyberSentinel — run every service for local development.
 #
-#   ./dev.sh
+#   ./scripts/dev.sh
 #
 # Starts (with prefixed, colorised logs) and stops them all together on Ctrl+C:
 #   • api          FastAPI API service        http://localhost:8000   (/docs)
@@ -17,7 +17,8 @@
 #   and the env files: backend/api_service/.env, backend/workers/.env, frontend/.env
 #
 set -uo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Repo root is the parent of this script's dir (scripts/).
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 # ---- config ----------------------------------------------------------------

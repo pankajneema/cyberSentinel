@@ -32,7 +32,7 @@ flowchart LR
 ```
 
 ## 2. Local dev entrypoints
-- `dev.sh` and the `Makefile` orchestrate bringing the stack up; `startup/` holds boot helpers; `test-api.sh` exercises the API. Exact commands: [Local Setup Guide](../03_local_setup_guide.md).
+- `scripts/dev.sh` and the `Makefile` orchestrate bringing the stack up; `startup/` holds boot helpers; `scripts/test-api.sh` exercises the API. Exact commands: [Local Setup Guide](../03_local_setup_guide.md).
 
 ## 3. CI
 `.github/workflows/ci.yml` runs per-service jobs:

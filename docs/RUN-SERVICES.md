@@ -1,6 +1,6 @@
 # Run All Services — One by One
 
-A manual, service-by-service guide to boot the **entire CyberSentinel stack**. Open **one terminal tab per service** and run them in this order. (Prefer a single command? Use `./start.sh`.)
+A manual, service-by-service guide to boot the **entire CyberSentinel stack**. Open **one terminal tab per service** and run them in this order. (Prefer a single command? Use `./scripts/start.sh`.)
 
 Order matters: **infra first**, then the API, then the workers, then the frontend.
 

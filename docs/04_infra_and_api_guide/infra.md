@@ -25,7 +25,7 @@
 
 | Env | Where | How it differs |
 |---|---|---|
-| **Development** | laptop, `docker-compose` / `dev.sh` | `DEBUG=true`, `DB_AUTO_CREATE` allowed, default creds, no TLS |
+| **Development** | laptop, `docker-compose` / `scripts/dev.sh` | `DEBUG=true`, `DB_AUTO_CREATE` allowed, default creds, no TLS |
 | **Staging / Production** | Kubernetes (namespace `cybersentinel`) on AWS (Terraform-provisioned) | Alembic-managed schema, real Supabase, TLS via cert-manager, managed RDS Postgres, secrets from cluster secrets |
 
 CI triggers on `push` to `main`/`develop` and all PRs. `[NEEDS CONFIRMATION FROM DEV]` on the exact staging vs prod branch/deploy mapping — the CI file builds and scans but the **deploy step is not present** in `ci.yml` (see [§11](#11-known-gaps)).

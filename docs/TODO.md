@@ -10,7 +10,7 @@ Legend: `[x]` done · `[ ]` to do · **(BLOCKER)** must finish before dependents
 ## ✅ Progress log — completed so far
 
 **Foundation & docs**
-- [x] Full enterprise audit (`cybersentinel-enterprise-audit.pdf`)
+- [x] Full enterprise audit (`deliverables/cybersentinel-enterprise-audit.pdf`)
 - [x] `ROADMAP.md` (0→10/10 phased plan) + this `TODO.md`
 - [x] `docs/PHASE-1-AUTH.md` integration guide
 

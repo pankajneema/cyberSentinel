@@ -1,6 +1,6 @@
 # Local Development Setup Guide
 
-> Get the entire CyberSentinel stack running locally from scratch. Two paths: **all-in-Docker** (fastest) or **hybrid** (infra in Docker, app services with hot-reload via `dev.sh`).
+> Get the entire CyberSentinel stack running locally from scratch. Two paths: **all-in-Docker** (fastest) or **hybrid** (infra in Docker, app services with hot-reload via `scripts/dev.sh`).
 
 **Related:** [Inventory](00_inventory.md) · [Infra Guide](04_infra_and_api_guide/infra.md) · [Developer Guide](01_developer_guide/overview.md)
 
@@ -36,7 +36,7 @@ Scanning tools (only needed if you run the Go control-plane and want real scans)
 ```bash
 git clone <repo-url> cyberSentinel && cd cyberSentinel
 ```
-Orientation (see [Inventory §2](00_inventory.md#2-top-level-services--directories)): `frontend/`, `backend/api_service/`, `backend/workers/`, `backend/reporting/`, `backend/notificationservice/`, `infrastructure/`, `docker-compose.yml`, `dev.sh`, `Makefile`.
+Orientation (see [Inventory §2](00_inventory.md#2-top-level-services--directories)): `frontend/`, `backend/api_service/`, `backend/workers/`, `backend/reporting/`, `backend/notificationservice/`, `infrastructure/`, `docker-compose.yml`, `scripts/dev.sh`, `Makefile`.
 
 ## 3. Environment files
 Create these from their `.env.example` siblings (names only shown here — never commit real values). Full name list: [Infra §6](01_developer_guide/infra.md#6-environment-variables-names-only).
@@ -59,9 +59,9 @@ Compose starts, in health-gated order: postgres → redis → rabbitmq → api �
 Best for active development. Bring up only the infra, then run app services locally with reload:
 ```bash
 docker compose up -d postgres redis rabbitmq   # just the stores
-./dev.sh                                        # runs all 5 app services with prefixed logs
+./scripts/dev.sh                                        # runs all 5 app services with prefixed logs
 ```
-`dev.sh` starts (Ctrl+C stops all together):
+`scripts/dev.sh` starts (Ctrl+C stops all together):
 - **api** — `uvicorn main:app --reload` → http://localhost:8000 (`/docs` for Swagger)
 - **control-plane** — `go run ./control-plane/cmd/` → http://localhost:8090
 - **consumer** — `go run ./consumer/cmd/asm/` (queue worker)
@@ -96,7 +96,7 @@ open  http://localhost:8000/docs       # Swagger UI (interactive API)
 open  http://localhost:8080            # the app — sign up / log in via Supabase
 open  http://localhost:15672           # RabbitMQ management (guest/guest by default)
 ```
-`test-api.sh` at the repo root exercises the API end-to-end. On first login, JIT provisioning creates your Organization (you become `owner`) and MemberProfile automatically.
+`scripts/test-api.sh` at the repo root exercises the API end-to-end. On first login, JIT provisioning creates your Organization (you become `owner`) and MemberProfile automatically.
 
 **End-to-end smoke test of a scan:** log in → Asset Inventory → add a domain you own → verify ownership → ASM → Discovery → New Discovery (Domain, Normal, Quick) → Run. Watch the LiveScanPopup, then check ASM → Findings. (Real scans need the scan CLIs installed and the control-plane running.)
 
@@ -123,7 +123,7 @@ The frontend has **no test suite** — `tsc --noEmit` + build is its correctness
 | Control-plane logs "internal token unset", binds 127.0.0.1 | `X_INTERNAL_TOKEN` missing | set it in `backend/workers/.env` (must match what the API sends) |
 | RabbitMQ `PRECONDITION_FAILED` on queue declare | old `jobs.asm`/`report.asm` queues declared without DLQ args | delete the old queues in the mgmt UI and restart |
 | Scans stay `PENDING`/never run | consumer or control-plane not running, or scan CLIs missing | run both Go services; install nmap/nuclei/etc. |
-| Reporting import errors | `PYTHONPATH` not set | use `dev.sh` (sets it) or export `PYTHONPATH=.:backend:backend/api_service` |
+| Reporting import errors | `PYTHONPATH` not set | use `scripts/dev.sh` (sets it) or export `PYTHONPATH=.:backend:backend/api_service` |
 | Geo Map blank | offline / CDN blocked | it fetches topojson from jsdelivr at runtime ([known limitation](01_developer_guide/frontend.md#11-known-limitations--tech-debt)) |
 
 ## 10. Verification checklist

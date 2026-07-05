@@ -2,8 +2,8 @@
 #
 # Full CRUD + ASM API smoke test for CyberSentinel.
 #
-#   TOKEN="<your supabase access_token>" ./test-api.sh
-#   # or:  ./test-api.sh "<token>"
+#   TOKEN="<your supabase access_token>" ./scripts/test-api.sh
+#   # or:  ./scripts/test-api.sh "<token>"
 #
 # Get the token: open the app, DevTools → Network → any /api/v1 request →
 # Request Headers → copy the value after "Authorization: Bearer ".
@@ -12,7 +12,7 @@ set -uo pipefail
 BASE="${API_BASE:-http://localhost:8000/api/v1}"
 TOKEN="${TOKEN:-${1:-}}"
 
-if [ -z "$TOKEN" ]; then echo "ERROR: provide a token (TOKEN=... ./test-api.sh)"; exit 1; fi
+if [ -z "$TOKEN" ]; then echo "ERROR: provide a token (TOKEN=... ./scripts/test-api.sh)"; exit 1; fi
 
 pass=0; fail=0
 AUTH=(-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
