@@ -6,11 +6,13 @@ export interface ApiAsset {
   name: string;
   type: "domain" | "ip" | "cloud" | "repo" | "saas" | "user";
   exposure: "public" | "internal";
+  criticality?: "low" | "normal" | "high" | "critical";  // business criticality (default "normal")
   risk_score: number | null;        // null = never scored ("Unscanned")
   last_scored_at?: string | null;
   tags: string[];
   last_seen?: string;
   status?: "active" | "inactive" | "archived";
+  ownership_verified?: boolean;     // gate: only verified assets may be scanned
 }
 
 export interface AssetListParams {
@@ -25,6 +27,7 @@ export interface CreateAssetPayload {
   name: string;
   type: "domain" | "ip" | "cloud" | "repo" | "saas" | "user";
   exposure: "public" | "internal";
+  criticality?: "low" | "normal" | "high" | "critical";
   tags?: string[];
   description?: string;
 }
@@ -32,6 +35,7 @@ export interface CreateAssetPayload {
 export interface UpdateAssetPayload {
   name?: string;
   exposure?: "public" | "internal";
+  criticality?: "low" | "normal" | "high" | "critical";
   tags?: string[];
   risk_score?: number;
   status?: "active" | "inactive" | "archived";

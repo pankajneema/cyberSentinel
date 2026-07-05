@@ -164,6 +164,7 @@ async def create_asset(
         name=payload.name,
         type=payload.type,
         exposure=payload.exposure,
+        criticality=payload.criticality,
         tags=payload.tags or [],
         description=payload.description,
         status="active",
@@ -280,7 +281,7 @@ async def _gather_asset_signals(
         services=services,
         is_public=(asset.exposure == "public"),
         tls_issues=tls_issues,
-        asset_criticality="normal",
+        asset_criticality=(asset.criticality or "normal"),
     )
     return signals, sorted(matched_ips)
 

@@ -35,6 +35,7 @@ class Asset(Base):
     name = Column(String(255), nullable=False, index=True)
     type = Column(String(50), nullable=False, index=True)   # domain, ip, cloud, repo, saas, user
     exposure = Column(String(50), default="internal")       # public, internal
+    criticality = Column(String(20), nullable=False, default="normal")  # low|normal|high|critical (business context)
     # Real exposure score (0–100) computed by scoring/exposure.py from ASM data.
     # NULL means the asset has never been scored (shown as "Unscanned" in the UI),
     # which is distinct from a real computed score of 0 (severity "info").
@@ -71,6 +72,7 @@ class Asset(Base):
             "name": self.name,
             "type": self.type,
             "exposure": self.exposure,
+            "criticality": self.criticality or "normal",
             "risk_score": self.risk_score,
             "last_scored_at": self.last_scored_at.isoformat() if self.last_scored_at else None,
             "tags": self.tags or [],

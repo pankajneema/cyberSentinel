@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Slider } from "@/components/ui/slider";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -12,52 +12,184 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Settings,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Shield,
-  Clock,
-  Bell,
   Key,
+  Plus,
+  Trash2,
+  Loader2,
+  RefreshCw,
   Zap,
-  AlertTriangle,
-  CheckCircle2,
-  Save,
+  Lock,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { EmptyState } from "@/components/asm/EmptyState";
+import {
+  fetchProfiles,
+  createProfile,
+  deleteProfile,
+  fetchCredentials,
+  createCredential,
+  deleteCredential,
+  type VsProfile,
+  type VsCredential,
+  type VsIntensity,
+  type CreateProfilePayload,
+} from "@/lib/services/vs";
 
-export function VSSettings() {
-  const [settings, setSettings] = useState({
-    severityThresholds: {
-      critical: 9.0,
-      high: 7.0,
-      medium: 4.0,
-    },
-    slaHours: {
-      critical: 24,
-      high: 72,
-      medium: 168,
-      low: 720,
-    },
-    notifications: {
-      criticalFindings: true,
-      scanComplete: true,
-      slaWarning: true,
-      weeklyDigest: false,
-    },
-    scanning: {
-      maxConcurrent: 3,
-      timeout: 30,
-      retryAttempts: 2,
-    },
-    falsePositive: {
-      autoSuppress: false,
-      suppressDays: 30,
-    },
+interface VSSettingsProps {
+  canWrite?: boolean;
+}
+
+const ENGINE_OPTIONS: { value: string; label: string }[] = [
+  { value: "nuclei", label: "Nuclei" },
+  { value: "nmap", label: "Nmap" },
+  { value: "openvas", label: "OpenVAS" },
+  { value: "zap", label: "ZAP" },
+  { value: "trivy", label: "Trivy" },
+  { value: "default-login", label: "Default / Weak Credentials" },
+];
+
+export function VSSettings({ canWrite = true }: VSSettingsProps) {
+  const [profiles, setProfiles] = useState<VsProfile[]>([]);
+  const [credentials, setCredentials] = useState<VsCredential[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  // profile dialog
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState<CreateProfilePayload>({
+    name: "",
+    intensity: "standard",
+    engines: ["nuclei"],
+    authenticated: false,
+    credential_id: null,
+    safe_mode: true,
+    max_requests_per_sec: 10,
+    scan_window: null,
+    web_scan: false,
   });
 
-  const handleSave = () => {
-    toast({ title: "Settings Saved", description: "Your scan settings have been updated" });
+  // credential dialog
+  const [credOpen, setCredOpen] = useState(false);
+  const [savingCred, setSavingCred] = useState(false);
+  const [credForm, setCredForm] = useState({ name: "", cred_type: "ssh", username: "", secret: "" });
+
+  const load = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const [profs, creds] = await Promise.all([fetchProfiles(), fetchCredentials()]);
+      setProfiles(profs);
+      setCredentials(creds);
+    } catch (e: any) {
+      setError(e.message ?? "Failed to load scan settings");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const resetProfileForm = () =>
+    setProfileForm({
+      name: "", intensity: "standard", engines: ["nuclei"], authenticated: false,
+      credential_id: null, safe_mode: true, max_requests_per_sec: 10, scan_window: null, web_scan: false,
+    });
+
+  const toggleEngine = (e: string) =>
+    setProfileForm((prev) => ({
+      ...prev,
+      engines: prev.engines.includes(e) ? prev.engines.filter((x) => x !== e) : [...prev.engines, e],
+    }));
+
+  const handleCreateProfile = async () => {
+    if (!canWrite) return;
+    if (!profileForm.name || profileForm.engines.length === 0) {
+      toast({ title: "Missing information", description: "Provide a name and at least one engine.", variant: "destructive" });
+      return;
+    }
+    if (profileForm.authenticated && !profileForm.credential_id) {
+      toast({ title: "Credential required", description: "Authenticated profiles need a credential.", variant: "destructive" });
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      const created = await createProfile({
+        ...profileForm,
+        credential_id: profileForm.authenticated ? profileForm.credential_id : null,
+      });
+      setProfiles((prev) => [...prev, created]);
+      toast({ title: "Profile created", description: created.name });
+      setProfileOpen(false);
+      resetProfileForm();
+    } catch (e: any) {
+      toast({ title: "Failed to create profile", description: e.message ?? "Unexpected error", variant: "destructive" });
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleDeleteProfile = async (p: VsProfile) => {
+    if (!canWrite) return;
+    setBusyId(p.id);
+    try {
+      await deleteProfile(p.id);
+      setProfiles((prev) => prev.filter((x) => x.id !== p.id));
+      toast({ title: "Profile deleted", description: p.name });
+    } catch (e: any) {
+      toast({ title: "Delete failed", description: e.message ?? "Unexpected error", variant: "destructive" });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleCreateCred = async () => {
+    if (!canWrite) return;
+    if (!credForm.name || !credForm.secret) {
+      toast({ title: "Missing information", description: "Provide a name and secret.", variant: "destructive" });
+      return;
+    }
+    setSavingCred(true);
+    try {
+      const created = await createCredential({
+        name: credForm.name,
+        cred_type: credForm.cred_type,
+        username: credForm.username || undefined,
+        secret: credForm.secret,
+      });
+      setCredentials((prev) => [...prev, created]);
+      toast({ title: "Credential added", description: created.name });
+      setCredOpen(false);
+      setCredForm({ name: "", cred_type: "ssh", username: "", secret: "" });
+    } catch (e: any) {
+      toast({ title: "Failed to add credential", description: e.message ?? "Unexpected error", variant: "destructive" });
+    } finally {
+      setSavingCred(false);
+    }
+  };
+
+  const handleDeleteCred = async (c: VsCredential) => {
+    if (!canWrite) return;
+    setBusyId(c.id);
+    try {
+      await deleteCredential(c.id);
+      setCredentials((prev) => prev.filter((x) => x.id !== c.id));
+      toast({ title: "Credential deleted", description: c.name });
+    } catch (e: any) {
+      toast({ title: "Delete failed", description: e.message ?? "Unexpected error", variant: "destructive" });
+    } finally {
+      setBusyId(null);
+    }
   };
 
   return (
@@ -66,250 +198,242 @@ export function VSSettings() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold text-foreground">Scan Settings</h2>
-          <p className="text-sm text-muted-foreground">Configure vulnerability scanning preferences</p>
+          <p className="text-sm text-muted-foreground">Manage scan profiles and authentication credentials</p>
         </div>
-        <Button variant="gradient" onClick={handleSave}>
-          <Save className="w-4 h-4 mr-2" />
-          Save Changes
+        <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+          <RefreshCw className={cn("w-4 h-4 mr-2", loading && "animate-spin")} /> Refresh
         </Button>
       </div>
 
-      {/* Severity Thresholds */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-card rounded-2xl border border-border p-6"
-      >
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 rounded-xl bg-primary/10">
-            <Shield className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-foreground">Severity Thresholds</h3>
-            <p className="text-sm text-muted-foreground">CVSS score thresholds for severity classification</p>
-          </div>
+      {error && (
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive flex items-center justify-between">
+          <span>{error}</span>
+          <Button variant="outline" size="sm" onClick={load}><RefreshCw className="w-4 h-4 mr-2" /> Retry</Button>
         </div>
-        <div className="space-y-6">
-          {[
-            { label: "Critical", key: "critical", color: "text-destructive", min: 8, max: 10 },
-            { label: "High", key: "high", color: "text-warning", min: 5, max: 9 },
-            { label: "Medium", key: "medium", color: "text-accent", min: 2, max: 7 },
-          ].map((threshold) => (
-            <div key={threshold.key} className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className={threshold.color}>{threshold.label}</Label>
-                <span className="text-sm font-mono">
-                  ≥ {settings.severityThresholds[threshold.key as keyof typeof settings.severityThresholds].toFixed(1)}
-                </span>
-              </div>
-              <Slider
-                value={[settings.severityThresholds[threshold.key as keyof typeof settings.severityThresholds]]}
-                min={threshold.min}
-                max={threshold.max}
-                step={0.1}
-                onValueChange={([value]) => setSettings({
-                  ...settings,
-                  severityThresholds: { ...settings.severityThresholds, [threshold.key]: value }
-                })}
-              />
-            </div>
-          ))}
-        </div>
-      </motion.div>
+      )}
 
-      {/* SLA Configuration */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="bg-card rounded-2xl border border-border p-6"
-      >
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 rounded-xl bg-accent/10">
-            <Clock className="w-5 h-5 text-accent" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-foreground">SLA Configuration</h3>
-            <p className="text-sm text-muted-foreground">Remediation time limits by severity</p>
-          </div>
-        </div>
-        <div className="grid sm:grid-cols-2 gap-4">
-          {[
-            { label: "Critical", key: "critical", color: "border-destructive/30" },
-            { label: "High", key: "high", color: "border-warning/30" },
-            { label: "Medium", key: "medium", color: "border-accent/30" },
-            { label: "Low", key: "low", color: "border-success/30" },
-          ].map((sla) => (
-            <div key={sla.key} className={cn("p-4 rounded-xl border-2", sla.color)}>
-              <Label className="text-sm mb-2 block">{sla.label} SLA (hours)</Label>
-              <Input
-                type="number"
-                value={settings.slaHours[sla.key as keyof typeof settings.slaHours]}
-                onChange={(e) => setSettings({
-                  ...settings,
-                  slaHours: { ...settings.slaHours, [sla.key]: parseInt(e.target.value) || 0 }
-                })}
-              />
-            </div>
-          ))}
-        </div>
-      </motion.div>
-
-      {/* Notifications */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="bg-card rounded-2xl border border-border p-6"
-      >
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 rounded-xl bg-secondary/10">
-            <Bell className="w-5 h-5 text-secondary" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-foreground">Notifications</h3>
-            <p className="text-sm text-muted-foreground">Configure alert preferences</p>
-          </div>
-        </div>
-        <div className="space-y-4">
-          {[
-            { label: "Critical findings detected", key: "criticalFindings", description: "Alert when critical vulnerabilities are found" },
-            { label: "Scan completion", key: "scanComplete", description: "Notify when scans finish" },
-            { label: "SLA warning", key: "slaWarning", description: "Alert before SLA deadline" },
-            { label: "Weekly digest", key: "weeklyDigest", description: "Summary of findings each week" },
-          ].map((notification) => (
-            <div key={notification.key} className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
-              <div>
-                <div className="font-medium text-sm">{notification.label}</div>
-                <div className="text-xs text-muted-foreground">{notification.description}</div>
-              </div>
-              <Switch
-                checked={settings.notifications[notification.key as keyof typeof settings.notifications]}
-                onCheckedChange={(checked) => setSettings({
-                  ...settings,
-                  notifications: { ...settings.notifications, [notification.key]: checked }
-                })}
-              />
-            </div>
-          ))}
-        </div>
-      </motion.div>
-
-      {/* Scan Performance */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-        className="bg-card rounded-2xl border border-border p-6"
-      >
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 rounded-xl bg-primary/10">
-            <Zap className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-foreground">Scan Performance</h3>
-            <p className="text-sm text-muted-foreground">Tune scanning behavior</p>
-          </div>
-        </div>
-        <div className="grid sm:grid-cols-3 gap-4">
-          <div className="space-y-2">
-            <Label>Max Concurrent Scans</Label>
-            <Select 
-              value={settings.scanning.maxConcurrent.toString()}
-              onValueChange={(v) => setSettings({
-                ...settings,
-                scanning: { ...settings.scanning, maxConcurrent: parseInt(v) }
-              })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[1, 2, 3, 5, 10].map(n => (
-                  <SelectItem key={n} value={n.toString()}>{n}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label>Timeout (minutes)</Label>
-            <Input
-              type="number"
-              value={settings.scanning.timeout}
-              onChange={(e) => setSettings({
-                ...settings,
-                scanning: { ...settings.scanning, timeout: parseInt(e.target.value) || 30 }
-              })}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Retry Attempts</Label>
-            <Select 
-              value={settings.scanning.retryAttempts.toString()}
-              onValueChange={(v) => setSettings({
-                ...settings,
-                scanning: { ...settings.scanning, retryAttempts: parseInt(v) }
-              })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[0, 1, 2, 3, 5].map(n => (
-                  <SelectItem key={n} value={n.toString()}>{n}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* False Positive Management */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-        className="bg-card rounded-2xl border border-border p-6"
-      >
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 rounded-xl bg-warning/10">
-            <AlertTriangle className="w-5 h-5 text-warning" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-foreground">False Positive Management</h3>
-            <p className="text-sm text-muted-foreground">Suppress recurring false positives</p>
-          </div>
-        </div>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
+      {/* Scan Profiles */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-2xl border border-border p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-primary/10"><Shield className="w-5 h-5 text-primary" /></div>
             <div>
-              <div className="font-medium text-sm">Auto-suppress repeated findings</div>
-              <div className="text-xs text-muted-foreground">Automatically suppress findings marked as false positive</div>
+              <h3 className="font-semibold text-foreground">Scan Profiles</h3>
+              <p className="text-sm text-muted-foreground">Reusable engine + intensity configurations</p>
             </div>
-            <Switch
-              checked={settings.falsePositive.autoSuppress}
-              onCheckedChange={(checked) => setSettings({
-                ...settings,
-                falsePositive: { ...settings.falsePositive, autoSuppress: checked }
-              })}
-            />
           </div>
-          {settings.falsePositive.autoSuppress && (
-            <div className="space-y-2 pl-4">
-              <Label>Suppression Duration (days)</Label>
-              <Input
-                type="number"
-                value={settings.falsePositive.suppressDays}
-                onChange={(e) => setSettings({
-                  ...settings,
-                  falsePositive: { ...settings.falsePositive, suppressDays: parseInt(e.target.value) || 30 }
-                })}
-                className="max-w-[200px]"
-              />
-            </div>
+          {canWrite && (
+            <Button variant="gradient" size="sm" onClick={() => { resetProfileForm(); setProfileOpen(true); }}>
+              <Plus className="w-4 h-4 mr-2" /> New Profile
+            </Button>
           )}
         </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-10 text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading…</div>
+        ) : profiles.length === 0 ? (
+          <EmptyState icon={Shield} title="No scan profiles" description="Create a profile to define scan intensity and engines." />
+        ) : (
+          <div className="space-y-3">
+            {profiles.map((p) => (
+              <div key={p.id} className="flex items-start justify-between gap-4 p-4 rounded-xl bg-muted/30">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-foreground">{p.name}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize">{p.intensity}</span>
+                    {p.authenticated && <span className="text-xs px-2 py-0.5 rounded-full bg-secondary/10 text-secondary flex items-center gap-1"><Lock className="w-3 h-3" />Auth</span>}
+                    {p.web_scan && <span className="text-xs px-2 py-0.5 rounded-full bg-accent/10 text-accent">Web</span>}
+                    {p.safe_mode && <span className="text-xs px-2 py-0.5 rounded-full bg-success/10 text-success">Safe mode</span>}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Engines: {p.engines.join(", ") || "—"} • {p.max_requests_per_sec} req/s
+                    {p.scan_window ? ` • Window: ${p.scan_window}` : ""}
+                  </div>
+                </div>
+                {canWrite && (
+                  <Button variant="ghost" size="icon" className="text-destructive" disabled={busyId === p.id} onClick={() => handleDeleteProfile(p)}>
+                    {busyId === p.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </motion.div>
+
+      {/* Credentials */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-card rounded-2xl border border-border p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-secondary/10"><Key className="w-5 h-5 text-secondary" /></div>
+            <div>
+              <h3 className="font-semibold text-foreground">Credentials</h3>
+              <p className="text-sm text-muted-foreground">Secrets for authenticated scans (write-only, never displayed)</p>
+            </div>
+          </div>
+          {canWrite && (
+            <Button variant="gradient" size="sm" onClick={() => { setCredForm({ name: "", cred_type: "ssh", username: "", secret: "" }); setCredOpen(true); }}>
+              <Plus className="w-4 h-4 mr-2" /> Add Credential
+            </Button>
+          )}
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-10 text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading…</div>
+        ) : credentials.length === 0 ? (
+          <EmptyState icon={Key} title="No credentials" description="Add a credential to enable authenticated scanning." />
+        ) : (
+          <div className="space-y-3">
+            {credentials.map((c) => (
+              <div key={c.id} className="flex items-center justify-between gap-4 p-4 rounded-xl bg-muted/30">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-foreground">{c.name}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground uppercase">{c.cred_type}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {c.username ? `User: ${c.username} • ` : ""}Secret: •••••••• (hidden)
+                  </div>
+                </div>
+                {canWrite && (
+                  <Button variant="ghost" size="icon" className="text-destructive" disabled={busyId === c.id} onClick={() => handleDeleteCred(c)}>
+                    {busyId === c.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </motion.div>
+
+      {/* Profile Dialog */}
+      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Zap className="w-5 h-5 text-primary" />New Scan Profile</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} placeholder="e.g., Standard External" />
+            </div>
+            <div className="space-y-2">
+              <Label>Intensity</Label>
+              <Select value={profileForm.intensity} onValueChange={(v) => setProfileForm({ ...profileForm, intensity: v as VsIntensity })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="light">Light</SelectItem>
+                  <SelectItem value="standard">Standard</SelectItem>
+                  <SelectItem value="deep">Deep</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Engines</Label>
+              <div className="flex flex-wrap gap-3">
+                {ENGINE_OPTIONS.map((opt) => (
+                  <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox checked={profileForm.engines.includes(opt.value)} onCheckedChange={() => toggleEngine(opt.value)} />
+                    <span>{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Max requests/sec</Label>
+                <Input type="number" min={1} value={profileForm.max_requests_per_sec}
+                  onChange={(e) => setProfileForm({ ...profileForm, max_requests_per_sec: parseInt(e.target.value) || 1 })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Scan window (optional)</Label>
+                <Input value={profileForm.scan_window ?? ""} placeholder="e.g., 22:00-06:00"
+                  onChange={(e) => setProfileForm({ ...profileForm, scan_window: e.target.value || null })} />
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
+              <div><div className="text-sm font-medium">Safe mode</div><div className="text-xs text-muted-foreground">Avoid intrusive checks</div></div>
+              <Switch checked={profileForm.safe_mode} onCheckedChange={(c) => setProfileForm({ ...profileForm, safe_mode: c })} />
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
+              <div><div className="text-sm font-medium">Web scan</div><div className="text-xs text-muted-foreground">Include web application checks</div></div>
+              <Switch checked={profileForm.web_scan} onCheckedChange={(c) => setProfileForm({ ...profileForm, web_scan: c })} />
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
+              <div><div className="text-sm font-medium">Authenticated</div><div className="text-xs text-muted-foreground">Use a stored credential</div></div>
+              <Switch
+                checked={profileForm.authenticated}
+                onCheckedChange={(c) => setProfileForm({ ...profileForm, authenticated: c, credential_id: c ? profileForm.credential_id : null })}
+              />
+            </div>
+            {profileForm.authenticated && (
+              <div className="space-y-2">
+                <Label>Credential</Label>
+                {credentials.length === 0 ? (
+                  <p className="text-xs text-warning">No credentials available. Add one first.</p>
+                ) : (
+                  <Select value={profileForm.credential_id ?? ""} onValueChange={(v) => setProfileForm({ ...profileForm, credential_id: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select credential" /></SelectTrigger>
+                    <SelectContent>
+                      {credentials.map((c) => (<SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
+            <div className="flex justify-end gap-3 pt-2 border-t border-border">
+              <Button variant="outline" onClick={() => setProfileOpen(false)}>Cancel</Button>
+              <Button variant="gradient" onClick={handleCreateProfile} disabled={savingProfile}>
+                {savingProfile ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}Create
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Credential Dialog */}
+      <Dialog open={credOpen} onOpenChange={setCredOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Key className="w-5 h-5 text-secondary" />Add Credential</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input value={credForm.name} onChange={(e) => setCredForm({ ...credForm, name: e.target.value })} placeholder="e.g., Prod SSH key" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Type</Label>
+                <Select value={credForm.cred_type} onValueChange={(v) => setCredForm({ ...credForm, cred_type: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ssh">SSH</SelectItem>
+                    <SelectItem value="password">Password</SelectItem>
+                    <SelectItem value="api_key">API Key</SelectItem>
+                    <SelectItem value="token">Token</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Username (optional)</Label>
+                <Input value={credForm.username} onChange={(e) => setCredForm({ ...credForm, username: e.target.value })} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Secret *</Label>
+              <Input type="password" autoComplete="new-password" value={credForm.secret}
+                onChange={(e) => setCredForm({ ...credForm, secret: e.target.value })} placeholder="Stored write-only; never shown again" />
+            </div>
+            <div className="flex justify-end gap-3 pt-2 border-t border-border">
+              <Button variant="outline" onClick={() => setCredOpen(false)}>Cancel</Button>
+              <Button variant="gradient" onClick={handleCreateCred} disabled={savingCred}>
+                {savingCred ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}Add
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

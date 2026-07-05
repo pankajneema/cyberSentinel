@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SeverityBadge } from "@/components/asm/SeverityBadge";
+import { EmptyState } from "@/components/asm/EmptyState";
 import {
   Select,
   SelectContent,
@@ -24,9 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Search,
@@ -38,148 +36,269 @@ import {
   AlertTriangle,
   Eye,
   UserPlus,
-  Link2,
-  ChevronRight,
   Shield,
-  Zap,
+  ShieldAlert,
   RefreshCw,
-  FileText,
   Bug,
-  Filter,
-  Send,
-  Slack,
-  Mail,
-  Calendar,
+  Flame,
+  Loader2,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { Progress } from "@/components/ui/progress";
-
-type Severity = "critical" | "high" | "medium" | "low";
-
-interface Vulnerability {
-  id: number;
-  cve: string;
-  title: string;
-  asset: string;
-  severity: Severity;
-  cvss: number;
-  exploitability: "known" | "poc" | "none";
-  patchAvailable: boolean;
-  firstSeen: string;
-  lastSeen: string;
-  status: "open" | "in_progress" | "fixed" | "accepted_risk";
-  owner: string | null;
-}
-
-const vulnerabilities: Vulnerability[] = [];
-
-const teamMembers = [];
+import { exportRowsToCsv } from "@/lib/csv";
+import {
+  fetchFindings,
+  transitionFinding,
+  assignFinding,
+  fetchCve,
+  verifyFinding,
+  downloadVsReport,
+  type VsFinding,
+  type VsFindingStatus,
+  type VsCveDetail,
+} from "@/lib/services/vs";
 
 interface VSFindingsProps {
   canWrite?: boolean;
 }
 
+const STATUS_LABEL: Record<VsFindingStatus, string> = {
+  open: "Open",
+  confirmed: "Confirmed",
+  in_progress: "In Progress",
+  remediated: "Remediated",
+  verified: "Verified",
+  closed: "Closed",
+  accepted_risk: "Accepted Risk",
+  false_positive: "False Positive",
+};
+
+// transitions offered from the findings list
+const TRANSITIONS: { status: VsFindingStatus; label: string }[] = [
+  { status: "confirmed", label: "Confirm" },
+  { status: "in_progress", label: "Start Progress" },
+  { status: "remediated", label: "Mark Remediated" },
+  { status: "verified", label: "Verify" },
+  { status: "closed", label: "Close" },
+  { status: "accepted_risk", label: "Accept Risk" },
+  { status: "false_positive", label: "Mark False Positive" },
+];
+
+const JUSTIFICATION_REQUIRED: VsFindingStatus[] = ["accepted_risk", "false_positive"];
+
+function getStatusIcon(status: VsFindingStatus) {
+  switch (status) {
+    case "open":
+    case "confirmed":
+      return <AlertTriangle className="w-4 h-4 text-destructive" />;
+    case "in_progress":
+    case "remediated":
+      return <Clock className="w-4 h-4 text-warning" />;
+    case "verified":
+    case "closed":
+      return <CheckCircle2 className="w-4 h-4 text-success" />;
+    default:
+      return <Shield className="w-4 h-4 text-muted-foreground" />;
+  }
+}
+
 export function VSFindings({ canWrite = true }: VSFindingsProps) {
-  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
-  const [selectedVuln, setSelectedVuln] = useState<Vulnerability | null>(null);
-  const [selectedItems, setSelectedItems] = useState<number[]>([]);
-  const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
-  const [assignVuln, setAssignVuln] = useState<Vulnerability | null>(null);
-  const [assignForm, setAssignForm] = useState({
-    assignee: "",
-    priority: "high",
-    dueDate: "",
-    description: "",
-    notifyVia: [] as string[],
-  });
+  const [kevOnly, setKevOnly] = useState(false);
 
-  const filteredVulns = vulnerabilities.filter((vuln) => {
-    const matchesSearch = vuln.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         vuln.cve.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         vuln.asset.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === "all" || vuln.status === statusFilter;
-    const matchesSeverity = severityFilter === "all" || vuln.severity === severityFilter;
-    return matchesSearch && matchesStatus && matchesSeverity;
-  });
+  const [findings, setFindings] = useState<VsFinding[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "open": return <AlertTriangle className="w-4 h-4 text-destructive" />;
-      case "in_progress": return <Clock className="w-4 h-4 text-warning" />;
-      case "fixed": return <CheckCircle2 className="w-4 h-4 text-success" />;
-      case "accepted_risk": return <Shield className="w-4 h-4 text-muted-foreground" />;
-      default: return null;
+  const [selectedVuln, setSelectedVuln] = useState<VsFinding | null>(null);
+  const [cve, setCve] = useState<VsCveDetail | null>(null);
+  const [cveLoading, setCveLoading] = useState(false);
+
+  const [actionBusy, setActionBusy] = useState(false);
+
+  // justification modal
+  const [justifyTarget, setJustifyTarget] = useState<{ finding: VsFinding; status: VsFindingStatus } | null>(null);
+  const [justification, setJustification] = useState("");
+
+  // assign modal
+  const [assignTarget, setAssignTarget] = useState<VsFinding | null>(null);
+  const [assignee, setAssignee] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const page = await fetchFindings({
+        q: searchQuery || undefined,
+        status: statusFilter,
+        severity: severityFilter,
+        kev: kevOnly || undefined,
+        page: 1,
+        page_size: 200,
+      });
+      setFindings(page.items);
+      setTotal(page.total);
+    } catch (e: any) {
+      setError(e.message ?? "Failed to load findings");
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [searchQuery, statusFilter, severityFilter, kevOnly]);
 
-  const getExploitBadge = (exp: string) => {
-    switch (exp) {
-      case "known": return <span className="text-xs px-2 py-0.5 rounded-full bg-destructive/10 text-destructive">In-the-Wild</span>;
-      case "poc": return <span className="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning">PoC Available</span>;
-      default: return <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">None Known</span>;
-    }
-  };
+  useEffect(() => {
+    const t = setTimeout(load, 250);
+    return () => clearTimeout(t);
+  }, [load]);
+
+  // load CVE detail when a finding with cve_id is opened
+  useEffect(() => {
+    setCve(null);
+    if (!selectedVuln?.cve_id) return;
+    let cancelled = false;
+    setCveLoading(true);
+    fetchCve(selectedVuln.cve_id)
+      .then((d) => { if (!cancelled) setCve(d); })
+      .catch(() => { if (!cancelled) setCve(null); })
+      .finally(() => { if (!cancelled) setCveLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedVuln?.cve_id]);
 
   const stats = {
-    critical: vulnerabilities.filter(v => v.severity === "critical").length,
-    high: vulnerabilities.filter(v => v.severity === "high").length,
-    medium: vulnerabilities.filter(v => v.severity === "medium").length,
-    low: vulnerabilities.filter(v => v.severity === "low").length,
+    critical: findings.filter((v) => v.severity === "critical").length,
+    high: findings.filter((v) => v.severity === "high").length,
+    medium: findings.filter((v) => v.severity === "medium").length,
+    low: findings.filter((v) => v.severity === "low").length,
   };
 
-  const toggleSelectAll = () => {
-    if (selectedItems.length === filteredVulns.length) {
-      setSelectedItems([]);
+  const doTransition = async (finding: VsFinding, status: VsFindingStatus, just?: string) => {
+    if (!canWrite) return;
+    setActionBusy(true);
+    try {
+      const updated = await transitionFinding(finding.id, { status, justification: just });
+      toast({ title: "Status updated", description: `${finding.title} → ${STATUS_LABEL[status]}` });
+      setFindings((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
+      setSelectedVuln((prev) => (prev && prev.id === updated.id ? updated : prev));
+    } catch (e: any) {
+      toast({ title: "Update failed", description: e.message ?? "Unexpected error", variant: "destructive" });
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const requestTransition = (finding: VsFinding, status: VsFindingStatus) => {
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to change findings." });
+      return;
+    }
+    if (JUSTIFICATION_REQUIRED.includes(status)) {
+      setJustification("");
+      setJustifyTarget({ finding, status });
     } else {
-      setSelectedItems(filteredVulns.map(v => v.id));
+      doTransition(finding, status);
     }
   };
 
-  const handleBulkAction = (action: string) => {
-    toast({ title: `${action}`, description: `Applied to ${selectedItems.length} vulnerabilities` });
-    setSelectedItems([]);
+  const submitJustification = async () => {
+    if (!justifyTarget) return;
+    if (!justification.trim()) {
+      toast({ title: "Justification required", description: "Please provide a reason.", variant: "destructive" });
+      return;
+    }
+    await doTransition(justifyTarget.finding, justifyTarget.status, justification.trim());
+    setJustifyTarget(null);
+    setJustification("");
   };
 
-  const handleAssignTask = () => {
+  const submitAssign = async () => {
+    if (!assignTarget) return;
+    if (!canWrite) return;
+    setActionBusy(true);
+    try {
+      const updated = await assignFinding(assignTarget.id, { assigned_to: assignee.trim() || null });
+      toast({ title: "Finding assigned", description: assignee.trim() ? `Assigned to ${assignee.trim()}` : "Unassigned" });
+      setFindings((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
+      setSelectedVuln((prev) => (prev && prev.id === updated.id ? updated : prev));
+      setAssignTarget(null);
+      setAssignee("");
+    } catch (e: any) {
+      toast({ title: "Assign failed", description: e.message ?? "Unexpected error", variant: "destructive" });
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const openAssign = (finding: VsFinding) => {
     if (!canWrite) {
-      toast({ title: "Read-only access", description: "You don't have permission to assign tasks." });
+      toast({ title: "Read-only access", description: "You don't have permission to assign findings." });
       return;
     }
-    if (!assignVuln || !assignForm.assignee) {
-      toast({ title: "Error", description: "Please select an assignee", variant: "destructive" });
-      return;
-    }
-    
-    toast({ 
-      title: "Task Created & Assigned", 
-      description: `Task for "${assignVuln.cve}" assigned to ${teamMembers.find(m => m.id === assignForm.assignee)?.name}` 
-    });
-    
-    setIsAssignDialogOpen(false);
-    setAssignVuln(null);
-    setAssignForm({ assignee: "", priority: "high", dueDate: "", description: "", notifyVia: [] });
-    
-    // Navigate to team page
-    navigate("/app/team");
+    setAssignTarget(finding);
+    setAssignee(finding.assigned_to ?? "");
   };
 
-  const openAssignDialog = (vuln: Vulnerability) => {
-    if (!canWrite) {
-      toast({ title: "Read-only access", description: "You don't have permission to assign tasks." });
+  const handleExport = () => {
+    if (findings.length === 0) {
+      toast({ title: "Nothing to export", description: "No findings match the current filters." });
       return;
     }
-    setAssignVuln(vuln);
-    setAssignForm({
-      ...assignForm,
-      priority: vuln.severity === "critical" ? "critical" : vuln.severity === "high" ? "high" : "medium",
-      description: `Fix vulnerability: ${vuln.title}\n\nAsset: ${vuln.asset}\nCVE: ${vuln.cve}\nCVSS: ${vuln.cvss}`,
-    });
-    setIsAssignDialogOpen(true);
+    exportRowsToCsv(
+      findings.map((f) => ({
+        id: f.id,
+        title: f.title,
+        severity: f.severity,
+        cve_id: f.cve_id ?? "",
+        cvss_base: f.cvss_base ?? "",
+        epss: f.epss ?? "",
+        kev: f.kev,
+        composite_risk: f.composite_risk ?? "",
+        status: f.status,
+        asset_id: f.asset_id,
+        source_engine: f.source_engine,
+        assigned_to: f.assigned_to ?? "",
+        first_detected_at: f.first_detected_at ?? "",
+        last_detected_at: f.last_detected_at ?? "",
+      })),
+      "vs-findings"
+    );
+  };
+
+  const doVerify = async (finding: VsFinding) => {
+    if (!canWrite) {
+      toast({ title: "Read-only access", description: "You don't have permission to verify findings." });
+      return;
+    }
+    setActionBusy(true);
+    try {
+      await verifyFinding(finding.id);
+      toast({ title: "Verification scan queued", description: `Re-scanning to confirm "${finding.title}".` });
+    } catch (e: any) {
+      const msg = e?.message ?? "Unexpected error";
+      // 400 = the finding has no originating scan to re-run.
+      const friendly = /no originating scan|400/i.test(msg)
+        ? "This finding has no originating scan to re-run, so it can't be verified automatically."
+        : msg;
+      toast({ title: "Verification unavailable", description: friendly, variant: "destructive" });
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const [reportBusy, setReportBusy] = useState<"pdf" | "csv" | null>(null);
+  const handleReportDownload = async (reportType: string, format: "pdf" | "csv") => {
+    setReportBusy(format);
+    try {
+      await downloadVsReport(reportType, format);
+      toast({ title: "Report downloading", description: `Your ${format.toUpperCase()} report is being generated.` });
+    } catch (e: any) {
+      toast({ title: "Download failed", description: e?.message ?? "Unexpected error", variant: "destructive" });
+    } finally {
+      setReportBusy(null);
+    }
   };
 
   return (
@@ -188,17 +307,43 @@ export function VSFindings({ canWrite = true }: VSFindingsProps) {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold text-foreground">Vulnerability Findings</h2>
-          <p className="text-sm text-muted-foreground">{vulnerabilities.length} findings detected across your assets</p>
+          <p className="text-sm text-muted-foreground">
+            {loading ? "Loading…" : `${total} findings detected across your assets`}
+          </p>
         </div>
-        <div className="flex gap-3">
-          <Button variant="outline">
+        <div className="flex flex-wrap gap-3">
+          <Button variant="outline" onClick={handleExport} disabled={findings.length === 0}>
             <Download className="w-4 h-4 mr-2" />
             Export
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => handleReportDownload("executive", "pdf")}
+            disabled={reportBusy !== null}
+          >
+            {reportBusy === "pdf" ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4 mr-2" />
+            )}
+            Executive PDF
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => handleReportDownload("technical", "csv")}
+            disabled={reportBusy !== null}
+          >
+            {reportBusy === "csv" ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4 mr-2" />
+            )}
+            Technical CSV
           </Button>
         </div>
       </div>
 
-      {/* Severity Stats */}
+      {/* Severity Stats (of loaded page) */}
       <div className="grid sm:grid-cols-4 gap-4">
         {[
           { label: "Critical", value: stats.critical, color: "bg-destructive/10 text-destructive border-destructive/20", filter: "critical" },
@@ -225,8 +370,8 @@ export function VSFindings({ canWrite = true }: VSFindingsProps) {
       </div>
 
       {/* Filters & Search */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1 max-w-md">
+      <div className="flex flex-col sm:flex-row gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[220px] max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Search by CVE, title, or asset..."
@@ -236,15 +381,14 @@ export function VSFindings({ canWrite = true }: VSFindingsProps) {
           />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[150px]">
+          <SelectTrigger className="w-[170px]">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="open">Open</SelectItem>
-            <SelectItem value="in_progress">In Progress</SelectItem>
-            <SelectItem value="fixed">Fixed</SelectItem>
-            <SelectItem value="accepted_risk">Accepted Risk</SelectItem>
+            {(Object.keys(STATUS_LABEL) as VsFindingStatus[]).map((s) => (
+              <SelectItem key={s} value={s}>{STATUS_LABEL[s]}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
         <Select value={severityFilter} onValueChange={setSeverityFilter}>
@@ -257,154 +401,159 @@ export function VSFindings({ canWrite = true }: VSFindingsProps) {
             <SelectItem value="high">High</SelectItem>
             <SelectItem value="medium">Medium</SelectItem>
             <SelectItem value="low">Low</SelectItem>
+            <SelectItem value="info">Info</SelectItem>
           </SelectContent>
         </Select>
-      </div>
-
-      {/* Bulk Actions */}
-      {canWrite && selectedItems.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-3 p-3 bg-primary/5 rounded-xl border border-primary/20"
+        <Button
+          variant={kevOnly ? "default" : "outline"}
+          onClick={() => setKevOnly((v) => !v)}
+          className="gap-2"
         >
-          <span className="text-sm font-medium">{selectedItems.length} selected</span>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => handleBulkAction("Assigned owner")}>
-              <UserPlus className="w-4 h-4 mr-1" />Assign
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => handleBulkAction("Created tickets")}>
-              <Link2 className="w-4 h-4 mr-1" />Create Ticket
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => handleBulkAction("Status updated")}>
-              <CheckCircle2 className="w-4 h-4 mr-1" />Change Status
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => handleBulkAction("Exported")}>
-              <Download className="w-4 h-4 mr-1" />Export
-            </Button>
-          </div>
-        </motion.div>
-      )}
+          <Flame className="w-4 h-4" /> KEV only
+        </Button>
+      </div>
 
       {/* Findings Table */}
-      <div className="bg-card rounded-2xl border border-border overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-muted/30">
-              <tr className="text-left text-sm text-muted-foreground">
-                <th className="p-4 font-medium w-10">
-                  <Checkbox 
-                    checked={selectedItems.length === filteredVulns.length && filteredVulns.length > 0}
-                    onCheckedChange={canWrite ? toggleSelectAll : undefined}
-                    disabled={!canWrite}
-                  />
-                </th>
-                <th className="p-4 font-medium">Severity</th>
-                <th className="p-4 font-medium">CVE</th>
-                <th className="p-4 font-medium">Vulnerability</th>
-                <th className="p-4 font-medium">Asset</th>
-                <th className="p-4 font-medium">CVSS</th>
-                <th className="p-4 font-medium">Exploit</th>
-                <th className="p-4 font-medium">Status</th>
-                <th className="p-4 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredVulns.map((vuln) => (
-                <motion.tr
-                  key={vuln.id}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className={cn(
-                    "border-t border-border hover:bg-muted/20 cursor-pointer transition-colors",
-                    selectedItems.includes(vuln.id) && "bg-primary/5"
-                  )}
-                  onClick={() => setSelectedVuln(vuln)}
-                >
-                  <td className="p-4" onClick={(e) => e.stopPropagation()}>
-                    <Checkbox 
-                      checked={selectedItems.includes(vuln.id)}
-                      onCheckedChange={canWrite ? () => {
-                        setSelectedItems(prev => 
-                          prev.includes(vuln.id) ? prev.filter(id => id !== vuln.id) : [...prev, vuln.id]
-                        );
-                      } : undefined}
-                      disabled={!canWrite}
-                    />
-                  </td>
-                  <td className="p-4">
-                    <SeverityBadge severity={vuln.severity} />
-                  </td>
-                  <td className="p-4">
-                    <div className="flex items-center gap-1">
-                      <code className="text-sm font-mono text-primary">{vuln.cve}</code>
-                      <ExternalLink className="w-3 h-3 text-muted-foreground" />
-                    </div>
-                  </td>
-                  <td className="p-4">
-                    <div className="font-medium text-foreground max-w-xs truncate">{vuln.title}</div>
-                    <div className="text-xs text-muted-foreground">First seen: {vuln.firstSeen}</div>
-                  </td>
-                  <td className="p-4 font-mono text-sm text-muted-foreground">{vuln.asset}</td>
-                  <td className="p-4">
-                    <div className="flex items-center gap-2">
-                      <span className={cn(
-                        "font-bold",
-                        vuln.cvss >= 9 ? "text-destructive" :
-                        vuln.cvss >= 7 ? "text-warning" :
-                        vuln.cvss >= 4 ? "text-accent" : "text-success"
-                      )}>
-                        {vuln.cvss}
-                      </span>
-                      <div className="w-12 h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div 
-                          className={cn(
-                            "h-full rounded-full",
-                            vuln.cvss >= 9 ? "bg-destructive" :
-                            vuln.cvss >= 7 ? "bg-warning" :
-                            vuln.cvss >= 4 ? "bg-accent" : "bg-success"
-                          )}
-                          style={{ width: `${vuln.cvss * 10}%` }}
-                        />
-                      </div>
-                    </div>
-                  </td>
-                  <td className="p-4">{getExploitBadge(vuln.exploitability)}</td>
-                  <td className="p-4">
-                    <div className="flex items-center gap-2">
-                      {getStatusIcon(vuln.status)}
-                      <span className="text-sm capitalize">{vuln.status.replace("_", " ")}</span>
-                    </div>
-                  </td>
-                  <td className="p-4" onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setSelectedVuln(vuln)}><Eye className="w-4 h-4 mr-2" />View Details</DropdownMenuItem>
-                        {canWrite && (
-                          <>
-                            <DropdownMenuItem onClick={() => openAssignDialog(vuln)}><UserPlus className="w-4 h-4 mr-2" />Assign Task to Team</DropdownMenuItem>
-                            <DropdownMenuItem><CheckCircle2 className="w-4 h-4 mr-2" />Mark as Fixed</DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem><Link2 className="w-4 h-4 mr-2" />Create Jira Ticket</DropdownMenuItem>
-                            <DropdownMenuItem><RefreshCw className="w-4 h-4 mr-2" />Re-scan Asset</DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </td>
-                </motion.tr>
-              ))}
-            </tbody>
-          </table>
+      {loading ? (
+        <div className="flex items-center justify-center py-16 text-muted-foreground">
+          <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading findings…
         </div>
-      </div>
+      ) : error ? (
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-6 text-sm text-destructive flex items-center justify-between">
+          <span>{error}</span>
+          <Button variant="outline" size="sm" onClick={load}>
+            <RefreshCw className="w-4 h-4 mr-2" /> Retry
+          </Button>
+        </div>
+      ) : findings.length === 0 ? (
+        <div className="bg-card rounded-2xl border border-border">
+          <EmptyState
+            icon={Bug}
+            title="No findings"
+            description="No vulnerabilities match your current filters. Run a scan or adjust the filters."
+          />
+        </div>
+      ) : (
+        <div className="bg-card rounded-2xl border border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-muted/30">
+                <tr className="text-left text-sm text-muted-foreground">
+                  <th className="p-4 font-medium">Severity</th>
+                  <th className="p-4 font-medium">CVE</th>
+                  <th className="p-4 font-medium">Vulnerability</th>
+                  <th className="p-4 font-medium">CVSS</th>
+                  <th className="p-4 font-medium">Risk</th>
+                  <th className="p-4 font-medium">Threat</th>
+                  <th className="p-4 font-medium">Status</th>
+                  <th className="p-4 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {findings.map((vuln) => (
+                  <motion.tr
+                    key={vuln.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="border-t border-border hover:bg-muted/20 cursor-pointer transition-colors"
+                    onClick={() => setSelectedVuln(vuln)}
+                  >
+                    <td className="p-4">
+                      <SeverityBadge severity={vuln.severity} />
+                    </td>
+                    <td className="p-4">
+                      {vuln.cve_id ? (
+                        <div className="flex items-center gap-1">
+                          <code className="text-sm font-mono text-primary">{vuln.cve_id}</code>
+                          <ExternalLink className="w-3 h-3 text-muted-foreground" />
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="p-4">
+                      <div className="font-medium text-foreground max-w-xs truncate">{vuln.title}</div>
+                      <div className="text-xs text-muted-foreground">{vuln.source_engine}</div>
+                    </td>
+                    <td className="p-4">
+                      {typeof vuln.cvss_base === "number" ? (
+                        <div className="flex items-center gap-2">
+                          <span className={cn(
+                            "font-bold",
+                            vuln.cvss_base >= 9 ? "text-destructive" :
+                            vuln.cvss_base >= 7 ? "text-warning" :
+                            vuln.cvss_base >= 4 ? "text-accent" : "text-success"
+                          )}>
+                            {vuln.cvss_base.toFixed(1)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="p-4">
+                      {typeof vuln.composite_risk === "number" ? (
+                        <span className="text-sm font-semibold text-foreground">{vuln.composite_risk.toFixed(0)}</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex flex-wrap gap-1">
+                        {vuln.kev && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-destructive/10 text-destructive flex items-center gap-1">
+                            <Flame className="w-3 h-3" /> KEV
+                          </span>
+                        )}
+                        {typeof vuln.epss === "number" && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-warning/10 text-warning">
+                            EPSS {(vuln.epss * 100).toFixed(0)}%
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2">
+                        {getStatusIcon(vuln.status)}
+                        <span className="text-sm">{STATUS_LABEL[vuln.status]}</span>
+                      </div>
+                    </td>
+                    <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon">
+                            <MoreHorizontal className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setSelectedVuln(vuln)}><Eye className="w-4 h-4 mr-2" />View Details</DropdownMenuItem>
+                          {canWrite && (
+                            <>
+                              <DropdownMenuItem onClick={() => openAssign(vuln)}><UserPlus className="w-4 h-4 mr-2" />Assign</DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              {TRANSITIONS.map((t) => (
+                                <DropdownMenuItem
+                                  key={t.status}
+                                  disabled={vuln.status === t.status}
+                                  onClick={() => requestTransition(vuln, t.status)}
+                                >
+                                  {t.label}
+                                </DropdownMenuItem>
+                              ))}
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
+                  </motion.tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
-      {/* Vulnerability Detail Sheet */}
+      {/* Detail Sheet */}
       <Sheet open={!!selectedVuln} onOpenChange={() => setSelectedVuln(null)}>
         <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
           {selectedVuln && (
@@ -415,272 +564,293 @@ export function VSFindings({ canWrite = true }: VSFindingsProps) {
                   <div>
                     <SheetTitle>{selectedVuln.title}</SheetTitle>
                     <div className="flex items-center gap-2 mt-1">
-                      <code className="text-sm font-mono text-primary">{selectedVuln.cve}</code>
-                      <ExternalLink className="w-3 h-3 text-muted-foreground cursor-pointer" />
+                      {selectedVuln.cve_id && (
+                        <code className="text-sm font-mono text-primary">{selectedVuln.cve_id}</code>
+                      )}
+                      <span className="text-xs text-muted-foreground">{selectedVuln.source_engine}</span>
                     </div>
                   </div>
                 </div>
               </SheetHeader>
 
-              <Tabs defaultValue="details" className="mt-6">
-                <TabsList>
-                  <TabsTrigger value="details">Details</TabsTrigger>
-                  <TabsTrigger value="remediation">Remediation</TabsTrigger>
-                  <TabsTrigger value="history">History</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="details" className="space-y-6 mt-4">
-                  {/* Quick Actions */}
-                  {canWrite && (
-                    <div className="flex flex-wrap gap-2">
-                      <Button variant="gradient" size="sm"><CheckCircle2 className="w-4 h-4 mr-1" />Mark Fixed</Button>
-                      <Button variant="outline" size="sm" onClick={() => { setSelectedVuln(null); openAssignDialog(selectedVuln); }}>
-                        <UserPlus className="w-4 h-4 mr-1" />Assign Task
+              <div className="mt-6 space-y-6">
+                {/* Quick Actions */}
+                {canWrite && (
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="gradient" size="sm" disabled={actionBusy} onClick={() => requestTransition(selectedVuln, "remediated")}>
+                      <CheckCircle2 className="w-4 h-4 mr-1" />Mark Remediated
+                    </Button>
+                    {(selectedVuln.status === "open" || selectedVuln.status === "confirmed") && (
+                      <Button variant="outline" size="sm" disabled={actionBusy} onClick={() => doVerify(selectedVuln)}>
+                        <RefreshCw className="w-4 h-4 mr-1" />Verify
                       </Button>
-                      <Button variant="outline" size="sm"><Link2 className="w-4 h-4 mr-1" />Create Ticket</Button>
-                      <Button variant="outline" size="sm"><RefreshCw className="w-4 h-4 mr-1" />Re-scan</Button>
+                    )}
+                    <Button variant="outline" size="sm" onClick={() => openAssign(selectedVuln)}>
+                      <UserPlus className="w-4 h-4 mr-1" />Assign
+                    </Button>
+                    <Button variant="outline" size="sm" disabled={actionBusy} onClick={() => requestTransition(selectedVuln, "accepted_risk")}>
+                      <Shield className="w-4 h-4 mr-1" />Accept Risk
+                    </Button>
+                    <Button variant="outline" size="sm" disabled={actionBusy} onClick={() => requestTransition(selectedVuln, "false_positive")}>
+                      <AlertTriangle className="w-4 h-4 mr-1" />False Positive
+                    </Button>
+                  </div>
+                )}
+
+                {/* Scores row */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-3 bg-muted/30 rounded-lg">
+                    <div className="text-xs text-muted-foreground mb-1">CVSS Base</div>
+                    <div className="text-xl font-bold text-foreground">
+                      {typeof selectedVuln.cvss_base === "number" ? selectedVuln.cvss_base.toFixed(1) : "—"}
+                    </div>
+                    {typeof selectedVuln.cvss_base === "number" && (
+                      <Progress value={selectedVuln.cvss_base * 10} className="h-2 mt-2" />
+                    )}
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded-lg">
+                    <div className="text-xs text-muted-foreground mb-1">EPSS</div>
+                    <div className="text-xl font-bold text-foreground">
+                      {typeof selectedVuln.epss === "number" ? `${(selectedVuln.epss * 100).toFixed(1)}%` : "—"}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded-lg">
+                    <div className="text-xs text-muted-foreground mb-1">Composite Risk</div>
+                    <div className="text-xl font-bold text-foreground">
+                      {typeof selectedVuln.composite_risk === "number" ? selectedVuln.composite_risk.toFixed(0) : "—"}
+                    </div>
+                  </div>
+                </div>
+
+                {/* KEV banner */}
+                {selectedVuln.kev && (
+                  <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-xl flex items-center gap-2">
+                    <ShieldAlert className="w-5 h-5 text-destructive" />
+                    <div>
+                      <div className="font-medium text-destructive">Known Exploited Vulnerability (CISA KEV)</div>
+                      {cve?.kev_due_date && (
+                        <div className="text-xs text-muted-foreground">Remediation due: {cve.kev_due_date}</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Info grid */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-3 bg-muted/30 rounded-lg">
+                    <div className="text-xs text-muted-foreground mb-1">Confidence</div>
+                    <div className="text-sm capitalize">{selectedVuln.confidence}</div>
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded-lg">
+                    <div className="text-xs text-muted-foreground mb-1">Status</div>
+                    <div className="text-sm">{STATUS_LABEL[selectedVuln.status]}</div>
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded-lg">
+                    <div className="text-xs text-muted-foreground mb-1">Assigned To</div>
+                    <div className="text-sm">{selectedVuln.assigned_to || "Unassigned"}</div>
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded-lg">
+                    <div className="text-xs text-muted-foreground mb-1">SLA Due</div>
+                    <div className="text-sm">{selectedVuln.sla_due_at ? new Date(selectedVuln.sla_due_at).toLocaleDateString() : "—"}</div>
+                  </div>
+                  {selectedVuln.category && (
+                    <div className="p-3 bg-muted/30 rounded-lg">
+                      <div className="text-xs text-muted-foreground mb-1">Category</div>
+                      <div className="text-sm">{selectedVuln.category}</div>
                     </div>
                   )}
+                  {selectedVuln.location && (
+                    <div className="p-3 bg-muted/30 rounded-lg">
+                      <div className="text-xs text-muted-foreground mb-1">Location</div>
+                      <div className="text-sm font-mono break-all">{selectedVuln.location}</div>
+                    </div>
+                  )}
+                </div>
 
-                  {/* CVSS Meter */}
-                  <div className="p-4 bg-muted/30 rounded-xl">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">CVSS Score</span>
-                      <span className={cn(
-                        "text-2xl font-bold",
-                        selectedVuln.cvss >= 9 ? "text-destructive" :
-                        selectedVuln.cvss >= 7 ? "text-warning" :
-                        selectedVuln.cvss >= 4 ? "text-accent" : "text-success"
-                      )}>
-                        {selectedVuln.cvss}
-                      </span>
-                    </div>
-                    <Progress 
-                      value={selectedVuln.cvss * 10} 
-                      className="h-3"
-                    />
-                  </div>
-
-                  {/* Info Grid */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-3 bg-muted/30 rounded-lg">
-                      <div className="text-xs text-muted-foreground mb-1">Asset</div>
-                      <div className="text-sm font-mono">{selectedVuln.asset}</div>
-                    </div>
-                    <div className="p-3 bg-muted/30 rounded-lg">
-                      <div className="text-xs text-muted-foreground mb-1">Exploitability</div>
-                      <div>{getExploitBadge(selectedVuln.exploitability)}</div>
-                    </div>
-                    <div className="p-3 bg-muted/30 rounded-lg">
-                      <div className="text-xs text-muted-foreground mb-1">Patch Available</div>
-                      <div className="flex items-center gap-1">
-                        {selectedVuln.patchAvailable ? (
-                          <><CheckCircle2 className="w-4 h-4 text-success" /><span className="text-sm">Yes</span></>
-                        ) : (
-                          <><AlertTriangle className="w-4 h-4 text-warning" /><span className="text-sm">No</span></>
-                        )}
-                      </div>
-                    </div>
-                    <div className="p-3 bg-muted/30 rounded-lg">
-                      <div className="text-xs text-muted-foreground mb-1">Owner</div>
-                      <div className="text-sm">{selectedVuln.owner || "Unassigned"}</div>
-                    </div>
-                  </div>
-
-                  {/* Description */}
-                  <div className="space-y-3">
+                {/* Description */}
+                {selectedVuln.description && (
+                  <div className="space-y-2">
                     <h4 className="font-medium text-foreground">Description</h4>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      This vulnerability allows attackers to execute arbitrary code remotely due to improper input validation. 
-                      The vulnerability is actively being exploited in the wild and requires immediate attention.
-                    </p>
+                    <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{selectedVuln.description}</p>
                   </div>
+                )}
 
-                  {/* Detection Timeline */}
-                  <div className="space-y-3">
-                    <h4 className="font-medium text-foreground">Detection Timeline</h4>
-                    <div className="flex items-center gap-4 text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-primary" />
-                        <span className="text-muted-foreground">First seen:</span>
-                        <span className="font-medium">{selectedVuln.firstSeen}</span>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-destructive" />
-                        <span className="text-muted-foreground">Last seen:</span>
-                        <span className="font-medium">{selectedVuln.lastSeen}</span>
-                      </div>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="remediation" className="space-y-6 mt-4">
-                  <div className="space-y-3">
-                    <h4 className="font-medium text-foreground">Recommended Fix</h4>
+                {/* Why this score */}
+                {selectedVuln.risk_factors && selectedVuln.risk_factors.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-foreground">Why this score</h4>
                     <div className="space-y-2">
-                      {[
-                        "Update to the latest patched version",
-                        "Apply security configuration changes",
-                        "Verify fix by re-scanning the asset"
-                      ].map((step, i) => (
-                        <div key={i} className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
-                          <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-sm font-bold flex items-center justify-center shrink-0">{i + 1}</span>
-                          <span className="text-sm">{step}</span>
+                      {selectedVuln.risk_factors.map((rf, i) => (
+                        <div key={i} className="flex items-start justify-between gap-3 p-3 bg-muted/30 rounded-lg">
+                          <div>
+                            <div className="text-sm font-medium">{rf.name}</div>
+                            {rf.detail && <div className="text-xs text-muted-foreground">{rf.detail}</div>}
+                          </div>
+                          <span className={cn(
+                            "text-sm font-bold shrink-0",
+                            rf.points >= 0 ? "text-destructive" : "text-success"
+                          )}>
+                            {rf.points >= 0 ? "+" : ""}{rf.points}
+                          </span>
                         </div>
                       ))}
                     </div>
                   </div>
+                )}
 
-                  {selectedVuln.patchAvailable && (
-                    <div className="p-4 bg-success/10 border border-success/20 rounded-xl">
-                      <div className="flex items-center gap-2 mb-2">
-                        <CheckCircle2 className="w-5 h-5 text-success" />
-                        <span className="font-medium text-success">Patch Available</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        A security patch is available. Apply the latest updates to remediate this vulnerability.
-                      </p>
-                    </div>
-                  )}
-                </TabsContent>
+                {/* Evidence */}
+                {selectedVuln.evidence && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-foreground">Evidence</h4>
+                    <pre className="text-xs bg-muted/50 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">{selectedVuln.evidence}</pre>
+                  </div>
+                )}
 
-                <TabsContent value="history" className="space-y-4 mt-4">
-                  {([] as { action: string; user: string; time: string }[]).map((event, i) => (
-                    <div key={i} className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
-                      <div className="w-2 h-2 rounded-full bg-primary mt-2" />
-                      <div className="flex-1">
-                        <div className="text-sm font-medium">{event.action}</div>
-                        <div className="text-xs text-muted-foreground">{event.user} • {event.time}</div>
+                {/* CVE detail */}
+                {selectedVuln.cve_id && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-foreground">CVE Intelligence</h4>
+                    {cveLoading ? (
+                      <div className="flex items-center text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin mr-2" />Loading {selectedVuln.cve_id}…</div>
+                    ) : cve ? (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          {cve.cvss_v31 && (
+                            <div className="p-3 bg-muted/30 rounded-lg">
+                              <div className="text-xs text-muted-foreground">CVSS v3.1</div>
+                              <div className="font-bold">{cve.cvss_v31.score}</div>
+                              <div className="text-xs font-mono text-muted-foreground break-all">{cve.cvss_v31.vector}</div>
+                            </div>
+                          )}
+                          {cve.cvss_v40 && (
+                            <div className="p-3 bg-muted/30 rounded-lg">
+                              <div className="text-xs text-muted-foreground">CVSS v4.0</div>
+                              <div className="font-bold">{cve.cvss_v40.score}</div>
+                              <div className="text-xs font-mono text-muted-foreground break-all">{cve.cvss_v40.vector}</div>
+                            </div>
+                          )}
+                        </div>
+                        {cve.affected_versions && cve.affected_versions.length > 0 && (
+                          <div>
+                            <div className="text-xs text-muted-foreground mb-1">Affected Versions</div>
+                            <div className="flex flex-wrap gap-1">
+                              {cve.affected_versions.map((v, i) => (
+                                <span key={i} className="text-xs px-2 py-0.5 bg-muted rounded-full font-mono">{v}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {cve.cwe_ids && cve.cwe_ids.length > 0 && (
+                          <div>
+                            <div className="text-xs text-muted-foreground mb-1">CWE</div>
+                            <div className="flex flex-wrap gap-1">
+                              {cve.cwe_ids.map((c, i) => (
+                                <span key={i} className="text-xs px-2 py-0.5 bg-muted rounded-full font-mono">{c}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {cve.references && cve.references.length > 0 && (
+                          <div>
+                            <div className="text-xs text-muted-foreground mb-1">References</div>
+                            <ul className="space-y-1">
+                              {cve.references.slice(0, 5).map((r, i) => (
+                                <li key={i}>
+                                  <a href={r} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline break-all inline-flex items-center gap-1">
+                                    <ExternalLink className="w-3 h-3 shrink-0" />{r}
+                                  </a>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                       </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No enriched CVE data available.</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Detection Timeline */}
+                {(selectedVuln.first_detected_at || selectedVuln.last_detected_at) && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium text-foreground">Detection Timeline</h4>
+                    <div className="flex items-center gap-4 text-sm flex-wrap">
+                      {selectedVuln.first_detected_at && (
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-primary" />
+                          <span className="text-muted-foreground">First:</span>
+                          <span className="font-medium">{new Date(selectedVuln.first_detected_at).toLocaleString()}</span>
+                        </div>
+                      )}
+                      {selectedVuln.last_detected_at && (
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-destructive" />
+                          <span className="text-muted-foreground">Last:</span>
+                          <span className="font-medium">{new Date(selectedVuln.last_detected_at).toLocaleString()}</span>
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </TabsContent>
-              </Tabs>
+                  </div>
+                )}
+              </div>
             </>
           )}
         </SheetContent>
       </Sheet>
 
-      {/* Assign Task Dialog */}
-      <Dialog open={isAssignDialogOpen} onOpenChange={setIsAssignDialogOpen}>
+      {/* Justification Modal */}
+      <Dialog open={!!justifyTarget} onOpenChange={(o) => { if (!o) { setJustifyTarget(null); setJustification(""); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {justifyTarget ? STATUS_LABEL[justifyTarget.status] : ""} — Justification Required
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Provide a justification for transitioning "{justifyTarget?.finding.title}" to{" "}
+              <span className="font-medium">{justifyTarget ? STATUS_LABEL[justifyTarget.status] : ""}</span>.
+            </p>
+            <div className="space-y-2">
+              <Label>Justification *</Label>
+              <Textarea rows={4} value={justification} onChange={(e) => setJustification(e.target.value)} placeholder="Explain the reason…" />
+            </div>
+            <div className="flex justify-end gap-3 pt-2 border-t border-border">
+              <Button variant="outline" onClick={() => { setJustifyTarget(null); setJustification(""); }}>Cancel</Button>
+              <Button variant="gradient" onClick={submitJustification} disabled={actionBusy}>
+                {actionBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}Confirm
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Modal */}
+      <Dialog open={!!assignTarget} onOpenChange={(o) => { if (!o) { setAssignTarget(null); setAssignee(""); } }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <UserPlus className="w-5 h-5 text-primary" />
-              Assign Task to Team
+              <UserPlus className="w-5 h-5 text-primary" />Assign Finding
             </DialogTitle>
           </DialogHeader>
-          {assignVuln && (
+          {assignTarget && (
             <div className="space-y-4 py-2">
-              {/* Vulnerability Info */}
               <div className="p-3 bg-muted/30 rounded-lg border border-border/50">
-                <div className="flex items-center gap-2 mb-2">
-                  <SeverityBadge severity={assignVuln.severity} />
-                  <code className="text-sm font-mono text-primary">{assignVuln.cve}</code>
+                <div className="flex items-center gap-2 mb-1">
+                  <SeverityBadge severity={assignTarget.severity} />
+                  {assignTarget.cve_id && <code className="text-sm font-mono text-primary">{assignTarget.cve_id}</code>}
                 </div>
-                <div className="text-sm font-medium">{assignVuln.title}</div>
-                <div className="text-xs text-muted-foreground mt-1">Asset: {assignVuln.asset}</div>
+                <div className="text-sm font-medium">{assignTarget.title}</div>
               </div>
-
-              {/* Assignee */}
               <div className="space-y-2">
-                <Label>Assign To *</Label>
-                <Select value={assignForm.assignee} onValueChange={(v) => setAssignForm({ ...assignForm, assignee: v })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select team member" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {teamMembers.map((member) => (
-                      <SelectItem key={member.id} value={member.id}>
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium">
-                            {member.name.split(" ").map(n => n[0]).join("")}
-                          </div>
-                          <span>{member.name}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Assignee (user id or email)</Label>
+                <Input value={assignee} onChange={(e) => setAssignee(e.target.value)} placeholder="user@company.com — leave blank to unassign" />
               </div>
-
-              {/* Priority & Due Date */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Priority</Label>
-                  <Select value={assignForm.priority} onValueChange={(v) => setAssignForm({ ...assignForm, priority: v })}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="critical">🔴 Critical</SelectItem>
-                      <SelectItem value="high">🟠 High</SelectItem>
-                      <SelectItem value="medium">🟡 Medium</SelectItem>
-                      <SelectItem value="low">🟢 Low</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Due Date</Label>
-                  <Input 
-                    type="date" 
-                    value={assignForm.dueDate} 
-                    onChange={(e) => setAssignForm({ ...assignForm, dueDate: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              {/* Description */}
-              <div className="space-y-2">
-                <Label>Task Description</Label>
-                <Textarea 
-                  rows={4} 
-                  value={assignForm.description}
-                  onChange={(e) => setAssignForm({ ...assignForm, description: e.target.value })}
-                  placeholder="Describe the task..."
-                />
-              </div>
-
-              {/* Notify Via */}
-              <div className="space-y-2">
-                <Label>Notify Via</Label>
-                <div className="flex gap-2">
-                  {[
-                    { id: "slack", label: "Slack", icon: Slack },
-                    { id: "email", label: "Email", icon: Mail },
-                    { id: "jira", label: "Jira", icon: Link2 },
-                  ].map((platform) => (
-                    <Button
-                      key={platform.id}
-                      type="button"
-                      variant={assignForm.notifyVia.includes(platform.id) ? "default" : "outline"}
-                      size="sm"
-                      className="gap-2"
-                      onClick={() => {
-                        setAssignForm({
-                          ...assignForm,
-                          notifyVia: assignForm.notifyVia.includes(platform.id)
-                            ? assignForm.notifyVia.filter(p => p !== platform.id)
-                            : [...assignForm.notifyVia, platform.id]
-                        });
-                      }}
-                    >
-                      <platform.icon className="w-4 h-4" />
-                      {platform.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex justify-end gap-3 pt-4 border-t border-border">
-                <Button variant="outline" onClick={() => setIsAssignDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button variant="gradient" onClick={handleAssignTask}>
-                  <Send className="w-4 h-4 mr-2" />
-                  Assign Task
+              <div className="flex justify-end gap-3 pt-2 border-t border-border">
+                <Button variant="outline" onClick={() => { setAssignTarget(null); setAssignee(""); }}>Cancel</Button>
+                <Button variant="gradient" onClick={submitAssign} disabled={actionBusy}>
+                  {actionBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}Save
                 </Button>
               </div>
             </div>

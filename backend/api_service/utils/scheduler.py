@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update, func
 
@@ -56,6 +56,116 @@ STALE_RUNNING_MINUTES = max(
 )
 
 __all__ = ["parse_interval", "next_cron", "compute_next_run", "scheduler_loop"]
+
+
+def _in_scan_window(window: dict, now_utc: datetime) -> bool:
+    """True if `now_utc` falls inside the profile's scan window
+    {start:"HH:MM", end:"HH:MM", tz:"Area/City"}. Handles windows that cross
+    midnight (start > end). Missing/invalid window => always allowed."""
+    if not isinstance(window, dict):
+        return True
+    start, end = window.get("start"), window.get("end")
+    if not start or not end:
+        return True
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(window.get("tz") or "UTC")
+        local = now_utc.replace(tzinfo=timezone.utc).astimezone(tz)
+        cur = local.strftime("%H:%M")
+    except Exception:  # noqa: BLE001 - bad tz => don't block scanning
+        return True
+    if start <= end:
+        return start <= cur <= end
+    return cur >= start or cur <= end   # crosses midnight
+
+
+async def _run_due_vs_scans(db, now: datetime) -> int:
+    """Enqueue due recurring VS scans (INTERVAL/CRON). Mirrors the ASM due-scan
+    discipline: FOR UPDATE SKIP LOCKED, overlap prevention (skip RUNNING/PAUSED/
+    DELETED), and only ownership-verified + SSRF-safe targets are scanned."""
+    from models.vs_models import VsScan, VsScanRun, VsScanTarget, VsScanProfile
+    from models.asset_models import Asset as AssetModel
+    from utils.target_guard import validate_scan_target
+
+    # Reap crashed VS scans (stuck RUNNING past the stale window) so they can re-run.
+    cutoff = now - timedelta(minutes=STALE_RUNNING_MINUTES)
+    await db.execute(
+        update(VsScan).where(VsScan.status == "RUNNING", VsScan.updated_at < cutoff)
+        .values(status="FAILED", updated_at=now)
+    )
+
+    due = (await db.execute(
+        select(VsScan).where(
+            VsScan.schedule_type.in_(("INTERVAL", "CRON")),
+            VsScan.next_run_at.isnot(None),
+            VsScan.next_run_at <= now,
+            VsScan.status.notin_(("RUNNING", "PAUSED", "DELETED")),
+        ).with_for_update(skip_locked=True)
+    )).scalars().all()
+
+    scheduled = 0
+    for scan in due:
+        nxt = compute_next_run(scan.schedule_type, scan.schedule_value, scan.next_run_at)
+        if nxt is not None and nxt <= now:
+            nxt = compute_next_run(scan.schedule_type, scan.schedule_value, now)
+        if nxt is None:
+            logger.warning("VS scan %s has invalid schedule_value=%r", scan.id, scan.schedule_value)
+            continue
+
+        prof = (await db.execute(select(VsScanProfile).where(
+            VsScanProfile.id == scan.profile_id))).scalar_one_or_none()
+        # Scan-window enforcement: outside the profile's window, defer WITHOUT
+        # advancing next_run_at so the scan fires as soon as the window opens.
+        if prof and prof.scan_window and not _in_scan_window(prof.scan_window, now):
+            logger.info("VS scan %s deferred: outside scan window", scan.id)
+            continue
+
+        assets = (await db.execute(select(AssetModel).where(
+            AssetModel.id.in_(scan.asset_ids or []),
+            AssetModel.org_id == scan.org_id))).scalars().all()
+        safe = []
+        for a in assets:
+            if not a.ownership_verified:
+                continue
+            try:
+                validate_scan_target(a.name)
+                safe.append(a)
+            except ValueError:
+                continue
+
+        # Always advance next_run_at so an all-unverified scan doesn't hot-loop.
+        scan.next_run_at = nxt
+        scan.updated_at = now
+        if not safe:
+            logger.info("VS scan %s skipped: no verified/safe targets", scan.id)
+            continue
+
+        run = VsScanRun(scan_id=scan.id, org_id=scan.org_id, status="PENDING",
+                        triggered_by="schedule", started_at=now)
+        db.add(run)
+        await db.flush()
+        for a in safe:
+            db.add(VsScanTarget(scan_run_id=run.id, org_id=scan.org_id, asset_id=a.id,
+                                host=a.name, authorized=True, status="pending"))
+        message = {
+            "type": "vs", "id": run.id, "scan_id": scan.id, "org_id": scan.org_id,
+            "profile": prof.to_dict() if prof else {},
+            "targets": [{"asset_id": a.id, "host": a.name} for a in safe],
+        }
+        if await publish_message("jobs.vs", message):
+            scan.status = "RUNNING"
+            scan.last_run_at = now
+            scan.last_run_id = run.id
+            scheduled += 1
+        else:
+            run.status = "FAILED"
+            run.error_message = "failed to enqueue scan job"
+            logger.error("failed to enqueue scheduled VS scan %s", scan.id)
+
+    await db.commit()
+    if scheduled:
+        logger.info("enqueued %d due VS scan(s)", scheduled)
+    return scheduled
 
 
 async def _emit_schedule_events(db, started: list[dict], reaped: list[dict]) -> None:
@@ -330,6 +440,13 @@ async def _tick() -> int:
         # this session). Best-effort — a notification failure never breaks a tick.
         await _emit_schedule_events(db, started, reaped)
 
+        # 2b) Due recurring VS (vulnerability) scans — same overlap-prevention +
+        #     SKIP LOCKED discipline, enqueued to jobs.vs.
+        try:
+            await _run_due_vs_scans(db, now)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("VS scheduled-scan pass failed: %s", exc)
+
         # 3) Auto-score assets from real scan data (Phase E) so the dashboard's
         #    risk numbers populate automatically after a scan — no manual rescore.
         try:
@@ -350,7 +467,103 @@ async def _tick() -> int:
         except Exception as exc:  # noqa: BLE001
             logger.warning("scheduled-report pass failed: %s", exc)
 
+    # 5) Refresh VS CVE intelligence (KEV/EPSS/NVD) ~daily, off the tick's
+    #    session and non-blocking so a slow feed can't stall scheduling.
+    _maybe_launch_cve_sync(now)
+
+    # 6) Daily VS trend snapshot — fire-and-forget (must not block the tick) and
+    #    the once-per-day guard is set UPFRONT so a slow/failing pass can't rerun
+    #    every 60s for the rest of the day.
+    global _last_trend_snapshot_date, _trend_task
+    _day = now.strftime("%Y-%m-%d")
+    if _last_trend_snapshot_date != _day and (_trend_task is None or _trend_task.done()):
+        _last_trend_snapshot_date = _day
+        _trend_task = asyncio.create_task(_run_trend_snapshot(now))
+
     return scheduled
+
+
+async def _run_trend_snapshot(now: datetime) -> None:
+    try:
+        async with AsyncSessionLocal() as sdb:
+            await _snapshot_vs_trends(sdb, now)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("VS trend snapshot pass failed: %s", exc)
+
+
+# --- VS CVE intelligence refresh (daily, fire-and-forget) ------------------
+_last_cve_sync: datetime | None = None
+_cve_sync_task: "asyncio.Task | None" = None
+_CVE_SYNC_INTERVAL = timedelta(hours=int(os.getenv("VS_CVE_SYNC_HOURS", "20")))
+
+
+_last_trend_snapshot_date: str | None = None
+_trend_task: "asyncio.Task | None" = None
+
+
+async def _snapshot_vs_trends(db, now: datetime) -> int:
+    """Write one VS severity snapshot per org per day (real finding counts).
+    Idempotent via ON CONFLICT (org_id, snapshot_date)."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from models.vs_models import VsFinding, VsTrendSnapshot
+
+    day = now.strftime("%Y-%m-%d")
+    active = ("open", "confirmed", "in_progress")
+    org_ids = (await db.execute(
+        select(VsFinding.org_id).distinct())).scalars().all()
+    written = 0
+    for org_id in org_ids:
+        if not org_id:
+            continue
+
+        async def _c(*conds) -> int:
+            return (await db.execute(select(func.count()).select_from(VsFinding)
+                    .where(VsFinding.org_id == org_id, *conds))).scalar() or 0
+
+        row = {
+            "id": f"{org_id}:{day}",
+            "org_id": org_id, "snapshot_date": day,
+            "total": await _c(VsFinding.status.in_(active)),
+            "critical": await _c(VsFinding.status.in_(active), VsFinding.severity == "critical"),
+            "high": await _c(VsFinding.status.in_(active), VsFinding.severity == "high"),
+            "medium": await _c(VsFinding.status.in_(active), VsFinding.severity == "medium"),
+            "low": await _c(VsFinding.status.in_(active), VsFinding.severity == "low"),
+            "kev": await _c(VsFinding.status.in_(active), VsFinding.kev.is_(True)),
+            "open_count": await _c(VsFinding.status == "open"),
+            "remediated_count": await _c(VsFinding.status.in_(("remediated", "verified", "closed"))),
+        }
+        stmt = pg_insert(VsTrendSnapshot).values(row)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["org_id", "snapshot_date"],
+            set_={k: row[k] for k in ("total", "critical", "high", "medium", "low",
+                                      "kev", "open_count", "remediated_count")},
+        )
+        await db.execute(stmt)
+        written += 1
+    await db.commit()
+    if written:
+        logger.info("wrote VS trend snapshot for %d org(s) on %s", written, day)
+    return written
+
+
+async def _run_cve_sync() -> None:
+    global _last_cve_sync
+    try:
+        from utils.cve_feeds import sync_all
+        async with AsyncSessionLocal() as db:
+            res = await sync_all(db)
+        logger.info("VS CVE intel sync complete: %s", res)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("VS CVE intel sync failed: %s", exc)
+    finally:
+        _last_cve_sync = datetime.utcnow()
+
+
+def _maybe_launch_cve_sync(now: datetime) -> None:
+    global _cve_sync_task
+    due = _last_cve_sync is None or (now - _last_cve_sync) > _CVE_SYNC_INTERVAL
+    if due and (_cve_sync_task is None or _cve_sync_task.done()):
+        _cve_sync_task = asyncio.create_task(_run_cve_sync())
 
 
 async def _run_due_scheduled_reports(db, now: datetime, limit: int = 50) -> int:

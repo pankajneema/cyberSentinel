@@ -23,7 +23,8 @@ from routes import orgs            # Phase 2: organizations & memberships
 from models import marketing_models  # ensure marketing tables are registered
 from models import tenancy_models   # ensure organizations/member_profiles tables are registered
 from models import notification_models  # ensure notifications tables are registered
-from models import task_models  # ensure tasks/task_messages tables are registered
+from models import task_models  # ensure tasks/task_messages tables are regis
+from models import vs_models  # ensure VS (vulnerability scanning) tables are registeredtered
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -169,6 +170,8 @@ app.include_router(reports.router)
 app.include_router(notifications.router)
 from routes import ws as ws_route  # realtime WebSocket (/ws/realtime)
 app.include_router(ws_route.router)
+from routes import internal_vs  # internal (worker-only) VS credential materialize
+app.include_router(internal_vs.router)
 app.include_router(tasks.router)
 app.include_router(marketing.router)
 

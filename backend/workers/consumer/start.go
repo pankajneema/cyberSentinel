@@ -9,6 +9,8 @@ import (
 
 	"workers/config"
 	"workers/utils"
+
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // Start boots the consumer and begins message processing.
@@ -22,13 +24,27 @@ import (
 func Start(cfg *config.Config) error {
 	utils.Logger.Infof("connecting to RabbitMQ")
 
-	queue, err := utils.Connect(cfg.RabbitURL, cfg.ASMRabbitJobQueue)
+	// The consumer serves TWO dedicated job queues that feed the SAME worker
+	// pool: jobs.asm (ASM discovery) and jobs.vs (vulnerability scanning). Each
+	// queue has its own connection/channel so Ack/Nack are routed back to the
+	// queue the delivery came from.
+	asmQueue, err := utils.Connect(cfg.RabbitURL, cfg.ASMRabbitJobQueue)
 	if err != nil {
 		return err
 	}
-	defer queue.Close()
+	defer asmQueue.Close()
 
-	msgs, err := queue.Consume()
+	vsQueue, err := utils.Connect(cfg.RabbitURL, cfg.VSRabbitJobQueue)
+	if err != nil {
+		return err
+	}
+	defer vsQueue.Close()
+
+	asmMsgs, err := asmQueue.Consume()
+	if err != nil {
+		return err
+	}
+	vsMsgs, err := vsQueue.Consume()
 	if err != nil {
 		return err
 	}
@@ -37,7 +53,8 @@ func Start(cfg *config.Config) error {
 	if concurrency < 1 {
 		concurrency = 1
 	}
-	utils.Logger.Infof("consumer started (concurrency=%d), waiting for messages...", concurrency)
+	utils.Logger.Infof("consumer started (concurrency=%d) queues=[%s %s], waiting for messages...",
+		concurrency, cfg.ASMRabbitJobQueue, cfg.VSRabbitJobQueue)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -57,28 +74,43 @@ func Start(cfg *config.Config) error {
 		}
 	}
 
+	// process dispatches one delivery on the bounded worker pool, Acking after
+	// success and Nacking (requeue=false → DLQ) on failure, against the queue
+	// the delivery originated from. Shared by both job queues.
+	process := func(q *utils.Queue, msg amqp.Delivery) {
+		m := msg          // per-iteration copy captured by the goroutine
+		sem <- struct{}{} // block if at capacity (backpressure)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := dispatch(m.Body); err != nil {
+				// Poison/failed message → DLQ (requeue=false), never a hot loop.
+				utils.Logger.Errorf("message failed, dead-lettering: %v", err)
+				_ = q.Nack(m, false)
+				return
+			}
+			_ = q.Ack(m)
+		}()
+	}
+
 	for {
 		select {
-		case msg, ok := <-msgs:
+		case msg, ok := <-asmMsgs:
 			if !ok {
-				utils.Logger.Warnf("delivery channel closed; draining and exiting")
+				utils.Logger.Warnf("asm delivery channel closed; draining and exiting")
 				drain()
 				return nil
 			}
-			m := msg          // per-iteration copy captured by the goroutine
-			sem <- struct{}{} // block if at capacity (backpressure)
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				defer func() { <-sem }()
-				if err := dispatch(m.Body); err != nil {
-					// Poison/failed message → DLQ (requeue=false), never a hot loop.
-					utils.Logger.Errorf("message failed, dead-lettering: %v", err)
-					_ = queue.Nack(m, false)
-					return
-				}
-				_ = queue.Ack(m)
-			}()
+			process(asmQueue, msg)
+
+		case msg, ok := <-vsMsgs:
+			if !ok {
+				utils.Logger.Warnf("vs delivery channel closed; draining and exiting")
+				drain()
+				return nil
+			}
+			process(vsQueue, msg)
 
 		case sig := <-sigChan:
 			utils.Logger.Infof("shutdown signal received: %s — stopping intake", sig)

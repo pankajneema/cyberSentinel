@@ -10,6 +10,7 @@ class AssetResponse(BaseModel):
     name: str
     type: str
     exposure: str
+    criticality: str = "normal"
     risk_score: Optional[int] = None      # None = never scored ("Unscanned")
     last_scored_at: Optional[str] = None
     tags: List[str]
@@ -37,6 +38,7 @@ class AssetCreateRequest(BaseModel):
     name: str
     type: Literal["domain", "ip", "cloud", "repo", "saas", "user"]
     exposure: Literal["public", "internal"] = "internal"
+    criticality: Literal["low", "normal", "high", "critical"] = "normal"
     tags: Optional[List[str]] = None
     description: Optional[str] = None
 
@@ -47,6 +49,7 @@ class AssetCreateRequest(BaseModel):
 class AssetUpdateRequest(BaseModel):
     name: Optional[str] = None
     exposure: Optional[Literal["public", "internal"]] = None
+    criticality: Optional[Literal["low", "normal", "high", "critical"]] = None
     tags: Optional[List[str]] = None
     status: Optional[str] = None
     risk_score: Optional[int] = None

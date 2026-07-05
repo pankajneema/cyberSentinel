@@ -235,7 +235,9 @@ async def main() -> None:
     logger.info("Starting ASM Reporting Consumer...")
     redis_client = await get_redis()
     try:
-        await consume_events(redis_client)
+        # Run the ASM and VS reporting consumers concurrently on their own queues.
+        from backend.reporting.vs.consumer import run_vs_consumer
+        await asyncio.gather(consume_events(redis_client), run_vs_consumer())
     except KeyboardInterrupt:
         logger.info("Shutdown requested")
     except Exception as e:

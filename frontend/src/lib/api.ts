@@ -61,7 +61,6 @@ export * from "./services/billing";
 export * from "./services/services";
 export * from "./services/assets";
 export * from "./services/asm";
-export * from "./services/scans";
 export * from "./services/vs";
 export * from "./services/tasks";
 export * from "./services/reports";

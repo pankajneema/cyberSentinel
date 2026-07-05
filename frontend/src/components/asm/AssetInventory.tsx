@@ -149,6 +149,7 @@ export function AssetInventory() {
     name: "",
     type: "" as ApiAsset["type"] | "",
     exposure: "public" as ApiAsset["exposure"],
+    criticality: "normal" as NonNullable<ApiAsset["criticality"]>,
     tags: "",
     description: "",
     bulkInput: "",
@@ -235,6 +236,16 @@ export function AssetInventory() {
     );
   };
 
+  // Business-criticality badge colors (mirrors the exposure badge styling).
+  const criticalityBadgeClass = (c: ApiAsset["criticality"]) => {
+    switch (c ?? "normal") {
+      case "critical": return "bg-destructive/10 text-destructive";
+      case "high": return "bg-warning/10 text-warning";
+      case "low": return "bg-muted text-muted-foreground";
+      default: return "bg-primary/10 text-primary"; // normal
+    }
+  };
+
   const getSeverity = (risk: number) => {
     if (risk >= 80) return "critical";
     if (risk >= 60) return "high";
@@ -287,12 +298,13 @@ export function AssetInventory() {
           name: newAsset.name.trim(),
           type: selectedAssetType as ApiAsset["type"],
           exposure: newAsset.exposure,
+          criticality: newAsset.criticality,
           tags: buildTags(),
           description,
         };
 
         const createdAsset = await createAsset(payload);
-        
+
         setAssets((prev) => [createdAsset, ...prev]);
         
         toast({
@@ -310,6 +322,7 @@ export function AssetInventory() {
               name: line.trim(),
               type: selectedAssetType as ApiAsset["type"],
               exposure: newAsset.exposure,
+              criticality: newAsset.criticality,
               tags: buildTags(),
               description,
             };
@@ -337,6 +350,7 @@ export function AssetInventory() {
         name: "",
         type: "",
         exposure: "public",
+        criticality: "normal",
         tags: "",
         description: "",
         bulkInput: "",
@@ -369,6 +383,7 @@ export function AssetInventory() {
       const payload: UpdateAssetPayload = {
         name: editForm.name?.trim(),
         exposure: editForm.exposure,
+        criticality: editForm.criticality,
         tags: editForm.tags,
         status: editForm.status,
       };
@@ -598,6 +613,7 @@ export function AssetInventory() {
     setEditForm({
       name: asset.name,
       exposure: asset.exposure,
+      criticality: asset.criticality ?? "normal",
       tags: asset.tags,
       status: asset.status,
     });
@@ -716,6 +732,24 @@ export function AssetInventory() {
                 <SelectContent>
                   <SelectItem value="public">Public (Internet-facing)</SelectItem>
                   <SelectItem value="internal">Internal (Private network)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Criticality</Label>
+              <Select
+                value={newAsset.criticality}
+                onValueChange={(value: NonNullable<ApiAsset["criticality"]>) => setNewAsset({ ...newAsset, criticality: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="normal">Normal</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="critical">Critical</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -946,6 +980,7 @@ export function AssetInventory() {
                 <th className="p-4 font-medium">Asset Name</th>
                 <th className="p-4 font-medium">Type</th>
                 <th className="p-4 font-medium">Exposure</th>
+                <th className="p-4 font-medium">Criticality</th>
                 <th className="p-4 font-medium">Risk Score</th>
                 <th className="p-4 font-medium">Tags</th>
                 <th className="p-4 font-medium">Last Seen</th>
@@ -991,6 +1026,11 @@ export function AssetInventory() {
                           : "bg-muted text-muted-foreground"
                       }`}>
                         {asset.exposure}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <span className={`capitalize text-xs px-2.5 py-1 rounded-full font-medium ${criticalityBadgeClass(asset.criticality)}`}>
+                        {asset.criticality ?? "normal"}
                       </span>
                     </td>
                     <td className="p-4">
@@ -1114,6 +1154,10 @@ export function AssetInventory() {
                     <div className="p-4 bg-muted/30 rounded-xl">
                       <div className="text-xs text-muted-foreground mb-1">Exposure</div>
                       <div className="text-sm font-medium capitalize">{selectedAsset.exposure}</div>
+                    </div>
+                    <div className="p-4 bg-muted/30 rounded-xl">
+                      <div className="text-xs text-muted-foreground mb-1">Criticality</div>
+                      <div className="text-sm font-medium capitalize">{selectedAsset.criticality ?? "normal"}</div>
                     </div>
                     <div className="p-4 bg-muted/30 rounded-xl">
                       <div className="text-xs text-muted-foreground mb-1">Exposure Score</div>
@@ -1266,6 +1310,23 @@ export function AssetInventory() {
                       <SelectItem value="active">Active</SelectItem>
                       <SelectItem value="inactive">Inactive</SelectItem>
                       <SelectItem value="archived">Archived</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Criticality</Label>
+                  <Select
+                    value={editForm.criticality ?? selectedAsset.criticality ?? "normal"}
+                    onValueChange={(value: NonNullable<ApiAsset["criticality"]>) => setEditForm({ ...editForm, criticality: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="normal">Normal</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                      <SelectItem value="critical">Critical</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

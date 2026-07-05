@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Bug, LayoutDashboard, FileSearch, AlertTriangle, Server, Ticket, Settings } from "lucide-react";
+import { Bug, LayoutDashboard, FileSearch, AlertTriangle, Server, Ticket, Settings, ShieldCheck } from "lucide-react";
 import { motion } from "framer-motion";
 import { VSDashboard } from "@/components/vs/VSDashboard";
 import { VSScanManager } from "@/components/vs/VSScanManager";
 import { VSFindings } from "@/components/vs/VSFindings";
 import { VSAssetView } from "@/components/vs/VSAssetView";
 import { VSRemediation } from "@/components/vs/VSRemediation";
+import { VSCompliance } from "@/components/vs/VSCompliance";
 import { VSSettings } from "@/components/vs/VSSettings";
 import { getMe } from "@/lib/services/auth";
 
@@ -16,6 +17,7 @@ const tabs = [
   { value: "findings", label: "Findings", icon: AlertTriangle },
   { value: "assets", label: "Asset View", icon: Server },
   { value: "remediation", label: "Remediation", icon: Ticket },
+  { value: "compliance", label: "Compliance", icon: ShieldCheck },
   { value: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -110,8 +112,11 @@ export default function VS() {
           <TabsContent value="remediation" className="mt-0">
             <VSRemediation canWrite={canWrite} />
           </TabsContent>
+          <TabsContent value="compliance" className="mt-0">
+            <VSCompliance />
+          </TabsContent>
           <TabsContent value="settings" className="mt-0">
-            <VSSettings />
+            <VSSettings canWrite={canWrite} />
           </TabsContent>
         </motion.div>
       </Tabs>

@@ -21,6 +21,7 @@ import models.tenancy_models      # noqa: F401
 import models.notification_models # noqa: F401  # was missing → autogenerate would DROP notifications
 import models.report_models       # noqa: F401  # was missing → autogenerate would DROP reports
 import models.task_models         # noqa: F401  # was missing → autogenerate would DROP tasks
+import models.vs_models           # noqa: F401  # VS (vulnerability scanning) tables
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

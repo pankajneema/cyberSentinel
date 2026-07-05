@@ -23,6 +23,7 @@ type Config struct {
 	// RabbitMQ
 	RabbitURL         string
 	ASMRabbitJobQueue string
+	VSRabbitJobQueue  string
 
 	//database
 	PostgreSql string
@@ -48,7 +49,15 @@ type Config struct {
 
 	// Shared secret for the internal control-plane API (consumer -> control-plane).
 	// When set, /asm/jobs/start requires header X-Internal-Token == this value.
+	// Reused as the X-Internal-Token when fetching authenticated-scan
+	// credentials from the core API's internal endpoint.
 	ControlPlaneToken string
+
+	// Base URL of the core (Python) API service. Used by the VS worker to fetch
+	// authenticated-scan credentials just-in-time from the INTERNAL endpoint
+	// POST {CoreAPIURL}/api/v1/internal/vs/credential. Defaults to the in-cluster
+	// service name; override via CORE_API_URL for local/other deployments.
+	CoreAPIURL string
 }
 
 // Load loads environment variables and returns Config
@@ -72,6 +81,7 @@ func Load() *Config {
 		RabbitURL: MustGet("RABBITMQ_URL"),
 
 		ASMRabbitJobQueue: Get("ASM_RABBITMQ_JOB_QUEUE", "jobs.asm"),
+		VSRabbitJobQueue:  Get("VS_RABBITMQ_JOB_QUEUE", "jobs.vs"),
 
 		// Orchestration
 		JobMaxConcurrency: mustInt("JOB_MAX_CONCURRENCY", 3),
@@ -88,6 +98,9 @@ func Load() *Config {
 		AsmEndpoint: Get("ASM_SERVICE_ENDPOINTS", "http://localhost:9003/asm/"),
 
 		ControlPlaneToken: Get("CONTROL_PLANE_TOKEN", ""),
+
+		// Core API base URL for internal credential fetch (JIT authenticated scan).
+		CoreAPIURL: Get("CORE_API_URL", "http://api_service:8000"),
 
 		//database
 		PostgreSql: MustGet("POSTGRESQL_URL"),
