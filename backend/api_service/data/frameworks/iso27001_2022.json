@@ -1,0 +1,162 @@
+{
+  "key": "iso27001",
+  "name": "ISO/IEC 27001 (Annex A)",
+  "version": "2022",
+  "authority": "ISO",
+  "region": "global",
+  "description": "ISO/IEC 27001:2022 Annex A controls. Titles/descriptions are paraphrased — the standard's text is copyrighted and must not be stored verbatim.",
+  "is_reference": false,
+  "controls": [
+    {
+      "control_ref": "A.5.1",
+      "title": "Policies for information security",
+      "description": "Information security policy and topic-specific policies are defined, approved, published, acknowledged, and reviewed at planned intervals.",
+      "category": "Organizational",
+      "criticality": "high",
+      "control_type": "administrative",
+      "evidence_guidance": "Active policies with version history, review dates and acknowledgment records.",
+      "checks": [
+        { "key": "policy.infosec.active_and_acked", "required": true, "rationale": "An active, reviewed, acknowledged infosec policy is the direct A.5.1 artifact." }
+      ]
+    },
+    {
+      "control_ref": "A.5.9",
+      "title": "Inventory of information and other associated assets",
+      "description": "An inventory of information and associated assets, including owners, is developed and maintained.",
+      "category": "Organizational",
+      "criticality": "critical",
+      "control_type": "technical",
+      "evidence_guidance": "The maintained asset inventory with ownership verification.",
+      "checks": [
+        { "key": "asm.inventory_maintained", "required": true, "rationale": "The shared Asset Inventory, actively maintained, is the inventory A.5.9 requires." },
+        { "key": "asm.ownership_verified", "required": true, "rationale": "A.5.9 requires owners — ownership verification on assets evidences this." }
+      ]
+    },
+    {
+      "control_ref": "A.5.15",
+      "title": "Access control",
+      "description": "Rules to control physical and logical access to information and assets are established based on business and security requirements.",
+      "category": "Organizational",
+      "criticality": "critical",
+      "control_type": "technical",
+      "evidence_guidance": "Access control policy plus role-based access records.",
+      "checks": [
+        { "key": "policy.access_control.active_and_acked", "required": true, "rationale": "The published access-control policy establishes the A.5.15 rules." },
+        { "key": "audit.access_managed", "required": true, "rationale": "Role-based membership changes in the audit trail show the rules enforced." }
+      ]
+    },
+    {
+      "control_ref": "A.5.19",
+      "title": "Information security in supplier relationships",
+      "description": "Processes are defined to manage information security risks associated with the use of suppliers' products or services.",
+      "category": "Organizational",
+      "criticality": "medium",
+      "control_type": "administrative",
+      "evidence_guidance": "Documented supplier security reviews.",
+      "checks": [
+        { "key": "manual.vendor_review.annual", "required": true, "rationale": "Annual supplier security reviews evidence the A.5.19 process operating." }
+      ]
+    },
+    {
+      "control_ref": "A.5.24",
+      "title": "Incident management planning and preparation",
+      "description": "The organization plans and prepares for managing information security incidents with defined processes, roles and responsibilities.",
+      "category": "Organizational",
+      "criticality": "high",
+      "control_type": "administrative",
+      "evidence_guidance": "Incident response policy with acknowledgments.",
+      "checks": [
+        { "key": "policy.incident_response.active_and_acked", "required": true, "rationale": "The published IR policy is the A.5.24 plan." },
+        { "key": "manual.breach_notification_procedure", "required": false, "rationale": "A documented notification procedure supports incident preparation." }
+      ]
+    },
+    {
+      "control_ref": "A.5.30",
+      "title": "ICT readiness for business continuity",
+      "description": "ICT readiness is planned, implemented, maintained and tested based on business continuity objectives.",
+      "category": "Organizational",
+      "criticality": "high",
+      "control_type": "administrative",
+      "evidence_guidance": "BCP/DR test records.",
+      "checks": [
+        { "key": "manual.bcp_dr_test.annual", "required": true, "rationale": "A tested continuity exercise in the last year is the standard A.5.30 artifact." }
+      ]
+    },
+    {
+      "control_ref": "A.6.3",
+      "title": "Information security awareness, education and training",
+      "description": "Personnel receive appropriate security awareness, education, training and regular updates relevant to their function.",
+      "category": "People",
+      "criticality": "medium",
+      "control_type": "administrative",
+      "evidence_guidance": "Training completion records.",
+      "checks": [
+        { "key": "manual.security_training.annual", "required": true, "rationale": "Annual training records directly evidence A.6.3." }
+      ]
+    },
+    {
+      "control_ref": "A.8.8",
+      "title": "Management of technical vulnerabilities",
+      "description": "Information about technical vulnerabilities of systems in use is obtained, exposure evaluated, and appropriate measures taken.",
+      "category": "Technological",
+      "criticality": "critical",
+      "control_type": "technical",
+      "evidence_guidance": "Vulnerability scans, remediation within SLA, verification rescans.",
+      "checks": [
+        { "key": "vs.scan_recency.quarterly", "required": true, "rationale": "Recurring scans obtain vulnerability information for systems in use." },
+        { "key": "vs.no_overdue_highs", "required": true, "rationale": "Appropriate measures taken = high/critical findings addressed within SLA." },
+        { "key": "vs.rescan_after_remediation", "required": false, "rationale": "Rescan verification strengthens evidence that measures were effective." }
+      ]
+    },
+    {
+      "control_ref": "A.8.9",
+      "title": "Configuration management",
+      "description": "Configurations, including security configurations, of hardware, software, services and networks are established, documented, implemented, monitored and reviewed.",
+      "category": "Technological",
+      "criticality": "high",
+      "control_type": "technical",
+      "evidence_guidance": "Configuration monitoring via scans; change records.",
+      "checks": [
+        { "key": "scan_config.continuous_schedule", "required": true, "rationale": "Continuous scan schedules monitor configuration drift." },
+        { "key": "audit.trail_active", "required": false, "rationale": "The audit trail records configuration/administrative changes." }
+      ]
+    },
+    {
+      "control_ref": "A.8.15",
+      "title": "Logging",
+      "description": "Logs recording activities, exceptions, faults and other relevant events are produced, stored, protected and analysed.",
+      "category": "Technological",
+      "criticality": "high",
+      "control_type": "technical",
+      "evidence_guidance": "Operative audit logging with retention.",
+      "checks": [
+        { "key": "audit.trail_active", "required": true, "rationale": "An operative, append-only audit log is the A.8.15 artifact." }
+      ]
+    },
+    {
+      "control_ref": "A.8.16",
+      "title": "Monitoring activities",
+      "description": "Networks, systems and applications are monitored for anomalous behaviour and appropriate actions taken.",
+      "category": "Technological",
+      "criticality": "critical",
+      "control_type": "technical",
+      "evidence_guidance": "Continuous attack-surface and vulnerability monitoring.",
+      "checks": [
+        { "key": "asm.attack_surface_monitored", "required": true, "rationale": "Recent completed ASM discovery evidences monitoring of networks and systems." },
+        { "key": "scan_config.continuous_schedule", "required": true, "rationale": "Active recurring schedules make the monitoring continuous." }
+      ]
+    },
+    {
+      "control_ref": "A.5.35",
+      "title": "Independent review of information security",
+      "description": "The organization's approach to managing information security is reviewed independently at planned intervals or when significant changes occur.",
+      "category": "Organizational",
+      "criticality": "medium",
+      "control_type": "administrative",
+      "evidence_guidance": "Independent assessments, e.g. penetration tests.",
+      "checks": [
+        { "key": "manual.penetration_test.annual", "required": true, "rationale": "An annual independent penetration test is a standard independent review artifact." }
+      ]
+    }
+  ]
+}

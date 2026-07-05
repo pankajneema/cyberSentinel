@@ -17,6 +17,7 @@ from utils.clickhouse_client import close_clickhouse, get_clickhouse
 
 # Import all routes
 from routes import billing, services, asm, vs, activity, assets, tasks, marketing, reports, notifications
+from routes import ca as ca_routes  # Compliance & Audit module
 from routes import auth_supabase  # Supabase-era identity router (Phase 1)
 from routes import auth_webhook    # Supabase provisioning webhook
 from routes import orgs            # Phase 2: organizations & memberships
@@ -164,6 +165,7 @@ app.include_router(services.router)
 app.include_router(asm.router)
 app.include_router(vs.router)
 app.include_router(vs.vs_router)
+app.include_router(ca_routes.router)   # /api/v1/ca (Compliance & Audit)
 app.include_router(activity.router)
 app.include_router(assets.router)
 app.include_router(reports.router)

@@ -1,0 +1,99 @@
+{
+  "key": "hipaa",
+  "name": "HIPAA Security Rule",
+  "version": "2013",
+  "authority": "HHS",
+  "region": "us",
+  "description": "HIPAA Security Rule safeguards (paraphrased subset).",
+  "is_reference": false,
+  "controls": [
+    {
+      "control_ref": "164.308(a)(1)(ii)(A)",
+      "title": "Risk analysis",
+      "description": "Conduct an accurate and thorough assessment of potential risks and vulnerabilities to ePHI.",
+      "category": "Administrative Safeguards",
+      "criticality": "critical",
+      "control_type": "administrative",
+      "evidence_guidance": "Documented risk analysis plus continuous vulnerability identification.",
+      "checks": [
+        { "key": "manual.risk_assessment.annual", "required": true, "rationale": "The documented risk analysis is the core artifact." },
+        { "key": "vs.scan_recency.quarterly", "required": false, "rationale": "Recurring scans evidence ongoing vulnerability assessment." }
+      ]
+    },
+    {
+      "control_ref": "164.308(a)(1)(ii)(B)",
+      "title": "Risk management",
+      "description": "Implement security measures sufficient to reduce risks and vulnerabilities to a reasonable and appropriate level.",
+      "category": "Administrative Safeguards",
+      "criticality": "critical",
+      "control_type": "technical",
+      "evidence_guidance": "Findings remediated within SLA; no open criticals.",
+      "checks": [
+        { "key": "vs.no_open_criticals", "required": true, "rationale": "Zero open criticals evidences risks reduced to an appropriate level." },
+        { "key": "vs.no_overdue_highs", "required": true, "rationale": "SLA-timely remediation evidences active risk management." }
+      ]
+    },
+    {
+      "control_ref": "164.308(a)(3)",
+      "title": "Workforce security",
+      "description": "Ensure workforce members have appropriate access to ePHI and prevent unauthorized access.",
+      "category": "Administrative Safeguards",
+      "criticality": "critical",
+      "control_type": "technical",
+      "evidence_guidance": "Role-based access with recorded changes.",
+      "checks": [
+        { "key": "policy.access_control.active_and_acked", "required": true, "rationale": "The access policy defines appropriate access." },
+        { "key": "audit.access_managed", "required": true, "rationale": "Recorded role lifecycle evidences enforcement." }
+      ]
+    },
+    {
+      "control_ref": "164.308(a)(5)",
+      "title": "Security awareness and training",
+      "description": "Implement a security awareness and training program for all workforce members.",
+      "category": "Administrative Safeguards",
+      "criticality": "medium",
+      "control_type": "administrative",
+      "evidence_guidance": "Training records.",
+      "checks": [
+        { "key": "manual.security_training.annual", "required": true, "rationale": "Training completion records evidence the program." }
+      ]
+    },
+    {
+      "control_ref": "164.308(a)(6)",
+      "title": "Security incident procedures",
+      "description": "Implement policies and procedures to address security incidents, including response and reporting.",
+      "category": "Administrative Safeguards",
+      "criticality": "critical",
+      "control_type": "administrative",
+      "evidence_guidance": "IR policy and breach procedure.",
+      "checks": [
+        { "key": "policy.incident_response.active_and_acked", "required": true, "rationale": "The IR policy is the required procedure." },
+        { "key": "manual.breach_notification_procedure", "required": false, "rationale": "Reporting procedure supports incident handling." }
+      ]
+    },
+    {
+      "control_ref": "164.312(b)",
+      "title": "Audit controls",
+      "description": "Implement mechanisms that record and examine activity in systems containing or using ePHI.",
+      "category": "Technical Safeguards",
+      "criticality": "high",
+      "control_type": "technical",
+      "evidence_guidance": "Operative audit logging.",
+      "checks": [
+        { "key": "audit.trail_active", "required": true, "rationale": "The operative audit trail is the audit-controls mechanism." }
+      ]
+    },
+    {
+      "control_ref": "164.308(a)(7)",
+      "title": "Contingency plan",
+      "description": "Establish policies for responding to emergencies that damage systems containing ePHI, including testing.",
+      "category": "Administrative Safeguards",
+      "criticality": "high",
+      "control_type": "administrative",
+      "evidence_guidance": "BCP/DR test records.",
+      "checks": [
+        { "key": "manual.bcp_dr_test.annual", "required": true, "rationale": "Tested contingency exercises evidence the plan." }
+      ]
+    }
+  ]
+}

@@ -24,6 +24,11 @@ FINDING_HIGH = "finding.high"
 # --- team / panel ---
 TEAM_MESSAGE = "team.message"
 
+# --- compliance (CA) ---
+CONTROL_BROKE = "control.broke"
+CONTROL_RESTORED = "control.restored"
+EVIDENCE_EXPIRING = "evidence.expiring"
+
 # Maps an event type -> the ASM settings notification-rule key (matching the keys
 # the settings UI persists) that must be enabled for the event to be pushed to
 # email/Slack/Teams. In-app + websocket delivery is NOT gated by these (the panel
@@ -35,6 +40,9 @@ RULE_FOR_EVENT: dict[str, str] = {
     FINDING_CRITICAL: "high_exposure",
     FINDING_HIGH: "high_exposure",
     FINDINGS_NEW: "medium_exposure",
+    CONTROL_BROKE: "high_exposure",       # a broken compliance control is a high-signal event
+    CONTROL_RESTORED: "medium_exposure",
+    EVIDENCE_EXPIRING: "medium_exposure",
 }
 
 # Severity ordering for coloring / thresholds.

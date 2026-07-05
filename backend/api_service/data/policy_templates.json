@@ -1,0 +1,26 @@
+{
+  "_comment": "Global policy templates (org_id NULL, status='template'). Cloned into an org via POST /api/v1/ca/policies with from_template_id. Bodies are starting points the org must adapt — publishing them unchanged is the org's decision, recorded via version + acknowledgment.",
+  "templates": [
+    {
+      "key": "information-security-policy",
+      "title": "Information Security Policy",
+      "description": "Top-level policy establishing the organization's commitment to information security, roles, and responsibilities.",
+      "review_frequency_days": 365,
+      "body_md": "# Information Security Policy\n\n## 1. Purpose\nThis policy establishes the organization's commitment to protecting the confidentiality, integrity, and availability of its information and systems.\n\n## 2. Scope\nApplies to all personnel, systems, and data owned or operated by the organization.\n\n## 3. Policy\n- Information security objectives are defined and reviewed by management at least annually.\n- Security roles and responsibilities are assigned and communicated.\n- Assets are inventoried and classified; owners are assigned.\n- Risk assessments are performed at least annually and after significant change.\n- Technical vulnerabilities are identified through continuous scanning and remediated within defined SLAs.\n- Violations of this policy are subject to disciplinary action.\n\n## 4. Review\nThis policy is reviewed at least annually by the policy owner.\n"
+    },
+    {
+      "key": "access-control-policy",
+      "title": "Access Control Policy",
+      "description": "Rules for granting, reviewing, and revoking access to systems and data on least-privilege principles.",
+      "review_frequency_days": 365,
+      "body_md": "# Access Control Policy\n\n## 1. Purpose\nDefine how access to the organization's systems and data is granted, reviewed, and revoked.\n\n## 2. Policy\n- Access is granted on the principle of least privilege and role-based assignment.\n- Access requires documented approval by the resource owner or an administrator.\n- Access rights are reviewed at least annually and on role change.\n- Access is revoked promptly upon termination or role change.\n- Administrative actions are logged in an append-only audit trail.\n- Shared accounts are prohibited; authentication uses individual identities.\n\n## 3. Review\nThis policy is reviewed at least annually by the policy owner.\n"
+    },
+    {
+      "key": "incident-response-policy",
+      "title": "Incident Response Policy",
+      "description": "Defined program for detecting, responding to, reporting, and recovering from security incidents.",
+      "review_frequency_days": 365,
+      "body_md": "# Incident Response Policy\n\n## 1. Purpose\nEstablish a defined program for responding to security incidents.\n\n## 2. Phases\n1. **Detection & triage** — incidents are identified via continuous monitoring, scanning, and reports; severity is assigned.\n2. **Containment & eradication** — affected systems are isolated; root cause removed.\n3. **Notification** — regulatory notifications are made within mandated windows (e.g. CERT-In 6 hours, GDPR 72 hours, DPDP as prescribed) per the breach notification procedure.\n4. **Recovery** — services restored; remediations verified by rescan.\n5. **Post-incident review** — lessons learned documented within 14 days.\n\n## 3. Roles\nAn incident commander is designated for every incident; contact points are maintained.\n\n## 4. Review\nThis policy is reviewed at least annually and after every major incident.\n"
+    }
+  ]
+}

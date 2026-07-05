@@ -1,0 +1,269 @@
+{
+  "_comment": "Canonical check catalog. Evidence attaches to checks; ca_control_check_map fans checks out to controls across frameworks. logic_key must exist in ca/checks_registry.py REGISTRY (loader-validated). Params are per-check: never weaken a check to make cross-framework overlap prettier — strictest framework gets its own check.",
+  "checks": [
+    {
+      "key": "vs.scan_recency.quarterly",
+      "name": "Vulnerability scan completed within the last quarter",
+      "description": "At least one COMPLETED vulnerability scan run exists in the last 92 days.",
+      "collection": "automated",
+      "logic_key": "vs.scan_recency",
+      "logic_params": { "max_age_days": 92 },
+      "source_type": "vs",
+      "freshness_days": 92,
+      "weight": 1
+    },
+    {
+      "key": "vs.scan_recency.monthly",
+      "name": "Vulnerability scan completed within the last month",
+      "description": "At least one COMPLETED vulnerability scan run exists in the last 31 days.",
+      "collection": "automated",
+      "logic_key": "vs.scan_recency",
+      "logic_params": { "max_age_days": 31 },
+      "source_type": "vs",
+      "freshness_days": 31,
+      "weight": 1
+    },
+    {
+      "key": "vs.no_open_criticals",
+      "name": "No open critical vulnerabilities",
+      "description": "Zero vulnerability findings with severity=critical in an active (unresolved) status.",
+      "collection": "automated",
+      "logic_key": "vs.no_open_findings",
+      "logic_params": { "severity": "critical", "max_open": 0 },
+      "source_type": "vs",
+      "freshness_days": 7,
+      "weight": 1
+    },
+    {
+      "key": "vs.no_overdue_highs",
+      "name": "No high/critical findings past remediation SLA",
+      "description": "No active findings of severity high or critical whose sla_due_at is in the past.",
+      "collection": "automated",
+      "logic_key": "vs.remediation_sla",
+      "logic_params": { "severities": ["critical", "high"] },
+      "source_type": "vs",
+      "freshness_days": 7,
+      "weight": 1
+    },
+    {
+      "key": "vs.scan_coverage.90d",
+      "name": "Active assets covered by vulnerability scanning",
+      "description": "At least 80% of active assets were targeted by a completed scan in the last 90 days.",
+      "collection": "automated",
+      "logic_key": "vs.scan_coverage",
+      "logic_params": { "window_days": 90, "min_pct": 80 },
+      "source_type": "vs",
+      "freshness_days": 30,
+      "weight": 1
+    },
+    {
+      "key": "vs.rescan_after_remediation",
+      "name": "Remediations verified by rescan",
+      "description": "Findings moved to verified/closed are backed by a scan run completed after remediation.",
+      "collection": "automated",
+      "logic_key": "vs.rescan_after_remediation",
+      "logic_params": { "window_days": 92 },
+      "source_type": "vs",
+      "freshness_days": 92,
+      "weight": 1
+    },
+    {
+      "key": "scan_config.continuous_schedule",
+      "name": "Recurring scan schedule active",
+      "description": "At least one active INTERVAL/CRON scan or discovery schedule exists with a future next run.",
+      "collection": "automated",
+      "logic_key": "scan_config.continuous_schedule",
+      "logic_params": {},
+      "source_type": "scan_config",
+      "freshness_days": 7,
+      "weight": 1
+    },
+    {
+      "key": "asm.inventory_maintained",
+      "name": "Asset inventory maintained",
+      "description": "Asset inventory is non-empty and has been updated within the last 90 days.",
+      "collection": "automated",
+      "logic_key": "asm.inventory_maintained",
+      "logic_params": { "max_age_days": 90 },
+      "source_type": "asm",
+      "freshness_days": 30,
+      "weight": 1
+    },
+    {
+      "key": "asm.ownership_verified",
+      "name": "Asset ownership verified",
+      "description": "At least 80% of active assets have completed ownership verification.",
+      "collection": "automated",
+      "logic_key": "asm.ownership_verified",
+      "logic_params": { "min_pct": 80 },
+      "source_type": "asm",
+      "freshness_days": 90,
+      "weight": 1
+    },
+    {
+      "key": "asm.attack_surface_monitored",
+      "name": "External attack surface monitored",
+      "description": "ASM discovery has completed within the last 30 days for the organization's assets.",
+      "collection": "automated",
+      "logic_key": "asm.discovery_recency",
+      "logic_params": { "max_age_days": 30 },
+      "source_type": "asm",
+      "freshness_days": 30,
+      "weight": 1
+    },
+    {
+      "key": "audit.trail_active",
+      "name": "Administrative audit logging operative",
+      "description": "Platform audit log records organization activity within the last 30 days.",
+      "collection": "automated",
+      "logic_key": "audit.trail_active",
+      "logic_params": { "max_age_days": 30 },
+      "source_type": "audit_trail",
+      "freshness_days": 30,
+      "weight": 1
+    },
+    {
+      "key": "audit.access_managed",
+      "name": "Access changes tracked and roles assigned",
+      "description": "Org membership uses role-based access; membership/role changes are recorded in the audit log.",
+      "collection": "automated",
+      "logic_key": "audit.access_managed",
+      "logic_params": { "review_days": 365 },
+      "source_type": "audit_trail",
+      "freshness_days": 90,
+      "weight": 1
+    },
+    {
+      "key": "policy.infosec.active_and_acked",
+      "name": "Information security policy active and acknowledged",
+      "description": "An active information-security policy exists, is within its review window, and ≥80% of members acknowledged the current version.",
+      "collection": "automated",
+      "logic_key": "policy.active_and_acked",
+      "logic_params": { "policy_key": "information-security-policy", "min_ack_pct": 80 },
+      "source_type": "policy",
+      "freshness_days": 30,
+      "weight": 1
+    },
+    {
+      "key": "policy.access_control.active_and_acked",
+      "name": "Access control policy active and acknowledged",
+      "description": "An active access-control policy exists, is within its review window, and ≥80% of members acknowledged the current version.",
+      "collection": "automated",
+      "logic_key": "policy.active_and_acked",
+      "logic_params": { "policy_key": "access-control-policy", "min_ack_pct": 80 },
+      "source_type": "policy",
+      "freshness_days": 30,
+      "weight": 1
+    },
+    {
+      "key": "policy.incident_response.active_and_acked",
+      "name": "Incident response policy active and acknowledged",
+      "description": "An active incident-response policy exists, is within its review window, and ≥80% of members acknowledged the current version.",
+      "collection": "automated",
+      "logic_key": "policy.active_and_acked",
+      "logic_params": { "policy_key": "incident-response-policy", "min_ack_pct": 80 },
+      "source_type": "policy",
+      "freshness_days": 30,
+      "weight": 1
+    },
+    {
+      "key": "manual.penetration_test.annual",
+      "name": "Annual penetration test report",
+      "description": "A penetration test report from the last 12 months, uploaded as manual evidence.",
+      "collection": "manual",
+      "logic_key": null,
+      "logic_params": null,
+      "source_type": "manual",
+      "freshness_days": 365,
+      "weight": 1
+    },
+    {
+      "key": "manual.risk_assessment.annual",
+      "name": "Annual risk assessment",
+      "description": "A documented organizational risk assessment from the last 12 months.",
+      "collection": "manual",
+      "logic_key": null,
+      "logic_params": null,
+      "source_type": "manual",
+      "freshness_days": 365,
+      "weight": 1
+    },
+    {
+      "key": "manual.bcp_dr_test.annual",
+      "name": "Business continuity / DR test",
+      "description": "Evidence of a business continuity or disaster recovery exercise in the last 12 months.",
+      "collection": "manual",
+      "logic_key": null,
+      "logic_params": null,
+      "source_type": "manual",
+      "freshness_days": 365,
+      "weight": 1
+    },
+    {
+      "key": "manual.vendor_review.annual",
+      "name": "Vendor / third-party security review",
+      "description": "Documented review of critical vendors' security posture in the last 12 months.",
+      "collection": "manual",
+      "logic_key": null,
+      "logic_params": null,
+      "source_type": "manual",
+      "freshness_days": 365,
+      "weight": 1
+    },
+    {
+      "key": "manual.security_training.annual",
+      "name": "Security awareness training records",
+      "description": "Records showing workforce security-awareness training completed in the last 12 months.",
+      "collection": "manual",
+      "logic_key": null,
+      "logic_params": null,
+      "source_type": "manual",
+      "freshness_days": 365,
+      "weight": 1
+    },
+    {
+      "key": "manual.dpdp_consent_records",
+      "name": "Consent management records (DPDP)",
+      "description": "Documentation of consent collection/withdrawal mechanisms for personal data (DPDP Act).",
+      "collection": "manual",
+      "logic_key": null,
+      "logic_params": null,
+      "source_type": "manual",
+      "freshness_days": 365,
+      "weight": 1
+    },
+    {
+      "key": "manual.breach_notification_procedure",
+      "name": "Breach notification procedure",
+      "description": "Documented procedure for notifying authorities/individuals of breaches within the mandated window (e.g. CERT-In 6h, GDPR 72h).",
+      "collection": "manual",
+      "logic_key": null,
+      "logic_params": null,
+      "source_type": "manual",
+      "freshness_days": 365,
+      "weight": 1
+    },
+    {
+      "key": "manual.log_retention_180d",
+      "name": "180-day log retention (CERT-In)",
+      "description": "Evidence that security logs are retained for a rolling 180 days as required by CERT-In directions.",
+      "collection": "manual",
+      "logic_key": null,
+      "logic_params": null,
+      "source_type": "manual",
+      "freshness_days": 180,
+      "weight": 1
+    },
+    {
+      "key": "manual.time_sync_npl",
+      "name": "Clock synchronization to NPL/NIC (CERT-In)",
+      "description": "Evidence that systems synchronize clocks to NPL/NIC NTP as required by CERT-In directions.",
+      "collection": "manual",
+      "logic_key": null,
+      "logic_params": null,
+      "source_type": "manual",
+      "freshness_days": 365,
+      "weight": 1
+    }
+  ]
+}

@@ -467,6 +467,14 @@ async def _tick() -> int:
         except Exception as exc:  # noqa: BLE001
             logger.warning("scheduled-report pass failed: %s", exc)
 
+        # 4b) Continuous compliance (CA) evaluation for orgs whose evidence is
+        #     due a freshness pass. Event-driven hooks (VS/ASM ingest) handle
+        #     real-time updates; this tick handles time-based evidence decay.
+        try:
+            await _run_due_ca_evaluations(db, now)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("CA evaluation pass failed: %s", exc)
+
     # 5) Refresh VS CVE intelligence (KEV/EPSS/NVD) ~daily, off the tick's
     #    session and non-blocking so a slow feed can't stall scheduling.
     _maybe_launch_cve_sync(now)
@@ -591,6 +599,39 @@ async def _run_due_scheduled_reports(db, now: datetime, limit: int = 50) -> int:
         except Exception as exc:  # noqa: BLE001
             logger.warning("failed to generate scheduled report %s: %s", sched.id, exc)
     return generated
+
+
+async def _run_due_ca_evaluations(db, now: datetime, batch: int = 10) -> int:
+    """Re-evaluate compliance posture for orgs whose next_eval_at is due.
+    SKIP LOCKED keeps multi-replica deployments from double-evaluating.
+    evaluate_org advances next_eval_at itself (+6h)."""
+    from models.ca_models import CaOrgFramework
+    from ca.engine import evaluate_org
+
+    # NOTE: DISTINCT is incompatible with FOR UPDATE in Postgres — lock the
+    # enablement rows, dedupe org ids in Python.
+    due_rows = (
+        await db.execute(
+            select(CaOrgFramework.org_id)
+            .where(
+                CaOrgFramework.status == "active",
+                (CaOrgFramework.next_eval_at.is_(None)) | (CaOrgFramework.next_eval_at <= now),
+            )
+            .limit(batch)
+            .with_for_update(skip_locked=True)
+        )
+    ).scalars().all()
+    n = 0
+    for org_id in dict.fromkeys(due_rows):
+        try:
+            result = await evaluate_org(db, org_id, reason="scheduler")
+            await db.commit()
+            if result.get("evaluated"):
+                n += 1
+        except Exception as exc:  # noqa: BLE001 — one org's failure must not block the rest
+            logger.warning("CA evaluation failed for org %s: %s", org_id, exc)
+            await db.rollback()
+    return n
 
 
 async def scheduler_loop(poll_seconds: int = POLL_SECONDS) -> None:

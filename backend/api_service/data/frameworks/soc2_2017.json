@@ -1,0 +1,188 @@
+{
+  "key": "soc2",
+  "name": "SOC 2 (Trust Services Criteria)",
+  "version": "2017",
+  "authority": "AICPA",
+  "region": "global",
+  "description": "AICPA Trust Services Criteria for Security (Common Criteria). Descriptions are paraphrased.",
+  "is_reference": false,
+  "controls": [
+    {
+      "control_ref": "CC1.1",
+      "title": "Integrity and ethical values",
+      "description": "The organization demonstrates commitment to integrity and ethical values, including documented policies the workforce acknowledges.",
+      "category": "Control Environment",
+      "criticality": "medium",
+      "control_type": "administrative",
+      "evidence_guidance": "Published code of conduct / infosec policy with acknowledgment records.",
+      "checks": [
+        { "key": "policy.infosec.active_and_acked", "required": true, "rationale": "An active, acknowledged information-security policy demonstrates the documented commitment CC1.1 expects." }
+      ]
+    },
+    {
+      "control_ref": "CC2.1",
+      "title": "Internal and external information quality",
+      "description": "The organization obtains and uses relevant, quality information to support internal control functioning.",
+      "category": "Communication and Information",
+      "criticality": "medium",
+      "control_type": "technical",
+      "evidence_guidance": "Security telemetry: scan results, asset data, audit logs feeding decisions.",
+      "checks": [
+        { "key": "asm.attack_surface_monitored", "required": true, "rationale": "Recent attack-surface discovery shows the organization is generating quality security information." },
+        { "key": "audit.trail_active", "required": false, "rationale": "An operative audit log supports information quality for internal control." }
+      ]
+    },
+    {
+      "control_ref": "CC3.2",
+      "title": "Risk identification and assessment",
+      "description": "The organization identifies risks to objectives and analyzes them as a basis for managing risk.",
+      "category": "Risk Assessment",
+      "criticality": "high",
+      "control_type": "administrative",
+      "evidence_guidance": "Annual risk assessment plus continuous technical risk identification (scans).",
+      "checks": [
+        { "key": "manual.risk_assessment.annual", "required": true, "rationale": "A documented annual risk assessment is the primary CC3.2 artifact." },
+        { "key": "vs.scan_recency.quarterly", "required": false, "rationale": "Recurring vulnerability scans provide continuous technical risk identification." }
+      ]
+    },
+    {
+      "control_ref": "CC4.1",
+      "title": "Ongoing monitoring evaluations",
+      "description": "The organization selects and performs ongoing and/or separate evaluations of internal control components.",
+      "category": "Monitoring Activities",
+      "criticality": "high",
+      "control_type": "technical",
+      "evidence_guidance": "Continuous scanning schedules and monitoring configuration.",
+      "checks": [
+        { "key": "scan_config.continuous_schedule", "required": true, "rationale": "An active recurring scan schedule is direct evidence of ongoing monitoring." },
+        { "key": "asm.attack_surface_monitored", "required": true, "rationale": "Completed recent discovery runs prove monitoring is operating, not just configured." }
+      ]
+    },
+    {
+      "control_ref": "CC5.2",
+      "title": "Technology general controls",
+      "description": "The organization selects and develops general control activities over technology to support objectives.",
+      "category": "Control Activities",
+      "criticality": "high",
+      "control_type": "technical",
+      "evidence_guidance": "Access control policy plus enforced role-based access.",
+      "checks": [
+        { "key": "policy.access_control.active_and_acked", "required": true, "rationale": "A published access-control policy defines the general control activity." },
+        { "key": "audit.access_managed", "required": true, "rationale": "Role-based membership with recorded changes shows the control operating." }
+      ]
+    },
+    {
+      "control_ref": "CC6.1",
+      "title": "Logical access security",
+      "description": "The organization implements logical access security software, infrastructure, and architectures over protected information assets.",
+      "category": "Logical and Physical Access",
+      "criticality": "critical",
+      "control_type": "technical",
+      "evidence_guidance": "Asset inventory identifying protected assets, plus access management records.",
+      "checks": [
+        { "key": "asm.inventory_maintained", "required": true, "rationale": "CC6.1 requires identifying protected information assets — the maintained shared asset inventory is that identification." },
+        { "key": "audit.access_managed", "required": true, "rationale": "Recorded role assignments and changes evidence logical access management." }
+      ]
+    },
+    {
+      "control_ref": "CC6.2",
+      "title": "User registration and authorization",
+      "description": "New internal and external users are registered and authorized prior to being issued credentials, and access is removed when no longer required.",
+      "category": "Logical and Physical Access",
+      "criticality": "critical",
+      "control_type": "technical",
+      "evidence_guidance": "Membership lifecycle records (invites, role grants, removals) in the audit trail.",
+      "checks": [
+        { "key": "audit.access_managed", "required": true, "rationale": "Member invite/role-change/removal events in the audit log directly evidence the registration and deprovisioning lifecycle." }
+      ]
+    },
+    {
+      "control_ref": "CC6.8",
+      "title": "Unauthorized software prevention and detection",
+      "description": "The organization implements controls to prevent or detect and act upon the introduction of unauthorized or malicious software.",
+      "category": "Logical and Physical Access",
+      "criticality": "high",
+      "control_type": "technical",
+      "evidence_guidance": "Vulnerability scanning detecting exposed/vulnerable software plus remediation.",
+      "checks": [
+        { "key": "vs.scan_recency.quarterly", "required": true, "rationale": "Recurring scans detect vulnerable and unauthorized software on assets." },
+        { "key": "vs.no_open_criticals", "required": true, "rationale": "Acting upon detections is evidenced by no critical findings left open." }
+      ]
+    },
+    {
+      "control_ref": "CC7.1",
+      "title": "Vulnerability identification",
+      "description": "The organization uses detection and monitoring procedures to identify changes to configurations that introduce vulnerabilities, and susceptibility to newly discovered vulnerabilities.",
+      "category": "System Operations",
+      "criticality": "critical",
+      "control_type": "technical",
+      "evidence_guidance": "Completed vulnerability scans across the asset base.",
+      "checks": [
+        { "key": "vs.scan_recency.quarterly", "required": true, "rationale": "Completed scan runs are the direct artifact of vulnerability identification." },
+        { "key": "vs.scan_coverage.90d", "required": true, "rationale": "Identification must cover the asset base, not a single host — coverage % proves breadth." }
+      ]
+    },
+    {
+      "control_ref": "CC7.2",
+      "title": "Anomaly monitoring",
+      "description": "The organization monitors system components and their operation for anomalies indicating malicious acts, natural disasters, and errors.",
+      "category": "System Operations",
+      "criticality": "critical",
+      "control_type": "technical",
+      "evidence_guidance": "Continuous monitoring schedules operating against the environment.",
+      "checks": [
+        { "key": "scan_config.continuous_schedule", "required": true, "rationale": "Active recurring schedules evidence continuous (not point-in-time) monitoring." },
+        { "key": "asm.attack_surface_monitored", "required": true, "rationale": "Recent completed discovery proves the monitoring actually runs." }
+      ]
+    },
+    {
+      "control_ref": "CC7.4",
+      "title": "Security incident response",
+      "description": "The organization responds to identified security incidents by executing a defined incident response program.",
+      "category": "System Operations",
+      "criticality": "critical",
+      "control_type": "administrative",
+      "evidence_guidance": "Incident response policy plus remediation lifecycle records.",
+      "checks": [
+        { "key": "policy.incident_response.active_and_acked", "required": true, "rationale": "A published, acknowledged IR policy is the defined program CC7.4 requires." },
+        { "key": "vs.no_overdue_highs", "required": true, "rationale": "High/critical findings remediated within SLA evidence the response program executing." }
+      ]
+    },
+    {
+      "control_ref": "CC7.5",
+      "title": "Incident recovery",
+      "description": "The organization identifies, develops, and implements activities to recover from identified security incidents.",
+      "category": "System Operations",
+      "criticality": "high",
+      "control_type": "technical",
+      "evidence_guidance": "Verified remediations with rescan confirmation.",
+      "checks": [
+        { "key": "vs.rescan_after_remediation", "required": true, "rationale": "Recovery is proven when remediated findings are verified by a subsequent rescan." }
+      ]
+    },
+    {
+      "control_ref": "CC8.1",
+      "title": "Change management",
+      "description": "The organization authorizes, designs, develops, configures, documents, tests, approves, and implements changes to infrastructure, data, software, and procedures.",
+      "category": "Change Management",
+      "criticality": "high",
+      "control_type": "technical",
+      "evidence_guidance": "Change/audit trail showing tracked administrative changes.",
+      "checks": [
+        { "key": "audit.trail_active", "required": true, "rationale": "The append-only audit trail of administrative changes evidences change tracking." }
+      ]
+    },
+    {
+      "control_ref": "CC9.2",
+      "title": "Vendor and business partner risk management",
+      "description": "The organization assesses and manages risks associated with vendors and business partners.",
+      "category": "Risk Mitigation",
+      "criticality": "medium",
+      "control_type": "administrative",
+      "evidence_guidance": "Documented vendor security reviews.",
+      "checks": [
+        { "key": "manual.vendor_review.annual", "required": true, "rationale": "Annual documented vendor reviews are the standard CC9.2 artifact." }
+      ]
+    }
+  ]
+}

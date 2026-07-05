@@ -155,6 +155,21 @@ async def handle_final_event(event: dict[str, Any], redis_client=None) -> None:
                 logger.info(f"✅ User pipeline processing completed for job={job_id}")
             else:
                 logger.warning(f"Unsupported asset type: {asset_type} for job={job_id}")
+
+            # Continuous compliance: refresh CA controls fed by ASM data as soon
+            # as discovery results are persisted. Isolated session + best-effort —
+            # a CA failure never affects ASM persistence.
+            try:
+                from sqlalchemy import select as _select
+                from backend.api_service.models.asm_models import AsmDiscovery
+                _org_id = (
+                    await db.execute(_select(AsmDiscovery.org_id).where(AsmDiscovery.id == job_id))
+                ).scalar_one_or_none()
+                if _org_id:
+                    from backend.api_service.ca.engine import evaluate_org_isolated
+                    await evaluate_org_isolated(_org_id, reason="asm_ingest")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"CA evaluation hook failed: {e}")
         except Exception as e:
             logger.error(f"Failed to process pipeline for job {job_id}: {e}", exc_info=True)
             raise

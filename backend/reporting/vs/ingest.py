@@ -245,6 +245,16 @@ async def ingest_vs_result(db, payload: dict) -> dict:
              "total": len(findings), "new_criticals": new_criticals}
     logger.info("report.vs ingested run=%s %s", run_id, stats)
     await _notify(org_id, scan, run, stats, new_critical_rows)
+
+    # Continuous compliance: re-evaluate CA controls fed by VS data the moment
+    # new results land. Isolated session + best-effort — a CA failure can never
+    # affect scan-result persistence.
+    try:
+        from backend.api_service.ca.engine import evaluate_org_isolated
+        await evaluate_org_isolated(org_id, reason="vs_ingest")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("CA evaluation hook failed: %s", e)
+
     return stats
 
 

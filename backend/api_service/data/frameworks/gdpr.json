@@ -1,0 +1,62 @@
+{
+  "key": "gdpr",
+  "name": "GDPR",
+  "version": "2016",
+  "authority": "EU",
+  "region": "eu",
+  "description": "EU General Data Protection Regulation — security-relevant articles (paraphrased).",
+  "is_reference": false,
+  "controls": [
+    {
+      "control_ref": "Art.30",
+      "title": "Records of processing activities",
+      "description": "Controllers maintain records of processing activities, including systems and assets involved.",
+      "category": "Accountability",
+      "criticality": "high",
+      "control_type": "administrative",
+      "evidence_guidance": "Asset inventory identifying systems that process personal data.",
+      "checks": [
+        { "key": "asm.inventory_maintained", "required": true, "rationale": "A maintained inventory of systems underpins records of processing." }
+      ]
+    },
+    {
+      "control_ref": "Art.32",
+      "title": "Security of processing",
+      "description": "Appropriate technical and organizational measures ensure a level of security appropriate to the risk, including regular testing and evaluation of effectiveness.",
+      "category": "Security",
+      "criticality": "critical",
+      "control_type": "technical",
+      "evidence_guidance": "Regular vulnerability testing, remediation, and security policies.",
+      "checks": [
+        { "key": "vs.scan_recency.quarterly", "required": true, "rationale": "Regularly testing security measures — recurring vulnerability scans are direct evidence." },
+        { "key": "vs.no_overdue_highs", "required": true, "rationale": "Evaluating and acting on findings evidences effectiveness of measures." },
+        { "key": "policy.infosec.active_and_acked", "required": true, "rationale": "Organizational measures require published security policy." }
+      ]
+    },
+    {
+      "control_ref": "Art.33",
+      "title": "Breach notification to supervisory authority",
+      "description": "Personal data breaches are notified to the supervisory authority without undue delay and where feasible within 72 hours.",
+      "category": "Breach",
+      "criticality": "critical",
+      "control_type": "administrative",
+      "evidence_guidance": "Documented 72-hour notification procedure.",
+      "checks": [
+        { "key": "manual.breach_notification_procedure", "required": true, "rationale": "A documented procedure covering the 72-hour window is the Art.33 readiness artifact." },
+        { "key": "policy.incident_response.active_and_acked", "required": true, "rationale": "Notification executes through the incident response program." }
+      ]
+    },
+    {
+      "control_ref": "Art.35",
+      "title": "Data protection impact assessment",
+      "description": "Where processing is likely to result in high risk, an assessment of the impact on personal data protection is carried out.",
+      "category": "Accountability",
+      "criticality": "high",
+      "control_type": "administrative",
+      "evidence_guidance": "Documented risk/impact assessments.",
+      "checks": [
+        { "key": "manual.risk_assessment.annual", "required": true, "rationale": "A documented risk assessment covering data protection satisfies DPIA readiness." }
+      ]
+    }
+  ]
+}

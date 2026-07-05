@@ -18,6 +18,8 @@ import { AppLayout } from "./layouts/AppLayout";
 import Dashboard from "./pages/app/Dashboard";
 import ASM from "./pages/app/ASM";
 import VS from "./pages/app/VS";
+import Compliance from "./pages/app/Compliance";
+import AuditorPortal from "./pages/AuditorPortal";
 import Assets from "./pages/app/Assets";
 import AppServices from "./pages/app/Services";
 import Marketplace from "./pages/app/Marketplace";
@@ -68,6 +70,7 @@ const App = () => (
             <Route path="asm" element={<ASM />} />
             <Route path="assets" element={<Assets />} />
             <Route path="vs" element={<VS />} />
+            <Route path="compliance" element={<Compliance />} />
             <Route path="services" element={<AppServices />} />
             <Route path="marketplace" element={<Marketplace />} />
             <Route path="reports" element={<Reports />} />
@@ -75,6 +78,9 @@ const App = () => (
             <Route path="profile" element={<Profile />} />
             <Route path="settings" element={<Settings />} />
           </Route>
+
+          {/* Auditor portal — token-gated, outside the app shell (no Supabase session) */}
+          <Route path="/auditor" element={<AuditorPortal />} />
 
           {/* Catch-all */}
           <Route path="*" element={<NotFound />} />

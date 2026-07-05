@@ -1,0 +1,136 @@
+{
+  "key": "pci_dss",
+  "name": "PCI DSS",
+  "version": "4.0",
+  "authority": "PCI SSC",
+  "region": "global",
+  "description": "Payment Card Industry Data Security Standard v4.0 (paraphrased requirement subset relevant to scanning, inventory, access and policy).",
+  "is_reference": false,
+  "controls": [
+    {
+      "control_ref": "2.4",
+      "title": "Inventory of system components",
+      "description": "An inventory of system components in scope for PCI DSS is maintained and kept current.",
+      "category": "Req 2 — Secure Configurations",
+      "criticality": "high",
+      "control_type": "technical",
+      "evidence_guidance": "Current asset inventory covering in-scope components.",
+      "checks": [
+        { "key": "asm.inventory_maintained", "required": true, "rationale": "A maintained asset inventory is the 2.4 artifact." },
+        { "key": "asm.ownership_verified", "required": false, "rationale": "Verified ownership strengthens inventory accuracy." }
+      ]
+    },
+    {
+      "control_ref": "7.2",
+      "title": "Access assignment by role and least privilege",
+      "description": "Access to system components and data is assigned based on job classification and least privilege, and approved.",
+      "category": "Req 7 — Access Control",
+      "criticality": "critical",
+      "control_type": "technical",
+      "evidence_guidance": "Role-based access records with approvals.",
+      "checks": [
+        { "key": "policy.access_control.active_and_acked", "required": true, "rationale": "The access-control policy defines the role/least-privilege rules." },
+        { "key": "audit.access_managed", "required": true, "rationale": "Recorded role assignments evidence assignment by role." }
+      ]
+    },
+    {
+      "control_ref": "10.2",
+      "title": "Audit logs capture activity",
+      "description": "Audit logs are implemented to record required events and support anomaly detection and forensics.",
+      "category": "Req 10 — Logging & Monitoring",
+      "criticality": "critical",
+      "control_type": "technical",
+      "evidence_guidance": "Operative audit logging.",
+      "checks": [
+        { "key": "audit.trail_active", "required": true, "rationale": "An operative audit trail recording administrative events is the direct 10.2 artifact." }
+      ]
+    },
+    {
+      "control_ref": "11.3.1",
+      "title": "Internal vulnerability scans (quarterly)",
+      "description": "Internal vulnerability scans are performed at least once every three months, high-risk and critical vulnerabilities are resolved, and rescans confirm resolution.",
+      "category": "Req 11 — Testing",
+      "criticality": "critical",
+      "control_type": "technical",
+      "evidence_guidance": "Quarterly completed scan runs; zero unresolved criticals; verification rescans.",
+      "checks": [
+        { "key": "vs.scan_recency.quarterly", "required": true, "rationale": "PCI 11.3.1 mandates a scan at least every three months — a completed run in the last 92 days is direct proof." },
+        { "key": "vs.no_open_criticals", "required": true, "rationale": "11.3.1 requires high-risk/critical vulnerabilities to be resolved." },
+        { "key": "vs.rescan_after_remediation", "required": true, "rationale": "11.3.1.1 requires rescans confirming resolution." }
+      ]
+    },
+    {
+      "control_ref": "11.3.1.2",
+      "title": "Scan coverage of in-scope components",
+      "description": "Vulnerability scans cover all in-scope system components.",
+      "category": "Req 11 — Testing",
+      "criticality": "high",
+      "control_type": "technical",
+      "evidence_guidance": "Scan target coverage across the asset inventory.",
+      "checks": [
+        { "key": "vs.scan_coverage.90d", "required": true, "rationale": "Coverage % of active assets scanned proves scans reach all in-scope components." }
+      ]
+    },
+    {
+      "control_ref": "11.4.1",
+      "title": "Penetration testing methodology and execution",
+      "description": "External and internal penetration testing is performed per a defined methodology at least annually and after significant changes.",
+      "category": "Req 11 — Testing",
+      "criticality": "high",
+      "control_type": "administrative",
+      "evidence_guidance": "Annual penetration test report.",
+      "checks": [
+        { "key": "manual.penetration_test.annual", "required": true, "rationale": "The annual pen-test report is the 11.4.1 artifact." }
+      ]
+    },
+    {
+      "control_ref": "12.1",
+      "title": "Information security policy",
+      "description": "An overall information security policy is established, published, maintained, and disseminated to all relevant personnel.",
+      "category": "Req 12 — Governance",
+      "criticality": "high",
+      "control_type": "administrative",
+      "evidence_guidance": "Active policy with acknowledgment records.",
+      "checks": [
+        { "key": "policy.infosec.active_and_acked", "required": true, "rationale": "An active, disseminated, acknowledged policy is the direct 12.1 artifact." }
+      ]
+    },
+    {
+      "control_ref": "12.6.3",
+      "title": "Security awareness training",
+      "description": "Personnel receive security awareness training upon hire and at least annually.",
+      "category": "Req 12 — Governance",
+      "criticality": "medium",
+      "control_type": "administrative",
+      "evidence_guidance": "Training completion records.",
+      "checks": [
+        { "key": "manual.security_training.annual", "required": true, "rationale": "Annual training records directly evidence 12.6.3." }
+      ]
+    },
+    {
+      "control_ref": "12.8",
+      "title": "Third-party service provider risk",
+      "description": "Risk to information assets associated with third-party service provider relationships is managed.",
+      "category": "Req 12 — Governance",
+      "criticality": "medium",
+      "control_type": "administrative",
+      "evidence_guidance": "Vendor review documentation.",
+      "checks": [
+        { "key": "manual.vendor_review.annual", "required": true, "rationale": "Annual vendor security reviews evidence 12.8 management." }
+      ]
+    },
+    {
+      "control_ref": "12.10.1",
+      "title": "Incident response plan",
+      "description": "An incident response plan exists and is ready to be activated in the event of a suspected or confirmed security incident.",
+      "category": "Req 12 — Governance",
+      "criticality": "critical",
+      "control_type": "administrative",
+      "evidence_guidance": "IR policy plus timely remediation of criticals.",
+      "checks": [
+        { "key": "policy.incident_response.active_and_acked", "required": true, "rationale": "The published IR policy is the 12.10.1 plan." },
+        { "key": "vs.no_overdue_highs", "required": false, "rationale": "SLA-compliant remediation shows response readiness in practice." }
+      ]
+    }
+  ]
+}
