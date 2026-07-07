@@ -1,82 +1,320 @@
 {
-  "key": "nist_csf",
-  "name": "NIST Cybersecurity Framework",
-  "version": "2.0",
-  "authority": "NIST",
-  "region": "global",
-  "description": "NIST CSF 2.0 — baseline reference (paraphrased subcategory subset).",
-  "is_reference": true,
-  "controls": [
+ "key": "nist_csf",
+ "name": "NIST Cybersecurity Framework",
+ "version": "2.0",
+ "authority": "NIST",
+ "region": "global",
+ "description": "NIST CSF 2.0 — baseline reference (paraphrased subcategory subset).",
+ "is_reference": true,
+ "controls": [
+  {
+   "control_ref": "GV.OC",
+   "title": "Organizational context is understood",
+   "description": null,
+   "category": "Govern",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "GV.RM",
+   "title": "Risk management strategy is established",
+   "description": null,
+   "category": "Govern",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "GV.RR",
+   "title": "Roles, responsibilities and authorities are established",
+   "description": null,
+   "category": "Govern",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "GV.PO",
+   "title": "Cybersecurity policy is established and communicated",
+   "description": null,
+   "category": "Govern",
+   "criticality": "medium",
+   "control_type": "administrative",
+   "checks": [
     {
-      "control_ref": "ID.AM-01",
-      "title": "Hardware and system inventory",
-      "description": "Inventories of hardware and systems managed by the organization are maintained.",
-      "category": "Identify",
-      "criticality": "high",
-      "control_type": "technical",
-      "checks": [
-        { "key": "asm.inventory_maintained", "required": true, "rationale": "The maintained asset inventory is the ID.AM artifact." }
-      ]
-    },
-    {
-      "control_ref": "ID.RA-01",
-      "title": "Vulnerability identification",
-      "description": "Vulnerabilities in assets are identified, validated, and recorded.",
-      "category": "Identify",
-      "criticality": "critical",
-      "control_type": "technical",
-      "checks": [
-        { "key": "vs.scan_recency.quarterly", "required": true, "rationale": "Completed scans identify and record vulnerabilities." },
-        { "key": "vs.scan_coverage.90d", "required": false, "rationale": "Coverage proves identification spans the asset base." }
-      ]
-    },
-    {
-      "control_ref": "PR.AA-05",
-      "title": "Access permissions and least privilege",
-      "description": "Access permissions incorporate least privilege and separation of duties.",
-      "category": "Protect",
-      "criticality": "critical",
-      "control_type": "technical",
-      "checks": [
-        { "key": "policy.access_control.active_and_acked", "required": true, "rationale": "Access policy defines least-privilege rules." },
-        { "key": "audit.access_managed", "required": true, "rationale": "Role-based membership evidences enforcement." }
-      ]
-    },
-    {
-      "control_ref": "DE.CM-01",
-      "title": "Network and asset monitoring",
-      "description": "Networks and network services are monitored to find potentially adverse events.",
-      "category": "Detect",
-      "criticality": "critical",
-      "control_type": "technical",
-      "checks": [
-        { "key": "scan_config.continuous_schedule", "required": true, "rationale": "Active recurring schedules evidence continuous monitoring." },
-        { "key": "asm.attack_surface_monitored", "required": true, "rationale": "Recent discovery runs prove monitoring operates." }
-      ]
-    },
-    {
-      "control_ref": "RS.MA-01",
-      "title": "Incident response execution",
-      "description": "The incident response plan is executed in coordination with relevant third parties once an incident is declared.",
-      "category": "Respond",
-      "criticality": "critical",
-      "control_type": "administrative",
-      "checks": [
-        { "key": "policy.incident_response.active_and_acked", "required": true, "rationale": "A published IR plan is the precondition for RS.MA." },
-        { "key": "vs.no_overdue_highs", "required": false, "rationale": "SLA-timely remediation evidences response execution." }
-      ]
-    },
-    {
-      "control_ref": "RC.RP-01",
-      "title": "Recovery plan execution",
-      "description": "The recovery portion of the incident response plan is executed once initiated.",
-      "category": "Recover",
-      "criticality": "high",
-      "control_type": "administrative",
-      "checks": [
-        { "key": "manual.bcp_dr_test.annual", "required": true, "rationale": "Tested recovery exercises evidence executable recovery." },
-        { "key": "vs.rescan_after_remediation", "required": false, "rationale": "Verified remediation evidences recovery validation." }
-      ]
+     "key": "policy.infosec.active_and_acked",
+     "required": true
     }
-  ]
+   ]
+  },
+  {
+   "control_ref": "GV.OV",
+   "title": "Cybersecurity strategy outcomes are reviewed",
+   "description": null,
+   "category": "Govern",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "GV.SC",
+   "title": "Cybersecurity supply chain risk management",
+   "description": null,
+   "category": "Govern",
+   "criticality": "medium",
+   "control_type": "administrative",
+   "checks": [
+    {
+     "key": "manual.vendor_review.annual",
+     "required": true
+    }
+   ]
+  },
+  {
+   "control_ref": "ID.AM",
+   "title": "Asset management",
+   "description": null,
+   "category": "Identify",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "ID.AM-01",
+   "title": "Hardware and system inventory",
+   "description": "Inventories of hardware and systems managed by the organization are maintained.",
+   "category": "Identify",
+   "criticality": "high",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "asm.inventory_maintained",
+     "required": true,
+     "rationale": "The maintained asset inventory is the ID.AM artifact."
+    }
+   ]
+  },
+  {
+   "control_ref": "ID.RA",
+   "title": "Risk assessment",
+   "description": null,
+   "category": "Identify",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "ID.RA-01",
+   "title": "Vulnerability identification",
+   "description": "Vulnerabilities in assets are identified, validated, and recorded.",
+   "category": "Identify",
+   "criticality": "critical",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "vs.scan_recency.quarterly",
+     "required": true,
+     "rationale": "Completed scans identify and record vulnerabilities."
+    },
+    {
+     "key": "vs.scan_coverage.90d",
+     "required": false,
+     "rationale": "Coverage proves identification spans the asset base."
+    }
+   ]
+  },
+  {
+   "control_ref": "ID.IM",
+   "title": "Improvement from evaluations and incidents",
+   "description": null,
+   "category": "Identify",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "PR.AA",
+   "title": "Identity management, authentication and access control",
+   "description": null,
+   "category": "Protect",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "PR.AA-05",
+   "title": "Access permissions and least privilege",
+   "description": "Access permissions incorporate least privilege and separation of duties.",
+   "category": "Protect",
+   "criticality": "critical",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "policy.access_control.active_and_acked",
+     "required": true,
+     "rationale": "Access policy defines least-privilege rules."
+    },
+    {
+     "key": "audit.access_managed",
+     "required": true,
+     "rationale": "Role-based membership evidences enforcement."
+    }
+   ]
+  },
+  {
+   "control_ref": "PR.AT",
+   "title": "Awareness and training",
+   "description": null,
+   "category": "Protect",
+   "criticality": "medium",
+   "control_type": "administrative",
+   "checks": [
+    {
+     "key": "manual.security_training.annual",
+     "required": true
+    }
+   ]
+  },
+  {
+   "control_ref": "PR.DS",
+   "title": "Data security",
+   "description": null,
+   "category": "Protect",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "PR.PS",
+   "title": "Platform security",
+   "description": null,
+   "category": "Protect",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "PR.IR",
+   "title": "Technology infrastructure resilience",
+   "description": null,
+   "category": "Protect",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "DE.CM",
+   "title": "Continuous monitoring",
+   "description": null,
+   "category": "Detect",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "DE.CM-01",
+   "title": "Network and asset monitoring",
+   "description": "Networks and network services are monitored to find potentially adverse events.",
+   "category": "Detect",
+   "criticality": "critical",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "scan_config.continuous_schedule",
+     "required": true,
+     "rationale": "Active recurring schedules evidence continuous monitoring."
+    },
+    {
+     "key": "asm.attack_surface_monitored",
+     "required": true,
+     "rationale": "Recent discovery runs prove monitoring operates."
+    }
+   ]
+  },
+  {
+   "control_ref": "DE.AE",
+   "title": "Adverse event analysis",
+   "description": null,
+   "category": "Detect",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "RS.MA",
+   "title": "Incident management",
+   "description": null,
+   "category": "Respond",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "RS.MA-01",
+   "title": "Incident response execution",
+   "description": "The incident response plan is executed in coordination with relevant third parties once an incident is declared.",
+   "category": "Respond",
+   "criticality": "critical",
+   "control_type": "administrative",
+   "checks": [
+    {
+     "key": "policy.incident_response.active_and_acked",
+     "required": true,
+     "rationale": "A published IR plan is the precondition for RS.MA."
+    },
+    {
+     "key": "vs.no_overdue_highs",
+     "required": false,
+     "rationale": "SLA-timely remediation evidences response execution."
+    }
+   ]
+  },
+  {
+   "control_ref": "RS.AN",
+   "title": "Incident analysis",
+   "description": null,
+   "category": "Respond",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "RS.CO",
+   "title": "Incident response reporting and communication",
+   "description": null,
+   "category": "Respond",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "RS.MI",
+   "title": "Incident mitigation",
+   "description": null,
+   "category": "Respond",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "RC.RP",
+   "title": "Incident recovery plan execution",
+   "description": null,
+   "category": "Recover",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "RC.RP-01",
+   "title": "Recovery plan execution",
+   "description": "The recovery portion of the incident response plan is executed once initiated.",
+   "category": "Recover",
+   "criticality": "high",
+   "control_type": "administrative",
+   "checks": [
+    {
+     "key": "manual.bcp_dr_test.annual",
+     "required": true,
+     "rationale": "Tested recovery exercises evidence executable recovery."
+    },
+    {
+     "key": "vs.rescan_after_remediation",
+     "required": false,
+     "rationale": "Verified remediation evidences recovery validation."
+    }
+   ]
+  },
+  {
+   "control_ref": "RC.CO",
+   "title": "Incident recovery communication",
+   "description": null,
+   "category": "Recover",
+   "criticality": "medium",
+   "control_type": "administrative"
+  }
+ ]
 }

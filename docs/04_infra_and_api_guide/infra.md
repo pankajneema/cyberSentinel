@@ -31,7 +31,7 @@
 CI triggers on `push` to `main`/`develop` and all PRs. `[NEEDS CONFIRMATION FROM DEV]` on the exact staging vs prod branch/deploy mapping — the CI file builds and scans but the **deploy step is not present** in `ci.yml` (see [§11](#11-known-gaps)).
 
 ## 2. Local (docker-compose)
-Full topology, ports, and `depends_on` health-gates are in [Dev Infra §1](../01_developer_guide/infra.md#1-compose-topology). Eight services: postgres, redis, rabbitmq, api, worker-control-plane, asm-consumer, reporting, frontend. `startup/` holds `setup.sh`, `backend-setup.sh`, `frontend-setup.sh` bootstrap helpers. Commands: [Local Setup Guide](../03_local_setup_guide.md).
+Full topology, ports, and `depends_on` health-gates are in [Dev Infra §1](../01_developer_guide/infra.md#1-compose-topology). Eight services: postgres, redis, rabbitmq, api, worker-control-plane, consumer, reporting, frontend. `startup/` holds `setup.sh`, `backend-setup.sh`, `frontend-setup.sh` bootstrap helpers. Commands: [Local Setup Guide](../03_local_setup_guide.md).
 
 ## 3. CI/CD pipeline
 `.github/workflows/ci.yml` — **security-forward** pipeline. Jobs run in parallel:
@@ -74,7 +74,7 @@ flowchart TB
   apigw -.-> pods[api / workers / reporting pods]
 ```
 
-**To productionize the deploy** ([NEEDS CONFIRMATION FROM DEV] on intended shape): add Deployments + Services for `api`, `worker-control-plane`, `asm-consumer`, `reporting`, `frontend`; a Service named `api-gateway` on 8080; ConfigMaps/Secrets for the env vars in [§7](#7-secrets-management); and HPAs per [§6](#6-scaling).
+**To productionize the deploy** ([NEEDS CONFIRMATION FROM DEV] on intended shape): add Deployments + Services for `api`, `worker-control-plane`, `consumer`, `reporting`, `frontend`; a Service named `api-gateway` on 8080; ConfigMaps/Secrets for the env vars in [§7](#7-secrets-management); and HPAs per [§6](#6-scaling).
 
 ## 5. Terraform (AWS)
 `infrastructure/terraform/` — providers `aws ~>5.0` + `kubernetes ~>2.20`. Provisions:
@@ -88,7 +88,7 @@ Variables (`variables.tf`): `aws_region` (us-east-1), `vpc_cidr`, `db_instance_c
 
 ## 6. Scaling
 - **API:** stateless → scale horizontally behind the ingress. The scheduler is multi-replica-safe (`FOR UPDATE SKIP LOCKED`) so running N API replicas won't double-enqueue scans.
-- **Workers:** the `asm-consumer` scales via RabbitMQ competing-consumers (prefetch 16, `JOB_MAX_CONCURRENCY` per instance); the `control-plane` scales per request goroutine. Add replicas to increase scan throughput. Both stateless.
+- **Workers:** the `consumer` scales via RabbitMQ competing-consumers (prefetch 16, `JOB_MAX_CONCURRENCY` per instance); the `control-plane` scales per request goroutine. Add replicas to increase scan throughput. Both stateless.
 - **Reporting:** scale as competing consumers on `report.asm`.
 - **Notification bus:** in-process with the API; scales with API replicas (Redis pub/sub bridges them).
 - **Stores:** Postgres = managed RDS (vertical + read replicas); Redis/RabbitMQ = managed or clustered as load grows.

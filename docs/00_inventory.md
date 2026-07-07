@@ -34,7 +34,7 @@ flowchart LR
   API -->|SQL| PG[(PostgreSQL)]
   API -->|publish jobs.asm| MQ[(RabbitMQ)]
   API -->|rate-limit / pub-sub| RD[(Redis)]
-  MQ --> CON[Go asm-consumer]
+  MQ --> CON[Go consumer]
   CON -->|HTTP + X-Internal-Token| CP[Go control-plane<br/>orchestrator+executor]
   CP -->|scan tools| TOOLS[nmap · naabu · nuclei<br/>subfinder · gitleaks]
   CP -->|pipeline state| RD
@@ -57,7 +57,7 @@ flowchart LR
 |---|---|---|---|
 | `frontend/` | React 18 + TypeScript + Vite 5 + Tailwind/shadcn | Single-page app; all user-facing UI | [frontend.md](01_developer_guide/frontend.md) |
 | `backend/api_service/` | Python 3.11 + FastAPI 0.104 + async SQLAlchemy 2 | Core REST/WebSocket API, tenancy, scheduling, RBAC | [api_service.md](01_developer_guide/api_service.md) |
-| `backend/workers/` | Go 1.24 | Distributed scan pipeline: `asm-consumer` + `control-plane` binaries | [workers.md](01_developer_guide/workers.md) |
+| `backend/workers/` | Go 1.24 | Distributed scan pipeline: `consumer` + `control-plane` binaries | [workers.md](01_developer_guide/workers.md) |
 | `backend/reporting/` | Python 3.11 | RabbitMQ consumer that persists worker scan results into Postgres | [reporting.md](01_developer_guide/reporting.md) |
 | `backend/notificationservice/` | Python 3.11 | Realtime (WebSocket) + Slack/Teams/Email fan-out over Redis pub/sub | [notificationservice.md](01_developer_guide/notificationservice.md) |
 | `infrastructure/kubernetes/` | K8s manifests | Cluster deployment | [infra.md](04_infra_and_api_guide/infra.md) |
@@ -153,7 +153,7 @@ Full schema, relationships, and ER diagram: [05_database_guide.md](05_database_g
 ### RabbitMQ
 | Queue | Producer | Consumer | Payload |
 |---|---|---|---|
-| `jobs.asm` | api_service / scheduler | Go `asm-consumer` | `{type:"asm", user_id, id, asset_type, target_source, intensity}` |
+| `jobs.asm` | api_service / scheduler | Go `consumer` | `{type:"asm", user_id, id, asset_type, target_source, intensity}` |
 | `report.asm` | Go control-plane | Python `reporting` | per-step + final scan results |
 
 ---

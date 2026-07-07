@@ -33,6 +33,7 @@ import {
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { SeverityBadge } from "@/components/asm/SeverityBadge";
+import { StatusBadge, STATUS_META } from "@/components/shared/StatusBadge";
 import { EmptyState } from "@/components/asm/EmptyState";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -63,32 +64,15 @@ const NEXT_STEP: Partial<Record<VsFindingStatus, { status: VsFindingStatus; labe
   verified: { status: "closed", label: "Close" },
 };
 
-const STATUS_LABEL: Record<VsFindingStatus, string> = {
-  open: "Open",
-  confirmed: "Confirmed",
-  in_progress: "In Progress",
-  remediated: "Remediated",
-  verified: "Verified",
-  closed: "Closed",
-  accepted_risk: "Accepted Risk",
-  false_positive: "False Positive",
-};
+const STATUS_LABEL = Object.fromEntries(
+  Object.entries(STATUS_META.vsFinding).map(([k, v]) => [k, v.label])
+) as Record<VsFindingStatus, string>;
 
 // items in these states are actionable in the remediation workflow
 const ACTIONABLE: VsFindingStatus[] = ["open", "confirmed", "in_progress", "remediated", "verified"];
 
 function statusBadge(status: VsFindingStatus) {
-  const map: Record<VsFindingStatus, string> = {
-    open: "bg-destructive/10 text-destructive",
-    confirmed: "bg-destructive/10 text-destructive",
-    in_progress: "bg-warning/10 text-warning",
-    remediated: "bg-accent/10 text-accent",
-    verified: "bg-success/10 text-success",
-    closed: "bg-success/10 text-success",
-    accepted_risk: "bg-muted text-muted-foreground",
-    false_positive: "bg-muted text-muted-foreground",
-  };
-  return <span className={cn("px-2 py-1 text-xs rounded-full", map[status])}>{STATUS_LABEL[status]}</span>;
+  return <StatusBadge group="vsFinding" status={status} />;
 }
 
 function isOverdue(f: VsFinding) {

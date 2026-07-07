@@ -64,7 +64,7 @@ import {
   TeamInvite as ApiTeamInvite,
   TeamMember as ApiTeamMember,
 } from "@/lib/services/team";
-import { getMe } from "@/lib/services/auth";
+import { useMe } from "@/hooks/useMe";
 import {
   listTasks,
   createTask,
@@ -125,9 +125,9 @@ export default function Team() {
   const [inviteRole, setInviteRole] = useState("reader");
   const [isLoadingTeam, setIsLoadingTeam] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [currentRole, setCurrentRole] = useState("reader");
-  const [isSuperadmin, setIsSuperadmin] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string | undefined>(undefined);
+  const { me, role: currentRole } = useMe();
+  const isSuperadmin = false;
+  const currentUserId = me?.user_id;
 
   // Task message panel
   const [taskMessages, setTaskMessages] = useState<TaskMessage[]>([]);
@@ -208,21 +208,6 @@ export default function Team() {
     void loadTeamData();
   }, []);
 
-  useEffect(() => {
-    const loadRole = async () => {
-      try {
-        const me = await getMe();
-        if (me?.role) {
-          setCurrentRole(me.role);
-        }
-        setCurrentUserId(me.user_id);
-        setIsSuperadmin(false);
-      } catch {
-        // keep defaults
-      }
-    };
-    void loadRole();
-  }, []);
 
   const loadMessages = async (taskId: string) => {
     try {

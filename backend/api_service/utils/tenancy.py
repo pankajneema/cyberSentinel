@@ -25,3 +25,14 @@ def require_org(org_id: str | None) -> str:
 
         raise HTTPException(status_code=403, detail="No organization context")
     return org_id
+
+
+async def allow_ca_evidence_delete(db) -> None:
+    """Arm the transaction-scoped escape hatch that lets the ca_evidence
+    append-only trigger permit deletion — required ONLY for organization
+    offboarding (the CASCADE would otherwise be blocked). Call inside the same
+    transaction that deletes the organization, immediately before the delete.
+    Scope is SET LOCAL, so it reverts at commit/rollback automatically."""
+    from sqlalchemy import text
+
+    await db.execute(text("SET LOCAL cybersentinel.ca_allow_delete = 'on'"))

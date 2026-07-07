@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import type { ReactNode } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -59,31 +60,31 @@ export function ASMFindings() {
     setError(null);
     try {
       if (tab === "ports") {
-        const res = await fetchPorts({ page, page_size: pageSize, q, sort_by: sortBy, sort_dir: sortDir });
+        const res = await fetchPorts({ page, page_size: pageSize, q: debouncedQ, sort_by: sortBy, sort_dir: sortDir });
         setData(res.items);
         setTotal(res.total);
       } else if (tab === "services") {
-        const res = await fetchServices({ page, page_size: pageSize, q, sort_by: sortBy, sort_dir: sortDir });
+        const res = await fetchServices({ page, page_size: pageSize, q: debouncedQ, sort_by: sortBy, sort_dir: sortDir });
         setData(res.items);
         setTotal(res.total);
       } else if (tab === "ssl") {
-        const res = await fetchSSLCerts({ page, page_size: pageSize, q, sort_by: sortBy, sort_dir: sortDir });
+        const res = await fetchSSLCerts({ page, page_size: pageSize, q: debouncedQ, sort_by: sortBy, sort_dir: sortDir });
         setData(res.items);
         setTotal(res.total);
       } else if (tab === "api") {
-        const res = await fetchApiEndpoints({ page, page_size: pageSize, q, sort_by: sortBy, sort_dir: sortDir });
+        const res = await fetchApiEndpoints({ page, page_size: pageSize, q: debouncedQ, sort_by: sortBy, sort_dir: sortDir });
         setData(res.items);
         setTotal(res.total);
       } else if (tab === "admin") {
-        const res = await fetchAdminEndpoints({ page, page_size: pageSize, q, sort_by: sortBy, sort_dir: sortDir });
+        const res = await fetchAdminEndpoints({ page, page_size: pageSize, q: debouncedQ, sort_by: sortBy, sort_dir: sortDir });
         setData(res.items);
         setTotal(res.total);
       } else if (tab === "backup") {
-        const res = await fetchBackupFiles({ page, page_size: pageSize, q, sort_by: sortBy, sort_dir: sortDir });
+        const res = await fetchBackupFiles({ page, page_size: pageSize, q: debouncedQ, sort_by: sortBy, sort_dir: sortDir });
         setData(res.items);
         setTotal(res.total);
       } else if (tab === "changes") {
-        const res = await fetchChanges({ page, page_size: pageSize, q, sort_by: sortBy, sort_dir: sortDir });
+        const res = await fetchChanges({ page, page_size: pageSize, q: debouncedQ, sort_by: sortBy, sort_dir: sortDir });
         setData(res.items);
         setTotal(res.total);
       }
@@ -104,9 +105,11 @@ export function ASMFindings() {
     }
   };
 
+  const debouncedQ = useDebouncedValue(q);
+
   useEffect(() => {
     load(active);
-  }, [active, page, pageSize, q, sortBy, sortDir]);
+  }, [active, page, pageSize, debouncedQ, sortBy, sortDir]);
 
   useEffect(() => {
     setPage(1);

@@ -52,7 +52,7 @@ async def send_email_async(to_emails: Iterable[str], subject: str, body_html: st
     not blocked. Returns the count of recipients the emailer accepted.
     """
     import asyncio
-    from utils.emailer import send_email
+    from notificationservice.email import send_email
 
     sent = 0
     for addr in _clean(to_emails):

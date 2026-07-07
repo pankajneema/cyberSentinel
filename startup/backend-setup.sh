@@ -34,7 +34,7 @@ echo "[5/5] Starting workers (control-plane + consumer)"
   cd "$ROOT_DIR/backend/workers"
   go mod download
   nohup go run ./control-plane/cmd/ > "$LOG_DIR/control-plane.log" 2>&1 &
-  nohup go run ./consumer/cmd/asm/ > "$LOG_DIR/consumer.log" 2>&1 &
+  nohup go run ./consumer/cmd/ > "$LOG_DIR/consumer.log" 2>&1 &
 )
 
 echo "✅ Backend stack started"

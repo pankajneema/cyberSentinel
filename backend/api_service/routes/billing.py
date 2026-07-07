@@ -4,7 +4,7 @@ from sqlalchemy import select
 from typing import List
 
 from utils.database import get_db
-from utils.auth_utils import get_current_user
+from utils.supabase_auth import CurrentUser, get_current_user
 from models.billing_model import Subscription, Invoice
 from models.auth_models import User, Company
 from schemas.billing_schema import (
@@ -21,9 +21,9 @@ router = APIRouter(
 
 async def _require_superadmin(
     db: AsyncSession,
-    current_user: dict,
+    current_user: CurrentUser,
 ):
-    user_res = await db.execute(select(User).where(User.id == current_user["user_id"]))
+    user_res = await db.execute(select(User).where(User.id == current_user.user_id))
     user = user_res.scalar_one_or_none()
     if not user or not user.company_id:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -39,7 +39,7 @@ async def _require_superadmin(
 @router.get("/plan", response_model=SubscriptionResponse)
 async def get_plan(
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
     user = await _require_superadmin(db, current_user)
     user_id = user.id
@@ -66,7 +66,7 @@ async def get_plan(
 async def subscribe(
     request: SubscriptionRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
     user = await _require_superadmin(db, current_user)
     user_id = user.id
@@ -104,7 +104,7 @@ async def subscribe(
 async def upgrade_plan(
     plan_data: dict,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
     user = await _require_superadmin(db, current_user)
     user_id = user.id
@@ -133,7 +133,7 @@ async def upgrade_plan(
 @router.post("/cancel")
 async def cancel_subscription(
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
     user = await _require_superadmin(db, current_user)
     user_id = user.id
@@ -158,7 +158,7 @@ async def cancel_subscription(
 @router.get("/invoices", response_model=List[InvoiceResponse])
 async def list_invoices(
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
     user = await _require_superadmin(db, current_user)
     user_id = user.id
@@ -176,7 +176,7 @@ async def list_invoices(
 async def get_invoice(
     invoice_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
     user = await _require_superadmin(db, current_user)
     user_id = user.id

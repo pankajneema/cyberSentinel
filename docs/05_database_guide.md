@@ -197,7 +197,7 @@ Helpers: `make stamp` (baseline an existing DB), `make backfill` (`scripts/backf
 ## 8. RabbitMQ
 | Queue | Producer | Consumer | Delivery | Notes |
 |---|---|---|---|---|
-| `jobs.asm` | api_service / scheduler | Go asm-consumer | manual ACK, prefetch 16 | ACK-after-success; `Nack(requeue=false)` → DLQ |
+| `jobs.asm` | api_service / scheduler | Go consumer | manual ACK, prefetch 16 | ACK-after-success; `Nack(requeue=false)` → DLQ |
 | `report.asm` | Go control-plane | reporting | — | fatal dependency at control-plane boot |
 
 ⚠️ **DLQ footgun:** an existing queue declared without dead-letter args cannot be re-declared with them (`PRECONDITION_FAILED`) — first DLQ rollout requires draining/deleting the old queues. See [Workers §11](01_developer_guide/workers.md#11-known-limitations--tech-debt).

@@ -12,10 +12,9 @@ import logging
 from typing import Any
 from datetime import datetime
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api_service.models.asm_models import AsmDiscoveryRun
+from backend.reporting.asm.assets.common import ensure_discovery_run
 from backend.reporting.asm.assets.domain import get_user_id_from_discovery, store_step_data
 
 logger = logging.getLogger(__name__)
@@ -26,33 +25,7 @@ async def process_cloud_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
     intensity = payload.get("intensity", "LIGHT")
     status = payload.get("status", "COMPLETED")
     user_id = await get_user_id_from_discovery(db, job_id) or "system"
-
-    run = (
-        (
-            await db.execute(
-                select(AsmDiscoveryRun)
-                .where(AsmDiscoveryRun.asm_discovery_id == job_id)
-                .order_by(AsmDiscoveryRun.created_at.desc())
-            )
-        )
-        .scalars()
-        .first()
-    )
-    if not run:
-        run = AsmDiscoveryRun(
-            asm_discovery_id=job_id,
-            user_id=user_id,
-            triggered_by="API",
-            run_mode="QUICK",
-            status="RUNNING",
-            started_at=datetime.utcnow(),
-        )
-        db.add(run)
-        await db.flush()
-    else:
-        run.status = "RUNNING"
-        if not run.started_at:
-            run.started_at = datetime.utcnow()
+    run = await ensure_discovery_run(db, job_id, user_id)
 
     cloud_inserted = 0
     for step in payload.get("pipeline", []):
@@ -73,7 +46,7 @@ async def process_cloud_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                 )
             cloud_inserted += int(counts.get("cloud_resources", 0) or 0)
         except Exception as step_err:
-            logger.warning(f"Cloud step '{step_name}' failed (isolated, job continues): {step_err}")
+            logger.warning("Cloud step '%s' failed (isolated, job continues): %s", step_name, step_err)
 
     run.status = status
     run.completed_at = datetime.utcnow()
@@ -83,4 +56,4 @@ async def process_cloud_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         "pipeline_steps": len(payload.get("pipeline", [])),
     }
     await db.commit()
-    logger.info("✅ Cloud ASM Completed job=%s cloud_resources=%d", job_id, cloud_inserted)
+    logger.info("Cloud ASM Completed job=%s cloud_resources=%d", job_id, cloud_inserted)

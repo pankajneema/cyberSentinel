@@ -140,7 +140,7 @@ Jump to: [Security & ASM terms](#security--asm-terms) · [Scoring terms](#scorin
 | Term | Plain | Technical |
 |---|---|---|
 | **Queue / Broker** | A to-do list services hand work through | RabbitMQ; `jobs.asm`, `report.asm` |
-| **Worker** | A background program that does heavy work | Go `asm-consumer` + `control-plane` |
+| **Worker** | A background program that does heavy work | Go `consumer` + `control-plane` |
 | **Consumer** | A worker that pulls jobs off a queue | `consumer/start.go` |
 | **Control-plane** | The brain that orchestrates + runs scans | Go Gin server |
 | **Pipeline** | The ordered list of scan steps for a job | `asm:pipeline:{id}` in Redis |

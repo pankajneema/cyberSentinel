@@ -33,11 +33,11 @@ import { motion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
-  getMe,
   updateProfile as updateMyProfile,
   getMemberSettings,
   putMemberSettings,
 } from "@/lib/services/auth";
+import { useMe, refreshMe } from "@/hooks/useMe";
 import { getCurrentPlan, listInvoices } from "@/lib/services/billing";
 import { supabase } from "@/lib/supabase";
 
@@ -64,12 +64,19 @@ export default function Account() {
   const isSuperadmin = profile?.is_superadmin;
   const isAnalystOrReader = role === "analyst" || role === "reader";
 
+  // Identity + profile from the verified Supabase session.
+  const { me, loading: meLoading } = useMe();
+
   useEffect(() => {
+    if (meLoading) return;
+    if (!me) {
+      toast({ title: "Failed to load account", description: "Please try again" });
+      setIsLoading(false);
+      return;
+    }
     const loadAll = async () => {
       try {
         setIsLoading(true);
-        // Identity + profile from the verified Supabase session.
-        const me = await getMe();
         setCurrentUser({ id: me.user_id, role: me.role, company_id: me.org_id });
         setProfile({
           full_name: me.full_name || "",
@@ -134,7 +141,7 @@ export default function Account() {
     };
 
     loadAll();
-  }, []);
+  }, [me, meLoading]);
 
   const avatarFallback = useMemo(() => {
     if (profile?.full_name) {
@@ -167,6 +174,7 @@ export default function Account() {
         });
       }
 
+      void refreshMe().catch(() => {});
       toast({ title: "Profile Updated", description: "Your profile has been saved." });
     } catch (error: any) {
       toast({ title: "Update failed", description: error?.message || "Please try again" });
@@ -194,6 +202,7 @@ export default function Account() {
     try {
       const updated = await updateMyProfile({ avatar_url: avatarUrl.trim() });
       setProfile((p) => (p ? { ...p, avatar_url: updated.avatar_url || "" } : p));
+      void refreshMe().catch(() => {});
       toast({ title: "Avatar Updated", description: "Your photo was updated." });
     } catch (error: any) {
       toast({ title: "Avatar update failed", description: error?.message || "Please try again" });

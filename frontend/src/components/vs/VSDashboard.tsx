@@ -31,6 +31,7 @@ import {
 } from "@/lib/services/vs";
 import { fetchAssets } from "@/lib/services/assets";
 import { SeverityBadge } from "@/components/asm/SeverityBadge";
+import { statusMeta } from "@/components/shared/StatusBadge";
 import {
   AreaChart,
   Area,
@@ -79,33 +80,11 @@ const SEVERITY_RANK: Record<VsSeverity, number> = {
 };
 
 function scanStatusDot(status: VsScanStatus): string {
-  switch (status) {
-    case "COMPLETED":
-      return "bg-success";
-    case "RUNNING":
-      return "bg-primary animate-pulse";
-    case "FAILED":
-      return "bg-destructive";
-    case "PAUSED":
-      return "bg-warning";
-    default:
-      return "bg-muted-foreground";
-  }
+  return statusMeta("vsScan", status).dot ?? "bg-muted-foreground";
 }
 
 function scanStatusBadge(status: VsScanStatus): string {
-  switch (status) {
-    case "COMPLETED":
-      return "bg-success/10 text-success";
-    case "RUNNING":
-      return "bg-primary/10 text-primary";
-    case "FAILED":
-      return "bg-destructive/10 text-destructive";
-    case "PAUSED":
-      return "bg-warning/10 text-warning";
-    default:
-      return "bg-muted text-muted-foreground";
-  }
+  return statusMeta("vsScan", status).tone;
 }
 
 function formatScanTime(v?: string | null): string {

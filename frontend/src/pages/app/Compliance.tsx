@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   BookOpenCheck, BookText, ClipboardList, FileCheck2, LayoutDashboard,
@@ -12,7 +12,7 @@ import { EvidenceTable } from "@/components/ca/EvidenceTable";
 import { GapAnalysis } from "@/components/ca/GapAnalysis";
 import { PolicyManager } from "@/components/ca/PolicyManager";
 import { AuditManager } from "@/components/ca/AuditManager";
-import { getMe } from "@/lib/services/auth";
+import { useMe } from "@/hooks/useMe";
 
 const tabs = [
   { value: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -26,17 +26,8 @@ const tabs = [
 
 export default function Compliance() {
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [currentRole, setCurrentRole] = useState<string>("reader");
-  const canWrite = currentRole !== "reader";
+  const { role: currentRole, canWrite } = useMe();
   const isAdmin = currentRole === "owner" || currentRole === "admin";
-
-  useEffect(() => {
-    let mounted = true;
-    getMe()
-      .then((p) => { if (mounted) setCurrentRole(p.role ?? "reader"); })
-      .catch(() => { if (mounted) setCurrentRole("reader"); });
-    return () => { mounted = false; };
-  }, []);
 
   return (
     <div className="space-y-6">

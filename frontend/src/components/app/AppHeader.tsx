@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Link, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getMe } from "@/lib/services/auth";
+import { useMe } from "@/hooks/useMe";
 import {
   fetchNotifications,
   getUnreadCount,
@@ -40,7 +40,20 @@ function timeAgo(iso?: string | null): string {
 
 export function AppHeader() {
   const navigate = useNavigate();
-  const [profile, setProfile] = useState<{ full_name: string; email: string; avatar_url?: string; role?: string; is_superadmin?: boolean } | null>(null);
+  const { me } = useMe();
+  // Real identity from the verified Supabase session.
+  const profile = useMemo(
+    () =>
+      me
+        ? {
+            full_name: me.full_name || me.email,
+            email: me.email,
+            avatar_url: me.avatar_url || undefined,
+            role: me.role,
+          }
+        : null,
+    [me]
+  );
   const [plan] = useState<string>("Starter");
 
   // Notifications
@@ -109,24 +122,6 @@ export function AppHeader() {
       toast({ title: "Could not mark all as read" });
     }
   };
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        // Real identity from the verified Supabase session.
-        const me = await getMe();
-        setProfile({
-          full_name: me.full_name || me.email,
-          email: me.email,
-          avatar_url: me.avatar_url || undefined,
-          role: me.role,
-        });
-      } catch {
-        // silent fallback
-      }
-    };
-    load();
-  }, []);
 
   const initials = useMemo(() => {
     if (profile?.full_name) {

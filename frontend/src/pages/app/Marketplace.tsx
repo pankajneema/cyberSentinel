@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
-import { getMe } from "@/lib/services/auth";
+import { useMe } from "@/hooks/useMe";
 
 // NOTE: These are the integrations we PLAN to offer. There is no integrations
 // backend yet, so no ratings/downloads/"installed" state is fabricated — the
@@ -44,29 +44,9 @@ export default function Marketplace() {
   const [searchQuery, setSearchQuery] = useState("");
   // No integrations backend yet — nothing is actually installed.
   const [installedIntegrations] = useState<number[]>([]);
-  const [role, setRole] = useState<string>("reader");
-  const [isSuperadmin, setIsSuperadmin] = useState(false);
-  useEffect(() => {
-    let mounted = true;
-    const loadProfile = async () => {
-      try {
-        const profile = await getMe();
-        if (mounted) {
-          setRole(profile.role ?? "reader");
-          setIsSuperadmin(false);
-        }
-      } catch {
-          setRole("reader");
-          setIsSuperadmin(false);
-        }
-    };
-    loadProfile();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-  
-  const isAdmin = role === "admin" || role === "owner" || Boolean(isSuperadmin);
+  const { role } = useMe();
+
+  const isAdmin = role === "admin" || role === "owner";
 
   // Integrations aren't wired to a backend yet. Register interest honestly
   // instead of faking an install that persists nothing.

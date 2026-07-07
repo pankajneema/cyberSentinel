@@ -6,8 +6,7 @@
 #
 # Starts (with prefixed, colorised logs) and stops them all together on Ctrl+C:
 #   • api          FastAPI API service        http://localhost:8000   (/docs)
-#   • control-plane Go control-plane + worker  http://localhost:8090   (gin API + executor)
-#   • consumer      Go ASM queue consumer
+#   • consumer      Go queue consumer (ASM + VS, runs both pipelines in-process)
 #   • reporting     Python reporting consumer  (RabbitMQ -> Postgres)
 #   • frontend      Vite dev server            http://localhost:8080
 #
@@ -63,11 +62,8 @@ echo "▶ starting CyberSentinel services (Ctrl+C to stop all)…"
 # 1) FastAPI API service (loads its own .env via settings.py)
 run api 36 -- bash -c "cd '$API_DIR' && '$PY' -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
 
-# 2) Go control-plane / gin API + worker executor (export workers/.env first)
-run control-plane 35 -- bash -c "cd '$WORKERS_DIR' && set -a && [ -f .env ] && . ./.env; set +a && go run ./control-plane/cmd/"
-
-# 3) Go ASM queue consumer
-run consumer 33 -- bash -c "cd '$WORKERS_DIR' && set -a && [ -f .env ] && . ./.env; set +a && go run ./consumer/cmd/asm/"
+# 2) Go queue consumer (drains jobs.asm + jobs.vs; runs both pipelines in-process)
+run consumer 33 -- bash -c "cd '$WORKERS_DIR' && set -a && [ -f .env ] && . ./.env; set +a && go run ./consumer/cmd/"
 
 # 4) Python reporting consumer
 run reporting 32 -- bash -c "cd '$ROOT' && PYTHONPATH='$REPORT_PYTHONPATH' '$PY' backend/reporting/asm/main.py"
@@ -75,5 +71,5 @@ run reporting 32 -- bash -c "cd '$ROOT' && PYTHONPATH='$REPORT_PYTHONPATH' '$PY'
 # 5) Frontend (Vite, reads frontend/.env)
 run frontend 34 -- bash -c "cd '$ROOT/frontend' && npm run dev"
 
-echo "▶ api:8000  control-plane:8090  frontend:8080  (consumer + reporting are queue workers)"
+echo "▶ api:8000  frontend:8080  (consumer + reporting are queue workers)"
 wait

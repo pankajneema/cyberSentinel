@@ -1,7 +1,7 @@
 # models/asm_models.py
 
 import uuid
-from sqlalchemy import Column, String, DateTime, Enum, JSON, Integer, Boolean, ForeignKey, Float
+from sqlalchemy import Column, String, DateTime, Enum, JSON, Integer, Boolean, ForeignKey, Float, UniqueConstraint
 from sqlalchemy.sql import func
 
 from utils.database import Base
@@ -135,7 +135,7 @@ class AsmSubdomain(Base):
 
     __table_args__ = (
         # Unique constraint on subdomain + asset_id combination
-        __import__('sqlalchemy').UniqueConstraint('asset_id', 'subdomain', name='uq_subdomain_per_asset'),
+        UniqueConstraint('asset_id', 'subdomain', name='uq_subdomain_per_asset'),
     )
 
     def to_dict(self):
@@ -206,7 +206,7 @@ class AsmIP(Base):
 
     __table_args__ = (
         # Unique constraint: same IP per asset+subdomain (allows shared IPs across subdomains)
-        __import__('sqlalchemy').UniqueConstraint('asset_id', 'ip_address', 'subdomain_id', name='uq_ip_per_asset_subdomain'),
+        UniqueConstraint('asset_id', 'ip_address', 'subdomain_id', name='uq_ip_per_asset_subdomain'),
     )
 
     def to_dict(self):
@@ -302,7 +302,7 @@ class AsmPort(Base):
         # Unique per discovery (not global): the same IP:port discovered by two
         # discoveries must be recorded under each, otherwise shared CDN/cloud
         # IPs get attributed to only the first discovery that found them.
-        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'ip_address', 'port', 'protocol', name='uq_port_per_discovery'),
+        UniqueConstraint('asm_discovery_id', 'ip_address', 'port', 'protocol', name='uq_port_per_discovery'),
     )
 
     def to_dict(self):
@@ -346,7 +346,7 @@ class AsmService(Base):
 
     __table_args__ = (
         # Unique per discovery (see AsmPort note above).
-        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'ip_address', 'port', 'service_name', name='uq_service_per_discovery'),
+        UniqueConstraint('asm_discovery_id', 'ip_address', 'port', 'service_name', name='uq_service_per_discovery'),
     )
 
     def to_dict(self):
@@ -393,7 +393,7 @@ class AsmSSLCert(Base):
 
     __table_args__ = (
         # Unique per discovery (see AsmPort note above).
-        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'host', 'port', name='uq_ssl_per_discovery'),
+        UniqueConstraint('asm_discovery_id', 'host', 'port', name='uq_ssl_per_discovery'),
     )
 
     def to_dict(self):
@@ -442,7 +442,7 @@ class AsmAPIEndpoint(Base):
 
     __table_args__ = (
         # Unique constraint: same endpoint per discovery
-        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'url', name='uq_endpoint_per_discovery'),
+        UniqueConstraint('asm_discovery_id', 'url', name='uq_endpoint_per_discovery'),
     )
 
     def to_dict(self):
@@ -488,7 +488,7 @@ class AsmCloudResource(Base):
 
     __table_args__ = (
         # Unique constraint: same resource per discovery
-        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'resource_name', name='uq_cloud_resource'),
+        UniqueConstraint('asm_discovery_id', 'resource_name', name='uq_cloud_resource'),
     )
 
     def to_dict(self):
@@ -533,7 +533,7 @@ class AsmAdminEndpoint(Base):
 
     __table_args__ = (
         # Unique constraint: same admin endpoint per discovery
-        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'url', name='uq_admin_endpoint'),
+        UniqueConstraint('asm_discovery_id', 'url', name='uq_admin_endpoint'),
     )
 
     def to_dict(self):
@@ -578,7 +578,7 @@ class AsmBackupFile(Base):
 
     __table_args__ = (
         # Unique constraint: same backup file per discovery
-        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'file_url', name='uq_backup_file'),
+        UniqueConstraint('asm_discovery_id', 'file_url', name='uq_backup_file'),
     )
 
     def to_dict(self):
@@ -650,7 +650,7 @@ class AsmRepoFinding(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     __table_args__ = (
-        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'repo_url', 'rule', 'file_path', 'line', name='uq_repo_finding'),
+        UniqueConstraint('asm_discovery_id', 'repo_url', 'rule', 'file_path', 'line', name='uq_repo_finding'),
     )
 
     def to_dict(self):
@@ -691,7 +691,7 @@ class AsmSaasApp(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     __table_args__ = (
-        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'app_name', name='uq_saas_app'),
+        UniqueConstraint('asm_discovery_id', 'app_name', name='uq_saas_app'),
     )
 
     def to_dict(self):
@@ -730,7 +730,7 @@ class AsmUserAccount(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     __table_args__ = (
-        __import__('sqlalchemy').UniqueConstraint('asm_discovery_id', 'email', 'source', name='uq_user_account'),
+        UniqueConstraint('asm_discovery_id', 'email', 'source', name='uq_user_account'),
     )
 
     def to_dict(self):

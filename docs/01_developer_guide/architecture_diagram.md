@@ -23,7 +23,7 @@ flowchart TB
     WS[[WebSocket /ws/realtime]]
   end
   subgraph Execution Plane
-    CON[asm-consumer<br/>Go]
+    CON[consumer<br/>Go]
     CP[control-plane<br/>Go · Gin]
     TOOLS[[nmap · naabu · nuclei<br/>subfinder · gitleaks · asnmap]]
   end
@@ -79,7 +79,7 @@ flowchart LR
     fe[frontend :8080]
     api[api :8000]
     wcp[worker-control-plane]
-    cons[asm-consumer]
+    cons[consumer]
     rep[reporting]
     pg[(postgres :5432)]
     rd[(redis :6379)]

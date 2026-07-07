@@ -64,7 +64,7 @@ docker compose up -d postgres redis rabbitmq   # just the stores
 `scripts/dev.sh` starts (Ctrl+C stops all together):
 - **api** — `uvicorn main:app --reload` → http://localhost:8000 (`/docs` for Swagger)
 - **control-plane** — `go run ./control-plane/cmd/` → http://localhost:8090
-- **consumer** — `go run ./consumer/cmd/asm/` (queue worker)
+- **consumer** — `go run ./consumer/cmd/` (queue worker)
 - **reporting** — `python backend/reporting/asm/main.py` (queue worker; `PYTHONPATH` is set for you)
 - **frontend** — `npm run dev` → http://localhost:8080
 

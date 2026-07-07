@@ -32,12 +32,13 @@ from models.ca_models import (
     CaPostureSnapshot, CaAuditTrail,
 )
 from ca.checks_registry import REGISTRY, CheckOutcome
+from utils.constants import SLA_DAYS
 
 logger = logging.getLogger("ca.engine")
 
-# Gap SLA days by control criticality — mirrors reporting/vs/ingest.py _SLA_DAYS
-# so remediation expectations are consistent platform-wide.
-GAP_SLA_DAYS = {"critical": 7, "high": 15, "medium": 30, "low": 90}
+# Gap SLA days by control criticality — shared with reporting/vs/ingest.py so
+# remediation expectations are consistent platform-wide.
+GAP_SLA_DAYS = SLA_DAYS
 
 _ACTIVE_GAP_STATES = ("open", "in_progress")
 
@@ -61,7 +62,7 @@ async def ca_trail(
         await db.execute(
             select(CaAuditTrail.row_hash)
             .where(CaAuditTrail.org_id == org_id)
-            .order_by(CaAuditTrail.at.desc(), CaAuditTrail.id.desc())
+            .order_by(CaAuditTrail.seq.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
@@ -74,6 +75,10 @@ async def ca_trail(
         meta=meta or {}, at=at, prev_hash=prev, row_hash=row_hash,
     )
     db.add(row)
+    # The platform session runs autoflush=False (utils/database.py), so without
+    # an explicit flush the next ca_trail() in this transaction would not see
+    # this row and the hash chain would fork. Flush makes the chain linear.
+    await db.flush()
     return row
 
 
@@ -214,6 +219,7 @@ async def _current_manual_evidence(db: AsyncSession, org_id: str, check: CaCheck
     for ev in rows:
         if ev.valid_until is not None and ev.valid_until < now:
             ev.status = "stale"
+            await _notify_evidence_expired(org_id, ev)
         elif current is None:
             current = ev
     return current
@@ -223,8 +229,9 @@ async def _current_manual_evidence(db: AsyncSession, org_id: str, check: CaCheck
 # Control status derivation (§4.1)
 # ---------------------------------------------------------------------------
 def _derive_status(check_results: list[dict]) -> str:
-    """check_results: [{required, result}] where result is 'pass'|'fail'|None
-    (None = no evidence ever). Returns satisfied|partial|gap|unknown."""
+    """check_results: [{required, result}] where result is 'pass'|'fail'|None.
+    None = no evidence, expired evidence, OR a 'no_data' outcome (a check that
+    cannot honestly be asserted). Returns satisfied|partial|gap|unknown."""
     required = [c for c in check_results if c["required"]]
     supporting = [c for c in check_results if not c["required"]]
     if not required:
@@ -292,6 +299,20 @@ async def _sync_gap(
                             justification="Control returned to satisfied on re-evaluation."))
         gap.status = "resolved"
         gap.resolved_at = now
+
+
+async def _notify_evidence_expired(org_id: str, ev: CaEvidence) -> None:
+    try:
+        from backend.notificationservice import dispatcher, events as evmod  # type: ignore
+        await dispatcher.dispatch(
+            None, org_id, evmod.EVIDENCE_EXPIRING,
+            title="Compliance evidence expired",
+            body=f"Manual evidence '{(ev.summary or '')[:80]}' passed its validity window and no longer counts.",
+            severity="medium", link="/app/compliance",
+            meta={"evidence_id": ev.id, "module": "ca"},
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("CA evidence-expiry notify skipped: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -398,6 +419,35 @@ async def evaluate_org(db: AsyncSession, org_id: str, reason: str = "manual") ->
                 db.add(CaEvidenceControlLink(org_id=org_id, evidence_id=ev.id, control_id=control_id))
                 existing_links.add((ev.id, control_id))
 
+    # 2b. Direct control-level manual evidence (check_id IS NULL). This is how
+    #     controls WITHOUT any mapped check (the long tail of full framework
+    #     catalogs) get satisfied: an uploaded, file-backed attestation linked
+    #     straight to the control. For controls WITH checks it is shown as
+    #     supporting material but never overrides check-derived status.
+    now = datetime.utcnow()
+    # Evidence/links added by the calling route (autoflush=False) must be
+    # visible to the queries below.
+    await db.flush()
+    direct_by_control: dict[str, CaEvidence] = {}
+    direct_rows = (
+        await db.execute(
+            select(CaEvidenceControlLink.control_id, CaEvidence)
+            .join(CaEvidence, CaEvidence.id == CaEvidenceControlLink.evidence_id)
+            .where(
+                CaEvidenceControlLink.org_id == org_id,
+                CaEvidenceControlLink.control_id.in_(control_ids),
+                CaEvidence.check_id.is_(None),
+                CaEvidence.status == "valid",
+            )
+        )
+    ).all()
+    for cid, dev in direct_rows:
+        if dev.valid_until is not None and dev.valid_until < now:
+            dev.status = "stale"
+            await _notify_evidence_expired(org_id, dev)
+        elif dev.result == "pass" and cid not in direct_by_control:
+            direct_by_control[cid] = dev
+
     # 3. Recompute control states.
     states = (
         await db.execute(
@@ -407,7 +457,6 @@ async def evaluate_org(db: AsyncSession, org_id: str, reason: str = "manual") ->
         )
     ).scalars().all()
     states_by_control = {s.control_id: s for s in states}
-    now = datetime.utcnow()
     changes: list[dict] = []
 
     for control in controls:
@@ -425,7 +474,9 @@ async def evaluate_org(db: AsyncSession, org_id: str, reason: str = "manual") ->
             ev = evidence_by_check.get(m.check_id)
             effective = None
             if ev is not None and ev.status == "valid" and (ev.valid_until is None or ev.valid_until > now):
-                effective = ev.result
+                # 'no_data' outcomes are recorded for transparency but never
+                # count toward status — vacuous passes must not inflate.
+                effective = ev.result if ev.result in ("pass", "fail") else None
             check_results.append({"required": m.required, "result": effective})
             if effective != "pass":
                 missing.append({
@@ -437,7 +488,22 @@ async def evaluate_org(db: AsyncSession, org_id: str, reason: str = "manual") ->
                     "detail": (ev.summary if ev is not None else "No evidence collected yet."),
                 })
 
-        new_status = _derive_status(check_results)
+        control_maps = maps_by_control.get(control.id, [])
+        if control_maps:
+            new_status = _derive_status(check_results)
+        else:
+            # No mapped checks: only a valid, passing, file-backed direct
+            # attestation satisfies; otherwise honestly unknown.
+            new_status = "satisfied" if control.id in direct_by_control else "unknown"
+            if control.id in direct_by_control:
+                missing = []
+            else:
+                missing = [{
+                    "check_id": None, "check_key": None,
+                    "check_name": "Direct attestation evidence",
+                    "required": True, "state": "no_evidence",
+                    "detail": "No automated check covers this control — upload manual evidence with a document.",
+                }]
         old_status = state.status
         state.computed_at = now
         state.computed_from = [
@@ -448,8 +514,11 @@ async def evaluate_org(db: AsyncSession, org_id: str, reason: str = "manual") ->
                 "required": m.required,
                 "result": cr["result"],
             }
-            for m, cr in zip(maps_by_control.get(control.id, []), check_results)
-        ]
+            for m, cr in zip(control_maps, check_results)
+        ] or ([{"check_id": None,
+                "evidence_id": direct_by_control[control.id].id,
+                "required": True, "result": "pass"}]
+              if control.id in direct_by_control else [])
         if new_status != old_status:
             state.status = new_status
             changes.append({"control_ref": control.control_ref, "from": old_status, "to": new_status})

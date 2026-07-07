@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { Button } from "@/components/ui/button";
 import { 
   Eye, 
@@ -23,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { motion } from "framer-motion";
+import { statusMeta } from "@/components/shared/StatusBadge";
 import { fetchAllRuns, getRunDetail, getDiscovery, type AsmDiscoveryRun } from "@/lib/services/asm";
 import { type AsmDiscovery } from "@/lib/services/asm";
 
@@ -30,35 +32,9 @@ interface DiscoveryRunWithName extends AsmDiscoveryRun {
   discovery_name?: string;
 }
 
-const getStatusIcon = (status: string) => {
-  switch (status) {
-    case "COMPLETED":
-      return <CheckCircle2 className="w-4 h-4 text-success" />;
-    case "RUNNING":
-      return <Loader2 className="w-4 h-4 text-primary animate-spin" />;
-    case "FAILED":
-      return <AlertCircle className="w-4 h-4 text-destructive" />;
-    case "PENDING":
-      return <Clock className="w-4 h-4 text-muted-foreground" />;
-    default:
-      return <Clock className="w-4 h-4 text-muted-foreground" />;
-  }
-};
+const getStatusIcon = (status: string) => statusMeta("asmRun", status).icon;
 
-const getStatusColor = (status: string) => {
-  switch (status) {
-    case "COMPLETED":
-      return "bg-success/10 text-success";
-    case "RUNNING":
-      return "bg-primary/10 text-primary";
-    case "FAILED":
-      return "bg-destructive/10 text-destructive";
-    case "PENDING":
-      return "bg-muted/10 text-muted-foreground";
-    default:
-      return "bg-muted/10 text-muted-foreground";
-  }
-};
+const getStatusColor = (status: string) => statusMeta("asmRun", status).tone;
 
 const getTriggerIcon = (trigger: string) => {
   switch (trigger) {
@@ -137,14 +113,16 @@ export function DiscoveryRunsList() {
 
   const pageSize = 50;
 
+  const debouncedSearch = useDebouncedValue(searchQuery);
+
   useEffect(() => {
     fetchRuns();
-  }, [page, searchQuery, sortBy, sortDir]);
+  }, [page, debouncedSearch, sortBy, sortDir]);
 
   const fetchRuns = async () => {
     setLoading(true);
     try {
-      const data = await fetchAllRuns(page, pageSize, searchQuery, sortBy, sortDir);
+      const data = await fetchAllRuns(page, pageSize, debouncedSearch, sortBy, sortDir);
       setRuns(data.items);
       setTotalRuns(data.total);
 

@@ -1,5 +1,4 @@
-import { apiFetch, API_BASE } from "../api";
-import { getAccessToken } from "../supabase";
+import { apiFetch, apiFetchBlob, triggerBrowserDownload } from "../api";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -147,33 +146,14 @@ export function deleteReport(id: string) {
 export async function downloadReport(
   id: string
 ): Promise<{ blob: Blob; filename: string }> {
-  const token = await getAccessToken();
-  const res = await fetch(`${API_BASE}/reports/${id}/download`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => `HTTP ${res.status}`);
-    throw new Error(text || "Download failed");
-  }
-  const blob = await res.blob();
-  let filename = "report";
-  const disposition = res.headers.get("Content-Disposition") || "";
-  const match = disposition.match(/filename="?([^"]+)"?/i);
-  if (match) filename = match[1];
-  return { blob, filename };
+  const { blob, filename } = await apiFetchBlob(`/reports/${id}/download`);
+  return { blob, filename: filename ?? "report" };
 }
 
 /** Trigger a browser download for a report file. */
 export async function triggerReportDownload(id: string): Promise<void> {
   const { blob, filename } = await downloadReport(id);
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  triggerBrowserDownload(blob, filename);
 }
 
 // ---------------------------------------------------------------------------

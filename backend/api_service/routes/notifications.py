@@ -17,6 +17,7 @@ from sqlalchemy import select, func, update
 from utils.database import get_db
 from utils.supabase_auth import CurrentUser, get_current_user
 from utils.tenancy import require_org
+from utils.ownership import get_owned_or_404
 from models.notification_models import Notification, NotificationPreference
 from models.tenancy_models import AuditLog
 
@@ -130,18 +131,10 @@ async def unread_count(
 
 
 async def _owned(db: AsyncSession, notif_id: str, org_id: str, user_id: str) -> Notification:
-    row = (
-        await db.execute(
-            select(Notification).where(
-                Notification.id == notif_id,
-                Notification.org_id == org_id,
-                Notification.user_id == user_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if not row:
-        raise HTTPException(status_code=404, detail="Notification not found")
-    return row
+    return await get_owned_or_404(
+        db, Notification, notif_id, org_id, detail="Notification not found",
+        extra_criteria=(Notification.user_id == user_id,),
+    )
 
 
 @router.post("/{notif_id}/read", response_model=NotificationResponse)

@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from utils.database import get_db
 from utils.supabase_auth import CurrentUser, get_current_user
 from utils.tenancy import require_org
+from utils.ownership import get_owned_or_404
 from models.task_models import Task as TaskModel, TaskMessage as TaskMessageModel
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["Tasks"])
@@ -76,17 +77,7 @@ async def _messages_for(db: AsyncSession, task_id: str, org_id: str) -> List[dic
 
 
 async def _get_owned_task(db: AsyncSession, task_id: str, org_id: str) -> TaskModel:
-    task = (
-        await db.execute(
-            select(TaskModel).filter(
-                TaskModel.id == task_id,
-                TaskModel.org_id == org_id,
-            )
-        )
-    ).scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
+    return await get_owned_or_404(db, TaskModel, task_id, org_id, detail="Task not found")
 
 
 @router.get("", response_model=TaskListResponse)

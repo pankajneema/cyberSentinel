@@ -16,7 +16,7 @@
 #   4) create the API venv + pip install; frontend npm install (idempotent)
 #   5) run Alembic migrations
 #   6) launch all 5 app services with prefixed, colorised logs
-#         api:8000 (/docs) · control-plane:8090 · consumer · reporting · frontend:8080
+#         api:8000 (/docs) · consumer · reporting · frontend:8080
 #   Ctrl+C stops all app services (infra containers keep running; use --down to stop them).
 #
 set -uo pipefail
@@ -90,7 +90,6 @@ DEBUG=true
 DB_AUTO_CREATE=true
 TRUSTED_PROXY_HOPS=0
 X_INTERNAL_TOKEN=$INTERNAL_TOKEN
-ASM_ENDPOINT=http://localhost:8090/
 # ---- REQUIRED: get these from your Supabase project settings ----
 SUPABASE_URL=https://YOUR-PROJECT.supabase.co
 SUPABASE_JWT_SECRET=replace-me
@@ -106,8 +105,6 @@ DATABASE_URL=$PG_DSN_GO
 REDIS_URL=$REDIS_URL
 RABBIT_URL=$RABBIT_URL
 ASM_RABBIT_JOB_QUEUE=jobs.asm
-GIN_HOST=0.0.0.0
-GIN_PORT=8090
 X_INTERNAL_TOKEN=$INTERNAL_TOKEN
 JOB_MAX_CONCURRENCY=3
 TASK_TIMEOUT_SECONDS=900
@@ -191,15 +188,13 @@ run() {
 }
 
 run api            34 -- bash -c "cd '$API_DIR' && '$VENV/bin/uvicorn' main:app --host 0.0.0.0 --port 8000 --reload"
-run control-plane  35 -- bash -c "cd '$WORKERS_DIR' && go run ./control-plane/cmd/"
-run consumer       33 -- bash -c "cd '$WORKERS_DIR' && go run ./consumer/cmd/asm/"
+run consumer       33 -- bash -c "cd '$WORKERS_DIR' && go run ./consumer/cmd/"
 run reporting      32 -- bash -c "cd '$ROOT' && PYTHONPATH='$REPORT_PYTHONPATH' '$PY' backend/reporting/asm/main.py"
 run frontend       36 -- bash -c "cd '$FRONTEND_DIR' && npm run dev"
 
 echo
 echo "$(c 32 "  api")        http://localhost:8000   (/docs for Swagger)"
 echo "$(c 32 "  frontend")   http://localhost:8080"
-echo "$(c 32 "  control-plane") http://localhost:8090"
 echo "$(c 32 "  rabbitmq UI") http://localhost:15672 (guest/guest)"
 echo
 wait

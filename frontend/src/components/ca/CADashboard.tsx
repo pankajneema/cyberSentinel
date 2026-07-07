@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ShieldCheck, ShieldAlert, HelpCircle, AlarmClock, RefreshCw } from "lucide-react";
+import { ShieldCheck, ShieldAlert, HelpCircle, AlarmClock, RefreshCw, FileDown } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatCard } from "@/components/asm/StatCard";
-import { RiskGauge } from "@/components/asm/RiskGauge";
+import { ComplianceGauge } from "@/components/ca/ComplianceGauge";
 import { EmptyState } from "@/components/asm/EmptyState";
 import { toast } from "@/hooks/use-toast";
 import {
-  CaFrameworkPosture, CaTrendPoint, fetchGapsSummary, fetchPosture,
-  fetchPostureTrend, runEvaluation,
+  CaFrameworkPosture, CaTrendPoint, downloadCaReport, fetchGapsSummary,
+  fetchPosture, fetchPostureTrend, runEvaluation,
 } from "@/lib/services/ca";
 
 interface CADashboardProps {
@@ -111,12 +111,23 @@ export function CADashboard({ canWrite, onNavigateToFrameworks, onNavigateToGaps
           <StatCard label="Not assessed" value={totals.unknown} icon={HelpCircle} />
           <StatCard label="Gap SLA breaches" value={slaBreaches} icon={AlarmClock} variant={slaBreaches ? "warning" : "default"} onClick={onNavigateToGaps} />
         </div>
-        {canWrite && (
-          <Button variant="outline" onClick={handleEvaluate} disabled={evaluating} className="rounded-xl">
-            <RefreshCw className={`w-4 h-4 mr-2 ${evaluating ? "animate-spin" : ""}`} />
-            Re-evaluate now
+        <div className="flex gap-2">
+          <Button
+            variant="outline" className="rounded-xl"
+            onClick={() =>
+              downloadCaReport(selectedFw || null, "pdf").catch((e) =>
+                toast({ title: "Export failed", description: String(e), variant: "destructive" }))
+            }
+          >
+            <FileDown className="w-4 h-4 mr-2" /> Export report
           </Button>
-        )}
+          {canWrite && (
+            <Button variant="outline" onClick={handleEvaluate} disabled={evaluating} className="rounded-xl">
+              <RefreshCw className={`w-4 h-4 mr-2 ${evaluating ? "animate-spin" : ""}`} />
+              Re-evaluate now
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Per-framework posture — score is always shown WITH its counts (honesty rule). */}
@@ -151,7 +162,7 @@ export function CADashboard({ canWrite, onNavigateToFrameworks, onNavigateToGaps
                 {p.score === null ? (
                   <span className="text-2xl font-bold text-muted-foreground">—</span>
                 ) : (
-                  <RiskGauge score={p.score} size="sm" showLabel={false} />
+                  <ComplianceGauge score={p.score} size="sm" showLabel={false} />
                 )}
                 <p className="text-[11px] text-muted-foreground mt-1">compliance</p>
               </div>

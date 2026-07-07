@@ -1,75 +1,207 @@
 {
-  "key": "dpdp",
-  "name": "India DPDP Act",
-  "version": "2023",
-  "authority": "MeitY",
-  "region": "in",
-  "description": "India Digital Personal Data Protection Act, 2023 — data-fiduciary security obligations (paraphrased).",
-  "is_reference": false,
-  "controls": [
+ "key": "dpdp",
+ "name": "India DPDP Act",
+ "version": "2023",
+ "authority": "MeitY",
+ "region": "in",
+ "description": "India Digital Personal Data Protection Act, 2023 — data-fiduciary security obligations (paraphrased).",
+ "is_reference": false,
+ "controls": [
+  {
+   "control_ref": "S.4",
+   "title": "Grounds for processing personal data",
+   "description": null,
+   "category": "Data Fiduciary Obligations",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "S.5",
+   "title": "Notice to data principals",
+   "description": null,
+   "category": "Data Fiduciary Obligations",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "S.6",
+   "title": "Consent management",
+   "description": "Personal data is processed on the basis of free, specific, informed consent that can be withdrawn.",
+   "category": "Consent",
+   "criticality": "high",
+   "control_type": "administrative",
+   "evidence_guidance": "Consent collection/withdrawal records and mechanisms.",
+   "checks": [
     {
-      "control_ref": "S.8(4)",
-      "title": "Technical and organisational measures",
-      "description": "A data fiduciary implements appropriate technical and organisational measures to ensure effective observance of the Act.",
-      "category": "Data Fiduciary Obligations",
-      "criticality": "high",
-      "control_type": "technical",
-      "evidence_guidance": "Security policies plus operating technical controls.",
-      "checks": [
-        { "key": "policy.infosec.active_and_acked", "required": true, "rationale": "Organisational measures require a published, acknowledged security policy." },
-        { "key": "scan_config.continuous_schedule", "required": true, "rationale": "Continuous scanning schedules evidence operating technical measures." }
-      ]
-    },
-    {
-      "control_ref": "S.8(5)",
-      "title": "Security safeguards to prevent breach",
-      "description": "Reasonable security safeguards are implemented to prevent personal data breach.",
-      "category": "Data Fiduciary Obligations",
-      "criticality": "critical",
-      "control_type": "technical",
-      "evidence_guidance": "Vulnerability management operating: scans, remediation, no open criticals.",
-      "checks": [
-        { "key": "vs.scan_recency.quarterly", "required": true, "rationale": "Regular vulnerability scanning is a reasonable safeguard against breach." },
-        { "key": "vs.no_open_criticals", "required": true, "rationale": "Unremediated critical vulnerabilities negate 'reasonable safeguards'." }
-      ]
-    },
-    {
-      "control_ref": "S.8(6)",
-      "title": "Breach intimation",
-      "description": "On personal data breach, the Board and each affected data principal are informed in the prescribed manner.",
-      "category": "Data Fiduciary Obligations",
-      "criticality": "critical",
-      "control_type": "administrative",
-      "evidence_guidance": "Documented breach notification procedure.",
-      "checks": [
-        { "key": "manual.breach_notification_procedure", "required": true, "rationale": "A documented procedure for Board/principal notification is the readiness artifact." },
-        { "key": "policy.incident_response.active_and_acked", "required": true, "rationale": "Notification executes through the IR program." }
-      ]
-    },
-    {
-      "control_ref": "S.6",
-      "title": "Consent management",
-      "description": "Personal data is processed on the basis of free, specific, informed consent that can be withdrawn.",
-      "category": "Consent",
-      "criticality": "high",
-      "control_type": "administrative",
-      "evidence_guidance": "Consent collection/withdrawal records and mechanisms.",
-      "checks": [
-        { "key": "manual.dpdp_consent_records", "required": true, "rationale": "Consent mechanism documentation is the direct artifact." }
-      ]
-    },
-    {
-      "control_ref": "S.10(2)(a)",
-      "title": "Significant data fiduciary — DPIA & audit",
-      "description": "Significant data fiduciaries undertake periodic data protection impact assessment and audit.",
-      "category": "Significant Data Fiduciary",
-      "criticality": "high",
-      "control_type": "administrative",
-      "evidence_guidance": "Periodic risk/impact assessments and independent reviews.",
-      "checks": [
-        { "key": "manual.risk_assessment.annual", "required": true, "rationale": "Periodic documented assessment evidences DPIA." },
-        { "key": "manual.penetration_test.annual", "required": false, "rationale": "Independent testing supports the periodic audit obligation." }
-      ]
+     "key": "manual.dpdp_consent_records",
+     "required": true,
+     "rationale": "Consent mechanism documentation is the direct artifact."
     }
-  ]
+   ]
+  },
+  {
+   "control_ref": "S.7",
+   "title": "Certain legitimate uses",
+   "description": null,
+   "category": "Data Fiduciary Obligations",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "S.8(1)",
+   "title": "General obligations of the data fiduciary",
+   "description": null,
+   "category": "Data Fiduciary Obligations",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "S.8(3)",
+   "title": "Accuracy and completeness of personal data",
+   "description": null,
+   "category": "Data Fiduciary Obligations",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "S.8(4)",
+   "title": "Technical and organisational measures",
+   "description": "A data fiduciary implements appropriate technical and organisational measures to ensure effective observance of the Act.",
+   "category": "Data Fiduciary Obligations",
+   "criticality": "high",
+   "control_type": "technical",
+   "evidence_guidance": "Security policies plus operating technical controls.",
+   "checks": [
+    {
+     "key": "policy.infosec.active_and_acked",
+     "required": true,
+     "rationale": "Organisational measures require a published, acknowledged security policy."
+    },
+    {
+     "key": "scan_config.continuous_schedule",
+     "required": true,
+     "rationale": "Continuous scanning schedules evidence operating technical measures."
+    }
+   ]
+  },
+  {
+   "control_ref": "S.8(5)",
+   "title": "Security safeguards to prevent breach",
+   "description": "Reasonable security safeguards are implemented to prevent personal data breach.",
+   "category": "Data Fiduciary Obligations",
+   "criticality": "critical",
+   "control_type": "technical",
+   "evidence_guidance": "Vulnerability management operating: scans, remediation, no open criticals.",
+   "checks": [
+    {
+     "key": "vs.scan_recency.quarterly",
+     "required": true,
+     "rationale": "Regular vulnerability scanning is a reasonable safeguard against breach."
+    },
+    {
+     "key": "vs.no_open_criticals",
+     "required": true,
+     "rationale": "Unremediated critical vulnerabilities negate 'reasonable safeguards'."
+    }
+   ]
+  },
+  {
+   "control_ref": "S.8(6)",
+   "title": "Breach intimation",
+   "description": "On personal data breach, the Board and each affected data principal are informed in the prescribed manner.",
+   "category": "Data Fiduciary Obligations",
+   "criticality": "critical",
+   "control_type": "administrative",
+   "evidence_guidance": "Documented breach notification procedure.",
+   "checks": [
+    {
+     "key": "manual.breach_notification_procedure",
+     "required": true,
+     "rationale": "A documented procedure for Board/principal notification is the readiness artifact."
+    },
+    {
+     "key": "policy.incident_response.active_and_acked",
+     "required": true,
+     "rationale": "Notification executes through the IR program."
+    }
+   ]
+  },
+  {
+   "control_ref": "S.8(7)",
+   "title": "Erasure when purpose is served or consent withdrawn",
+   "description": null,
+   "category": "Data Fiduciary Obligations",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "S.9",
+   "title": "Processing of children's personal data",
+   "description": null,
+   "category": "Data Fiduciary Obligations",
+   "criticality": "high",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "S.10(2)(a)",
+   "title": "Significant data fiduciary — DPIA & audit",
+   "description": "Significant data fiduciaries undertake periodic data protection impact assessment and audit.",
+   "category": "Significant Data Fiduciary",
+   "criticality": "high",
+   "control_type": "administrative",
+   "evidence_guidance": "Periodic risk/impact assessments and independent reviews.",
+   "checks": [
+    {
+     "key": "manual.risk_assessment.annual",
+     "required": true,
+     "rationale": "Periodic documented assessment evidences DPIA."
+    },
+    {
+     "key": "manual.penetration_test.annual",
+     "required": false,
+     "rationale": "Independent testing supports the periodic audit obligation."
+    }
+   ]
+  },
+  {
+   "control_ref": "S.11",
+   "title": "Right to access information about personal data",
+   "description": null,
+   "category": "Data Principal Rights",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "S.12",
+   "title": "Right to correction and erasure",
+   "description": null,
+   "category": "Data Principal Rights",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "S.13",
+   "title": "Right of grievance redressal",
+   "description": null,
+   "category": "Data Principal Rights",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "S.14",
+   "title": "Right to nominate",
+   "description": null,
+   "category": "Data Principal Rights",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "S.16",
+   "title": "Restrictions on transfer outside India",
+   "description": null,
+   "category": "Transfer",
+   "criticality": "medium",
+   "control_type": "administrative"
+  }
+ ]
 }

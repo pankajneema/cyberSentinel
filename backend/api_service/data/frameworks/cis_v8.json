@@ -1,103 +1,323 @@
 {
-  "key": "cis_v8",
-  "name": "CIS Critical Security Controls",
-  "version": "8",
-  "authority": "CIS",
-  "region": "global",
-  "description": "CIS Controls v8 — baseline reference (paraphrased safeguard subset).",
-  "is_reference": true,
-  "controls": [
+ "key": "cis_v8",
+ "name": "CIS Critical Security Controls",
+ "version": "8",
+ "authority": "CIS",
+ "region": "global",
+ "description": "CIS Controls v8 — baseline reference (paraphrased safeguard subset).",
+ "is_reference": true,
+ "controls": [
+  {
+   "control_ref": "1",
+   "title": "Inventory and Control of Enterprise Assets",
+   "description": null,
+   "category": "CIS 1 — Enterprise Assets",
+   "criticality": "critical",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "1.1",
+   "title": "Establish and maintain detailed enterprise asset inventory",
+   "description": "A detailed inventory of all enterprise assets is established and maintained, reviewed and updated at least bi-annually.",
+   "category": "CIS 1 — Enterprise Assets",
+   "criticality": "critical",
+   "control_type": "technical",
+   "checks": [
     {
-      "control_ref": "1.1",
-      "title": "Establish and maintain detailed enterprise asset inventory",
-      "description": "A detailed inventory of all enterprise assets is established and maintained, reviewed and updated at least bi-annually.",
-      "category": "CIS 1 — Enterprise Assets",
-      "criticality": "critical",
-      "control_type": "technical",
-      "checks": [
-        { "key": "asm.inventory_maintained", "required": true, "rationale": "The maintained asset inventory is the direct 1.1 artifact." },
-        { "key": "asm.ownership_verified", "required": false, "rationale": "Verified ownership improves inventory fidelity." }
-      ]
+     "key": "asm.inventory_maintained",
+     "required": true,
+     "rationale": "The maintained asset inventory is the direct 1.1 artifact."
     },
     {
-      "control_ref": "6.1",
-      "title": "Establish an access granting process",
-      "description": "A process for granting access to enterprise assets is established, executed on new hire or role change.",
-      "category": "CIS 6 — Access Control",
-      "criticality": "high",
-      "control_type": "administrative",
-      "checks": [
-        { "key": "policy.access_control.active_and_acked", "required": true, "rationale": "The access policy defines the granting process." },
-        { "key": "audit.access_managed", "required": true, "rationale": "Recorded grants evidence the process executing." }
-      ]
-    },
-    {
-      "control_ref": "7.1",
-      "title": "Establish and maintain a vulnerability management process",
-      "description": "A documented vulnerability management process for enterprise assets is established and maintained.",
-      "category": "CIS 7 — Vulnerability Management",
-      "criticality": "critical",
-      "control_type": "technical",
-      "checks": [
-        { "key": "scan_config.continuous_schedule", "required": true, "rationale": "An active recurring scan schedule is the operating process." }
-      ]
-    },
-    {
-      "control_ref": "7.5",
-      "title": "Perform automated vulnerability scans of internal assets",
-      "description": "Automated vulnerability scans of internal enterprise assets are performed on a quarterly or more frequent basis.",
-      "category": "CIS 7 — Vulnerability Management",
-      "criticality": "critical",
-      "control_type": "technical",
-      "checks": [
-        { "key": "vs.scan_recency.quarterly", "required": true, "rationale": "Quarterly completed scans are the direct 7.5 artifact." },
-        { "key": "vs.scan_coverage.90d", "required": true, "rationale": "Coverage proves scans reach enterprise assets broadly." }
-      ]
-    },
-    {
-      "control_ref": "7.7",
-      "title": "Remediate detected vulnerabilities",
-      "description": "Detected vulnerabilities are remediated through processes and tooling on a monthly or more frequent basis.",
-      "category": "CIS 7 — Vulnerability Management",
-      "criticality": "critical",
-      "control_type": "technical",
-      "checks": [
-        { "key": "vs.no_overdue_highs", "required": true, "rationale": "No findings past SLA evidences the remediation cadence." },
-        { "key": "vs.rescan_after_remediation", "required": false, "rationale": "Rescan verification confirms remediation effectiveness." }
-      ]
-    },
-    {
-      "control_ref": "8.2",
-      "title": "Collect audit logs",
-      "description": "Audit logs are collected across enterprise assets.",
-      "category": "CIS 8 — Audit Log Management",
-      "criticality": "high",
-      "control_type": "technical",
-      "checks": [
-        { "key": "audit.trail_active", "required": true, "rationale": "Operative audit logging is the 8.2 artifact." }
-      ]
-    },
-    {
-      "control_ref": "14.1",
-      "title": "Establish and maintain a security awareness program",
-      "description": "A security awareness program is established and maintained for workforce members.",
-      "category": "CIS 14 — Awareness Training",
-      "criticality": "medium",
-      "control_type": "administrative",
-      "checks": [
-        { "key": "manual.security_training.annual", "required": true, "rationale": "Training records evidence the program." }
-      ]
-    },
-    {
-      "control_ref": "17.1",
-      "title": "Designate personnel for incident handling",
-      "description": "Personnel to manage incident handling are designated and the process documented.",
-      "category": "CIS 17 — Incident Response",
-      "criticality": "high",
-      "control_type": "administrative",
-      "checks": [
-        { "key": "policy.incident_response.active_and_acked", "required": true, "rationale": "The published IR policy documents handlers and process." }
-      ]
+     "key": "asm.ownership_verified",
+     "required": false,
+     "rationale": "Verified ownership improves inventory fidelity."
     }
-  ]
+   ]
+  },
+  {
+   "control_ref": "2",
+   "title": "Inventory and Control of Software Assets",
+   "description": null,
+   "category": "CIS 2 — Software Assets",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "3",
+   "title": "Data Protection",
+   "description": null,
+   "category": "CIS 3 — Data Protection",
+   "criticality": "high",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "4",
+   "title": "Secure Configuration of Enterprise Assets and Software",
+   "description": null,
+   "category": "CIS 4 — Secure Configuration",
+   "criticality": "critical",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "5",
+   "title": "Account Management",
+   "description": null,
+   "category": "CIS 5 — Account Management",
+   "criticality": "critical",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "6",
+   "title": "Access Control Management",
+   "description": null,
+   "category": "CIS 6 — Access Control",
+   "criticality": "critical",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "6.1",
+   "title": "Establish an access granting process",
+   "description": "A process for granting access to enterprise assets is established, executed on new hire or role change.",
+   "category": "CIS 6 — Access Control",
+   "criticality": "high",
+   "control_type": "administrative",
+   "checks": [
+    {
+     "key": "policy.access_control.active_and_acked",
+     "required": true,
+     "rationale": "The access policy defines the granting process."
+    },
+    {
+     "key": "audit.access_managed",
+     "required": true,
+     "rationale": "Recorded grants evidence the process executing."
+    }
+   ]
+  },
+  {
+   "control_ref": "7",
+   "title": "Continuous Vulnerability Management",
+   "description": null,
+   "category": "CIS 7 — Vulnerability Management",
+   "criticality": "critical",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "7.1",
+   "title": "Establish and maintain a vulnerability management process",
+   "description": "A documented vulnerability management process for enterprise assets is established and maintained.",
+   "category": "CIS 7 — Vulnerability Management",
+   "criticality": "critical",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "scan_config.continuous_schedule",
+     "required": true,
+     "rationale": "An active recurring scan schedule is the operating process."
+    }
+   ]
+  },
+  {
+   "control_ref": "7.5",
+   "title": "Perform automated vulnerability scans of internal assets",
+   "description": "Automated vulnerability scans of internal enterprise assets are performed on a quarterly or more frequent basis.",
+   "category": "CIS 7 — Vulnerability Management",
+   "criticality": "critical",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "vs.scan_recency.quarterly",
+     "required": true,
+     "rationale": "Quarterly completed scans are the direct 7.5 artifact."
+    },
+    {
+     "key": "vs.scan_coverage.90d",
+     "required": true,
+     "rationale": "Coverage proves scans reach enterprise assets broadly."
+    }
+   ]
+  },
+  {
+   "control_ref": "7.7",
+   "title": "Remediate detected vulnerabilities",
+   "description": "Detected vulnerabilities are remediated through processes and tooling on a monthly or more frequent basis.",
+   "category": "CIS 7 — Vulnerability Management",
+   "criticality": "critical",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "vs.no_overdue_highs",
+     "required": true,
+     "rationale": "No findings past SLA evidences the remediation cadence."
+    },
+    {
+     "key": "vs.rescan_after_remediation",
+     "required": false,
+     "rationale": "Rescan verification confirms remediation effectiveness."
+    }
+   ]
+  },
+  {
+   "control_ref": "8",
+   "title": "Audit Log Management",
+   "description": null,
+   "category": "CIS 8 — Audit Log Management",
+   "criticality": "high",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "8.2",
+   "title": "Collect audit logs",
+   "description": "Audit logs are collected across enterprise assets.",
+   "category": "CIS 8 — Audit Log Management",
+   "criticality": "high",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "audit.trail_active",
+     "required": true,
+     "rationale": "Operative audit logging is the 8.2 artifact."
+    }
+   ]
+  },
+  {
+   "control_ref": "9",
+   "title": "Email and Web Browser Protections",
+   "description": null,
+   "category": "CIS 9 — Email & Browser",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "10",
+   "title": "Malware Defenses",
+   "description": null,
+   "category": "CIS 10 — Malware Defenses",
+   "criticality": "critical",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "11",
+   "title": "Data Recovery",
+   "description": null,
+   "category": "CIS 11 — Data Recovery",
+   "criticality": "medium",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "manual.bcp_dr_test.annual",
+     "required": false
+    }
+   ]
+  },
+  {
+   "control_ref": "12",
+   "title": "Network Infrastructure Management",
+   "description": null,
+   "category": "CIS 12 — Network Infrastructure",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "13",
+   "title": "Network Monitoring and Defense",
+   "description": null,
+   "category": "CIS 13 — Network Monitoring",
+   "criticality": "high",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "asm.attack_surface_monitored",
+     "required": true
+    },
+    {
+     "key": "scan_config.continuous_schedule",
+     "required": true
+    }
+   ]
+  },
+  {
+   "control_ref": "14",
+   "title": "Security Awareness and Skills Training",
+   "description": null,
+   "category": "CIS 14 — Awareness Training",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "14.1",
+   "title": "Establish and maintain a security awareness program",
+   "description": "A security awareness program is established and maintained for workforce members.",
+   "category": "CIS 14 — Awareness Training",
+   "criticality": "medium",
+   "control_type": "administrative",
+   "checks": [
+    {
+     "key": "manual.security_training.annual",
+     "required": true,
+     "rationale": "Training records evidence the program."
+    }
+   ]
+  },
+  {
+   "control_ref": "15",
+   "title": "Service Provider Management",
+   "description": null,
+   "category": "CIS 15 — Service Providers",
+   "criticality": "medium",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "manual.vendor_review.annual",
+     "required": true
+    }
+   ]
+  },
+  {
+   "control_ref": "16",
+   "title": "Application Software Security",
+   "description": null,
+   "category": "CIS 16 — Application Security",
+   "criticality": "high",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "17",
+   "title": "Incident Response Management",
+   "description": null,
+   "category": "CIS 17 — Incident Response",
+   "criticality": "high",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "17.1",
+   "title": "Designate personnel for incident handling",
+   "description": "Personnel to manage incident handling are designated and the process documented.",
+   "category": "CIS 17 — Incident Response",
+   "criticality": "high",
+   "control_type": "administrative",
+   "checks": [
+    {
+     "key": "policy.incident_response.active_and_acked",
+     "required": true,
+     "rationale": "The published IR policy documents handlers and process."
+    }
+   ]
+  },
+  {
+   "control_ref": "18",
+   "title": "Penetration Testing",
+   "description": null,
+   "category": "CIS 18 — Penetration Testing",
+   "criticality": "high",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "manual.penetration_test.annual",
+     "required": true
+    }
+   ]
+  }
+ ]
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bug, LayoutDashboard, FileSearch, AlertTriangle, Server, Ticket, Settings, ShieldCheck } from "lucide-react";
 import { motion } from "framer-motion";
@@ -9,7 +9,7 @@ import { VSAssetView } from "@/components/vs/VSAssetView";
 import { VSRemediation } from "@/components/vs/VSRemediation";
 import { VSCompliance } from "@/components/vs/VSCompliance";
 import { VSSettings } from "@/components/vs/VSSettings";
-import { getMe } from "@/lib/services/auth";
+import { useMe } from "@/hooks/useMe";
 
 const tabs = [
   { value: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -23,31 +23,10 @@ const tabs = [
 
 export default function VS() {
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [currentRole, setCurrentRole] = useState<string>("reader");
-  const canWrite = currentRole !== "reader";
+  const { canWrite } = useMe();
 
   const handleNavigateToScans = () => setActiveTab("scans");
   const handleNavigateToFindings = () => setActiveTab("findings");
-
-  useEffect(() => {
-    let mounted = true;
-    const loadProfile = async () => {
-      try {
-        const profile = await getMe();
-        if (mounted) {
-          setCurrentRole(profile.role ?? "reader");
-        }
-      } catch {
-        if (mounted) {
-          setCurrentRole("reader");
-        }
-      }
-    };
-    loadProfile();
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   return (
     <div className="space-y-6">

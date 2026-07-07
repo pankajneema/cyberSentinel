@@ -9,9 +9,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/asm/EmptyState";
 import { SeverityBadge } from "@/components/asm/SeverityBadge";
 import { toast } from "@/hooks/use-toast";
+import { Input } from "@/components/ui/input";
 import {
   CaControl, CaControlDetail, CaFramework, ControlStatus,
   fetchControlDetail, fetchControls, fetchFrameworks, setControlApplicability,
+  uploadManualEvidence,
 } from "@/lib/services/ca";
 import { CollectionBadge, ControlStatusBadge, EvidenceStatusBadge } from "./CaStatusBadge";
 
@@ -36,6 +38,10 @@ export function ControlsTable({ canWrite }: { canWrite: boolean }) {
   const [naOpen, setNaOpen] = useState(false);
   const [naJustification, setNaJustification] = useState("");
   const [naScope, setNaScope] = useState("");
+  const [evOpen, setEvOpen] = useState(false);
+  const [evSummary, setEvSummary] = useState("");
+  const [evDays, setEvDays] = useState(365);
+  const [evFile, setEvFile] = useState<File | null>(null);
   const [reload, setReload] = useState(0);
   const pageSize = 50;
 
@@ -81,6 +87,20 @@ export function ControlsTable({ canWrite }: { canWrite: boolean }) {
       setDetail(null); setReload((n) => n + 1);
     } catch (e) {
       toast({ title: "Failed", description: String(e), variant: "destructive" });
+    }
+  };
+
+  const submitEvidence = async () => {
+    if (!detail || !evFile) return;
+    try {
+      await uploadManualEvidence({
+        summary: evSummary, control_id: detail.id, valid_days: evDays, file: evFile,
+      });
+      toast({ title: "Evidence attached", description: "Recorded as MANUAL, hash-stamped, re-evaluated." });
+      setEvOpen(false); setEvSummary(""); setEvFile(null);
+      openDetail(detail.id); setReload((n) => n + 1);
+    } catch (e) {
+      toast({ title: "Upload failed", description: String(e), variant: "destructive" });
     }
   };
 
@@ -281,6 +301,9 @@ export function ControlsTable({ canWrite }: { canWrite: boolean }) {
 
                 {canWrite && (
                   <div className="flex gap-2 pt-2 border-t border-border">
+                    <Button size="sm" className="rounded-xl" onClick={() => setEvOpen(true)}>
+                      Attach manual evidence
+                    </Button>
                     {detail.state.status !== "not_applicable" ? (
                       <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setNaOpen(true)}>
                         Mark Not Applicable
@@ -297,6 +320,33 @@ export function ControlsTable({ canWrite }: { canWrite: boolean }) {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Control-level manual evidence — document REQUIRED to count */}
+      <Dialog open={evOpen} onOpenChange={setEvOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Attach evidence to {detail?.control_ref}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            A document is required — a bare statement satisfies nothing. The upload is encrypted at
+            rest, hash-stamped, permanently badged MANUAL, and audit-trailed.
+          </p>
+          <Textarea placeholder="What does this document demonstrate? *" value={evSummary}
+            onChange={(e) => setEvSummary(e.target.value)} />
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-muted-foreground whitespace-nowrap">Valid for (days)</label>
+            <Input type="number" min={1} max={1095} value={evDays}
+              onChange={(e) => setEvDays(Number(e.target.value) || 365)} className="w-28" />
+          </div>
+          <Input type="file" onChange={(e) => setEvFile(e.target.files?.[0] ?? null)} />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEvOpen(false)}>Cancel</Button>
+            <Button onClick={submitEvidence} disabled={evSummary.trim().length < 3 || !evFile}>
+              Attach
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* N/A justification — mandatory, audit-trailed */}
       <Dialog open={naOpen} onOpenChange={setNaOpen}>

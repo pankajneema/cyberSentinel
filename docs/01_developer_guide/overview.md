@@ -46,7 +46,7 @@ sequenceDiagram
   participant API as api_service (FastAPI)
   participant PG as PostgreSQL
   participant MQ as RabbitMQ
-  participant CON as Go asm-consumer
+  participant CON as Go consumer
   participant CP as Go control-plane
   participant RD as Redis
   participant REP as reporting
@@ -92,7 +92,7 @@ sequenceDiagram
 |---|---|---|---|
 | `frontend` | `src/App.tsx` | api_service | REST `/api/v1`, WebSocket `/ws/realtime`, Supabase directly for auth |
 | `api_service` | `main.py` | Postgres, Redis, RabbitMQ, Supabase | asyncpg, redis, pika/aio_pika, JWT/JWKS |
-| `workers` (consumer) | `consumer/cmd/asm/main.go` | RabbitMQ, control-plane | amqp consume, HTTP forward |
+| `workers` (consumer) | `consumer/cmd/main.go` | RabbitMQ, control-plane | amqp consume, HTTP forward |
 | `workers` (control-plane) | `control-plane/cmd/main.go` | Postgres, Redis, RabbitMQ, scan CLIs | pgx, redis, amqp publish, `os/exec` |
 | `reporting` | `asm/main.py` | RabbitMQ, Redis, Postgres | pika consume, redis read, SQLAlchemy write |
 | `notificationservice` | imported by `api_service` | Redis, Postgres, Slack/Teams/SMTP | redis pub/sub, SQLAlchemy, httpx |

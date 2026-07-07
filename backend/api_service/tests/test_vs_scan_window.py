@@ -1,6 +1,6 @@
 """Scan-window enforcement logic (pure)."""
 from datetime import datetime
-from utils.scheduler import _in_scan_window
+from vs.service import _in_scan_window
 
 def _at(h, m=0):  # a UTC datetime at HH:MM
     return datetime(2026, 7, 5, h, m)

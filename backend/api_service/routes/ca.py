@@ -25,6 +25,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ca.engine import ca_trail, evaluate_org, posture_counts, seed_control_states
+from ca.service import _framework_report_data, _report_pdf
 from models.ca_models import (
     CaAttestation, CaAudit, CaAuditFinding, CaAuditorGrant, CaCheck, CaControl,
     CaControlCheckMap, CaControlState, CaEvidence, CaEvidenceControlLink,
@@ -39,6 +40,8 @@ from schemas.ca_schema import (
 )
 from utils.crypto import decrypt_secret, encrypt_secret
 from utils.database import get_db
+from utils.lifecycle import validate_transition
+from utils.pagination import page_params as _page_params
 from utils.supabase_auth import CurrentUser, get_current_user, require_role
 from utils.tenancy import require_org
 
@@ -61,10 +64,6 @@ _GAP_TRANSITIONS: dict[str, set[str]] = {
 }
 _GAP_JUSTIFY_REQUIRED = {"accepted_risk"}
 _GAP_RESOLVED = {"resolved", "verified", "closed", "accepted_risk"}
-
-
-def _page_params(page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
-    return page, page_size
 
 
 async def _get_org_control(db: AsyncSession, org_id: str, control_id: str) -> tuple[CaControl, CaControlState]:
@@ -337,24 +336,43 @@ async def list_evidence(
 async def upload_manual_evidence(
     summary: str = Form(...),
     check_id: str | None = Form(None),
+    control_id: str | None = Form(None),
     valid_days: int = Form(180),
     file: UploadFile | None = File(None),
     user: CurrentUser = Depends(_writer),
     db: AsyncSession = Depends(get_db),
 ):
     """Manual evidence upload. ALWAYS recorded as collection='manual' — manual
-    evidence can never masquerade as system-collected (integrity rule)."""
+    evidence can never masquerade as system-collected (integrity rule).
+
+    Attach to a manual CHECK (check_id) or directly to a CONTROL with no
+    automated coverage (control_id). Either way, evidence only counts as
+    'pass' when a real document is attached — a bare sentence satisfies
+    nothing (anti-inflation rule)."""
     org_id = require_org(user.org_id)
     if len(summary.strip()) < 3:
         raise HTTPException(400, "Summary is required")
     if not 1 <= valid_days <= 1095:
         raise HTTPException(400, "valid_days must be between 1 and 1095")
+    if check_id and control_id:
+        raise HTTPException(400, "Provide check_id OR control_id, not both")
+    if (check_id or control_id) and file is None:
+        raise HTTPException(
+            400, "A document must be attached for evidence intended to satisfy a check or control"
+        )
 
     check = None
     if check_id:
         check = (await db.execute(select(CaCheck).where(CaCheck.id == check_id))).scalar_one_or_none()
         if check is None:
             raise HTTPException(404, "Check not found")
+    target_control = None
+    if control_id:
+        target_control = (
+            await db.execute(select(CaControl).where(CaControl.id == control_id))
+        ).scalar_one_or_none()
+        if target_control is None:
+            raise HTTPException(404, "Control not found")
 
     file_row = None
     file_meta = {}
@@ -393,7 +411,8 @@ async def upload_manual_evidence(
         content_hash=hashlib.sha256(
             (str(sorted(content.items())) + str(source_ref)).encode()
         ).hexdigest(),
-        result="pass" if check_id else None,
+        # 'pass' only for targeted, document-backed evidence (enforced above).
+        result="pass" if (check_id or control_id) else None,
         captured_at=now,
         valid_until=now + timedelta(days=valid_days),
         status="valid",
@@ -412,10 +431,12 @@ async def upload_manual_evidence(
         ).scalars().all()
         for cid in control_ids:
             db.add(CaEvidenceControlLink(org_id=org_id, evidence_id=ev.id, control_id=cid))
+    elif target_control:
+        db.add(CaEvidenceControlLink(org_id=org_id, evidence_id=ev.id, control_id=target_control.id))
 
     await ca_trail(db, org_id, user.user_id, "evidence.uploaded", f"evidence:{ev.id}",
-                   {"check_id": check_id, **file_meta})
-    if check:
+                   {"check_id": check_id, "control_id": control_id, **file_meta})
+    if check or target_control:
         await evaluate_org(db, org_id, reason="manual_evidence")
     await db.commit()
     return ev.to_dict()
@@ -564,11 +585,12 @@ async def transition_gap(
     ).scalar_one_or_none()
     if gap is None:
         raise HTTPException(404, "Gap not found")
-    allowed = _GAP_TRANSITIONS.get(gap.status, set())
-    if payload.status not in allowed:
-        raise HTTPException(409, f"Illegal transition {gap.status} → {payload.status}")
-    if payload.status in _GAP_JUSTIFY_REQUIRED and not (payload.justification or "").strip():
-        raise HTTPException(400, f"Justification required for '{payload.status}'")
+    validate_transition(
+        _GAP_TRANSITIONS, gap.status, payload.status,
+        justify_required=_GAP_JUSTIFY_REQUIRED, justification=payload.justification,
+        illegal_detail=f"Illegal transition {gap.status} → {payload.status}",
+        justify_detail=f"Justification required for '{payload.status}'",
+    )
     db.add(CaGapHistory(
         gap_id=gap.id, org_id=org_id, from_status=gap.status, to_status=payload.status,
         actor_user_id=user.user_id, justification=payload.justification,
@@ -1173,6 +1195,42 @@ async def upload_attestation(
 
 
 # ===========================================================================
+# Reporting & audit-readiness export
+# ===========================================================================
+@router.get("/reports")
+async def generate_report(
+    framework_id: str | None = Query(None),
+    format: str = Query("json", pattern="^(json|pdf)$"),
+    user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Executive + control-by-control report from LIVE control states and valid
+    evidence only. One framework (framework_id) or all enabled frameworks."""
+    org_id = require_org(user.org_id)
+    stmt = (
+        select(CaFramework)
+        .join(CaOrgFramework, (CaOrgFramework.framework_id == CaFramework.id)
+              & (CaOrgFramework.org_id == org_id)
+              & (CaOrgFramework.status == "active"))
+    )
+    if framework_id:
+        stmt = stmt.where(CaFramework.id == framework_id)
+    frameworks = (await db.execute(stmt)).scalars().all()
+    if not frameworks:
+        raise HTTPException(404, "No enabled framework matches")
+    reports = [await _framework_report_data(db, org_id, fw) for fw in frameworks]
+    await ca_trail(db, org_id, user.user_id, "report.generated", None,
+                   {"frameworks": [f.key for f in frameworks], "format": format})
+    await db.commit()
+    if format == "pdf":
+        pdf = _report_pdf(reports)
+        name = f"compliance-{frameworks[0].key if framework_id else 'all'}-{datetime.utcnow():%Y%m%d}.pdf"
+        return Response(content=pdf, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+    return {"reports": reports}
+
+
+# ===========================================================================
 # Auditor portal — separate auth plane, read-only + raise-finding
 # ===========================================================================
 _auditor_bearer = HTTPBearer(auto_error=False)
@@ -1220,6 +1278,7 @@ async def auditor_me(
 ):
     audit = (await db.execute(select(CaAudit).where(CaAudit.id == grant.audit_id))).scalar_one()
     fw = (await db.execute(select(CaFramework).where(CaFramework.id == audit.framework_id))).scalar_one()
+    await db.commit()  # persist last_access_at set by the dependency
     return {
         "auditor_email": grant.auditor_email,
         "expires_at": grant.expires_at.isoformat(),

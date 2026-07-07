@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "./EmptyState";
@@ -69,6 +70,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
+import { statusMeta } from "@/components/shared/StatusBadge";
 import {
   fetchAssets,
   fetchDiscoveries,
@@ -140,7 +142,7 @@ const scheduleOptions = [
   { value: "CRON", label: "Custom (CRON)", intervalValue: null },
 ];
 
-export function ScanManager() {
+export function DiscoveryManager() {
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -174,10 +176,12 @@ export function ScanManager() {
 
   const [editForm, setEditForm] = useState<UpdateDiscoveryPayload>({});
 
+  const debouncedSearch = useDebouncedValue(searchQuery);
+
   useEffect(() => {
     loadDiscoveries();
     loadInventoryAssets();
-  }, [page, pageSize, searchQuery, sortBy, sortDir]);
+  }, [page, pageSize, debouncedSearch, sortBy, sortDir]);
 
   const loadDiscoveries = async () => {
     try {
@@ -185,7 +189,7 @@ export function ScanManager() {
       const data = await fetchDiscoveries({
         page,
         page_size: pageSize,
-        q: searchQuery || undefined,
+        q: debouncedSearch || undefined,
         sort_by: sortBy,
         sort_dir: sortDir,
       });
@@ -212,27 +216,9 @@ export function ScanManager() {
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "RUNNING": return <Loader2 className="w-4 h-4 text-primary animate-spin" />;
-      case "COMPLETED": return <CheckCircle2 className="w-4 h-4 text-success" />;
-      case "PENDING": return <Clock className="w-4 h-4 text-warning" />;
-      case "PAUSED": return <Pause className="w-4 h-4 text-muted-foreground" />;
-      case "FAILED": return <XCircle className="w-4 h-4 text-destructive" />;
-      default: return <Clock className="w-4 h-4 text-muted-foreground" />;
-    }
-  };
+  const getStatusIcon = (status: string) => statusMeta("asmDiscovery", status).icon;
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "RUNNING": return "bg-primary/10 text-primary";
-      case "COMPLETED": return "bg-success/10 text-success";
-      case "PENDING": return "bg-warning/10 text-warning";
-      case "PAUSED": return "bg-muted text-muted-foreground";
-      case "FAILED": return "bg-destructive/10 text-destructive";
-      default: return "bg-muted text-muted-foreground";
-    }
-  };
+  const getStatusColor = (status: string) => statusMeta("asmDiscovery", status).tone;
 
   const filteredDiscoveries = discoveries.filter((discovery) =>
     discovery.name.toLowerCase().includes(searchQuery.toLowerCase())

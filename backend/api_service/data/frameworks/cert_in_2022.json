@@ -1,62 +1,114 @@
 {
-  "key": "cert_in",
-  "name": "CERT-In Directions",
-  "version": "2022",
-  "authority": "CERT-In",
-  "region": "in",
-  "description": "CERT-In directions of 28 April 2022 under s.70B(6) IT Act (paraphrased obligations).",
-  "is_reference": false,
-  "controls": [
+ "key": "cert_in",
+ "name": "CERT-In Directions",
+ "version": "2022",
+ "authority": "CERT-In",
+ "region": "in",
+ "description": "CERT-In directions of 28 April 2022 under s.70B(6) IT Act (paraphrased obligations).",
+ "is_reference": false,
+ "controls": [
+  {
+   "control_ref": "D.1",
+   "title": "Clock synchronization to NPL/NIC",
+   "description": "ICT system clocks are synchronized to the NTP servers of NPL or NIC.",
+   "category": "Directions",
+   "criticality": "medium",
+   "control_type": "technical",
+   "evidence_guidance": "NTP configuration evidence.",
+   "checks": [
     {
-      "control_ref": "D.1",
-      "title": "Clock synchronization to NPL/NIC",
-      "description": "ICT system clocks are synchronized to the NTP servers of NPL or NIC.",
-      "category": "Directions",
-      "criticality": "medium",
-      "control_type": "technical",
-      "evidence_guidance": "NTP configuration evidence.",
-      "checks": [
-        { "key": "manual.time_sync_npl", "required": true, "rationale": "Configuration evidence of NPL/NIC NTP sync is the direct artifact." }
-      ]
-    },
-    {
-      "control_ref": "D.2",
-      "title": "6-hour incident reporting",
-      "description": "Cyber incidents are reported to CERT-In within 6 hours of noticing or being brought to notice.",
-      "category": "Directions",
-      "criticality": "critical",
-      "control_type": "administrative",
-      "evidence_guidance": "Procedure covering the 6-hour reporting window.",
-      "checks": [
-        { "key": "manual.breach_notification_procedure", "required": true, "rationale": "The documented procedure must cover the 6-hour CERT-In window." },
-        { "key": "policy.incident_response.active_and_acked", "required": true, "rationale": "Reporting executes through the IR program." }
-      ]
-    },
-    {
-      "control_ref": "D.4",
-      "title": "180-day log retention",
-      "description": "Logs of all ICT systems are maintained securely for a rolling period of 180 days within India.",
-      "category": "Directions",
-      "criticality": "high",
-      "control_type": "technical",
-      "evidence_guidance": "Log retention configuration and operative logging.",
-      "checks": [
-        { "key": "manual.log_retention_180d", "required": true, "rationale": "Retention configuration evidence covers the 180-day mandate." },
-        { "key": "audit.trail_active", "required": true, "rationale": "Operative logging is a precondition for retention." }
-      ]
-    },
-    {
-      "control_ref": "D.5",
-      "title": "Vulnerability and incident detection capability",
-      "description": "Organizations maintain the capability to detect security incidents and vulnerabilities in their infrastructure.",
-      "category": "Directions",
-      "criticality": "high",
-      "control_type": "technical",
-      "evidence_guidance": "Operating scanning and monitoring.",
-      "checks": [
-        { "key": "vs.scan_recency.monthly", "required": true, "rationale": "Frequent scans evidence detection capability operating." },
-        { "key": "asm.attack_surface_monitored", "required": true, "rationale": "Attack-surface monitoring evidences infrastructure-wide detection." }
-      ]
+     "key": "manual.time_sync_npl",
+     "required": true,
+     "rationale": "Configuration evidence of NPL/NIC NTP sync is the direct artifact."
     }
-  ]
+   ]
+  },
+  {
+   "control_ref": "D.2",
+   "title": "6-hour incident reporting",
+   "description": "Cyber incidents are reported to CERT-In within 6 hours of noticing or being brought to notice.",
+   "category": "Directions",
+   "criticality": "critical",
+   "control_type": "administrative",
+   "evidence_guidance": "Procedure covering the 6-hour reporting window.",
+   "checks": [
+    {
+     "key": "manual.breach_notification_procedure",
+     "required": true,
+     "rationale": "The documented procedure must cover the 6-hour CERT-In window."
+    },
+    {
+     "key": "policy.incident_response.active_and_acked",
+     "required": true,
+     "rationale": "Reporting executes through the IR program."
+    },
+    {
+     "key": "vs.scan_recency.monthly",
+     "required": false
+    },
+    {
+     "key": "asm.attack_surface_monitored",
+     "required": false
+    }
+   ]
+  },
+  {
+   "control_ref": "D.3",
+   "title": "Designation of a point of contact for CERT-In",
+   "description": null,
+   "category": "Directions",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "D.4",
+   "title": "180-day log retention",
+   "description": "Logs of all ICT systems are maintained securely for a rolling period of 180 days within India.",
+   "category": "Directions",
+   "criticality": "high",
+   "control_type": "technical",
+   "evidence_guidance": "Log retention configuration and operative logging.",
+   "checks": [
+    {
+     "key": "manual.log_retention_180d",
+     "required": true,
+     "rationale": "Retention configuration evidence covers the 180-day mandate."
+    },
+    {
+     "key": "audit.trail_active",
+     "required": true,
+     "rationale": "Operative logging is a precondition for retention."
+    }
+   ]
+  },
+  {
+   "control_ref": "D.5",
+   "title": "Vulnerability and incident detection capability",
+   "description": "Organizations maintain the capability to detect security incidents and vulnerabilities in their infrastructure.",
+   "category": "Directions",
+   "criticality": "medium",
+   "control_type": "technical",
+   "evidence_guidance": "Operating scanning and monitoring.",
+   "checks": [
+    {
+     "key": "vs.scan_recency.monthly",
+     "required": true,
+     "rationale": "Frequent scans evidence detection capability operating."
+    },
+    {
+     "key": "asm.attack_surface_monitored",
+     "required": true,
+     "rationale": "Attack-surface monitoring evidences infrastructure-wide detection."
+    }
+   ]
+  },
+  {
+   "control_ref": "D.6",
+   "title": "KYC and transaction records for virtual asset providers (5 years)",
+   "description": null,
+   "category": "Directions",
+   "criticality": "medium",
+   "control_type": "administrative"
+  }
+ ]
 }

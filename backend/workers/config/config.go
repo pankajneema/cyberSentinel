@@ -16,10 +16,6 @@ type Config struct {
 	// Logging
 	LogLevel string
 
-	// Gin Control Plane
-	GinHost string
-	GinPort string
-
 	// RabbitMQ
 	RabbitURL         string
 	ASMRabbitJobQueue string
@@ -44,13 +40,8 @@ type Config struct {
 	// WebSocket
 	WSBufferSize int
 
-	// Mircoservice
-	AsmEndpoint string
-
-	// Shared secret for the internal control-plane API (consumer -> control-plane).
-	// When set, /asm/jobs/start requires header X-Internal-Token == this value.
-	// Reused as the X-Internal-Token when fetching authenticated-scan
-	// credentials from the core API's internal endpoint.
+	// Shared secret sent as X-Internal-Token when the VS worker fetches
+	// authenticated-scan credentials from the core API's internal endpoint.
 	ControlPlaneToken string
 
 	// Base URL of the core (Python) API service. Used by the VS worker to fetch
@@ -67,47 +58,40 @@ func Load() *Config {
 
 	cfg := &Config{
 		// Application
-		AppName: Get("APP_NAME", "cybersential-workers"),
-		AppEnv:  Get("APP_ENV", "dev"),
+		AppName: Env("APP_NAME", "cybersential-workers"),
+		AppEnv:  Env("APP_ENV", "dev"),
 
 		// Logging
-		LogLevel: Get("LOG_LEVEL", "info"),
-
-		// Gin Control Plane
-		GinHost: Get("GIN_HOST", "0.0.0.0"),
-		GinPort: Get("GIN_PORT", "8090"),
+		LogLevel: Env("LOG_LEVEL", "info"),
 
 		// RabbitMQ (required)
-		RabbitURL: MustGet("RABBITMQ_URL"),
+		RabbitURL: MustEnv("RABBITMQ_URL"),
 
-		ASMRabbitJobQueue: Get("ASM_RABBITMQ_JOB_QUEUE", "jobs.asm"),
-		VSRabbitJobQueue:  Get("VS_RABBITMQ_JOB_QUEUE", "jobs.vs"),
+		ASMRabbitJobQueue: Env("ASM_RABBITMQ_JOB_QUEUE", "jobs.asm"),
+		VSRabbitJobQueue:  Env("VS_RABBITMQ_JOB_QUEUE", "jobs.vs"),
 
 		// Orchestration
 		JobMaxConcurrency: mustInt("JOB_MAX_CONCURRENCY", 3),
 		TaskTimeoutSec:    mustInt("TASK_TIMEOUT_SECONDS", 900),
 
 		// Executor
-		ExecutorWorkDir: Get("EXECUTOR_WORKDIR", "/tmp/cybersential"),
-		ExecutorBinPath: Get("EXECUTOR_BIN_PATH", "/usr/bin"),
+		ExecutorWorkDir: Env("EXECUTOR_WORKDIR", "/tmp/cybersential"),
+		ExecutorBinPath: Env("EXECUTOR_BIN_PATH", "/usr/bin"),
 
 		// WebSocket
 		WSBufferSize: mustInt("WS_BUFFER_SIZE", 1024),
 
-		// Microservices
-		AsmEndpoint: Get("ASM_SERVICE_ENDPOINTS", "http://localhost:9003/asm/"),
-
-		ControlPlaneToken: Get("CONTROL_PLANE_TOKEN", ""),
+		ControlPlaneToken: Env("CONTROL_PLANE_TOKEN", ""),
 
 		// Core API base URL for internal credential fetch (JIT authenticated scan).
-		CoreAPIURL: Get("CORE_API_URL", "http://api_service:8000"),
+		CoreAPIURL: Env("CORE_API_URL", "http://api_service:8000"),
 
 		//database
-		PostgreSql: MustGet("POSTGRESQL_URL"),
+		PostgreSql: MustEnv("POSTGRESQL_URL"),
 
 		//Redis
-		RedisAddr:     Get("REDISADDR", "localhost:6379"),
-		RedisPassword: Get("REDISPASS", ""),
+		RedisAddr:     Env("REDISADDR", "localhost:6379"),
+		RedisPassword: Env("REDISPASS", ""),
 		RedisDB:       mustInt("REDISDB", 0),
 	}
 
@@ -117,7 +101,7 @@ func Load() *Config {
 
 // mustInt reads an env var as int or exits on error
 func mustInt(key string, fallback int) int {
-	val := Get(key, "")
+	val := Env(key, "")
 	if val == "" {
 		return fallback
 	}

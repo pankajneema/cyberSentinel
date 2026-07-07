@@ -2,39 +2,36 @@
 // Avatar upload to Supabase Storage is a follow-up; this stores an avatar URL.
 
 import { useEffect, useState } from "react";
-import { getMe, updateProfile } from "@/lib/services/auth";
+import { updateProfile } from "@/lib/services/auth";
+import { useMe, refreshMe } from "@/hooks/useMe";
 import { toast } from "@/hooks/use-toast";
 
 export default function Profile() {
-  const [email, setEmail] = useState("");
-  const [orgName, setOrgName] = useState<string | null>(null);
-  const [role, setRole] = useState("");
+  const { me, loading } = useMe();
   const [fullName, setFullName] = useState("");
   const [country, setCountry] = useState("");
   const [phone, setPhone] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const email = me?.email ?? "";
+  const orgName = me?.org_name ?? null;
+  const role = me?.role ?? "";
+
   useEffect(() => {
-    getMe()
-      .then((me) => {
-        setEmail(me.email);
-        setOrgName(me.org_name);
-        setRole(me.role);
-        setFullName(me.full_name || "");
-        setCountry(me.country || "");
-        setPhone(me.phone || "");
-        setAvatarUrl(me.avatar_url || "");
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    if (!me) return;
+    setFullName(me.full_name || "");
+    setCountry(me.country || "");
+    setPhone(me.phone || "");
+    setAvatarUrl(me.avatar_url || "");
+  }, [me]);
 
   async function onSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     try {
       await updateProfile({ full_name: fullName, country, phone, avatar_url: avatarUrl });
+      void refreshMe().catch(() => {});
       toast({ title: "Profile saved" });
     } catch (err) {
       toast({ title: "Save failed", description: err instanceof Error ? err.message : "" });

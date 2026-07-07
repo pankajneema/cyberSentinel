@@ -16,7 +16,7 @@
 | rabbitmq | `rabbitmq:3.13-management-alpine` | 5672, 15672 (mgmt) | — |
 | api | build `backend/api_service/Dockerfile` | 8000 | postgres, redis, rabbitmq |
 | worker-control-plane | build `backend/workers/Dockerfile`, cmd `control-plane` | — | rabbitmq, postgres |
-| asm-consumer | build `backend/workers/Dockerfile`, cmd `asm-consumer` | — | rabbitmq |
+| consumer | build `backend/workers/Dockerfile`, cmd `consumer` | — | rabbitmq |
 | reporting | build `backend/reporting/Dockerfile` | — | postgres, rabbitmq |
 | frontend | build `frontend/Dockerfile` | 8080 | api |
 
@@ -26,7 +26,7 @@ Env is supplied via `env_file` per service (`.env` files — names only, never c
 flowchart LR
   frontend:8080 --> api:8000
   api --> postgres & redis & rabbitmq
-  asm-consumer --> rabbitmq --> worker-control-plane
+  consumer --> rabbitmq --> worker-control-plane
   worker-control-plane --> postgres & redis & rabbitmq
   reporting --> postgres & rabbitmq & redis
 ```

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ASMOverview } from "@/components/asm/ASMOverview";
 import { AttackSurfaceGraph } from "@/components/asm/AttackSurfaceGraph";
-import { ScanManager } from "@/components/asm/DiscoveryManager";
+import { DiscoveryManager } from "@/components/asm/DiscoveryManager";
 import { ASMSettings } from "@/components/asm/ASMSettings";
 import { DiscoveryRunsList } from "@/components/asm/DiscoveryRunsList";
 import { ASMFindings } from "@/components/asm/ASMFindings";
@@ -165,7 +165,7 @@ export default function ASM() {
             <IPGeoMap />
           </TabsContent>
           <TabsContent value="scans" forceMount className="mt-0 data-[state=inactive]:hidden">
-            <ScanManager />
+            <DiscoveryManager />
           </TabsContent>
           <TabsContent value="reports" forceMount className="mt-0 data-[state=inactive]:hidden">
               <DiscoveryRunsList />

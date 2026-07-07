@@ -53,7 +53,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
-import { getMe } from "@/lib/services/auth";
+import { useMe } from "@/hooks/useMe";
 import {
   fetchReports,
   generateReport,
@@ -161,16 +161,7 @@ export default function Reports() {
   });
   const [savingSchedule, setSavingSchedule] = useState(false);
 
-  const [currentRole, setCurrentRole] = useState<string>("reader");
-  const canWrite = currentRole !== "reader";
-
-  useEffect(() => {
-    let mounted = true;
-    getMe()
-      .then((me) => mounted && setCurrentRole(me.role ?? "reader"))
-      .catch(() => mounted && setCurrentRole("reader"));
-    return () => { mounted = false; };
-  }, []);
+  const { canWrite } = useMe();
 
   const loadAll = async () => {
     setIsLoading(true);

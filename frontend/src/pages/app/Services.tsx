@@ -13,9 +13,9 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
-import { getMe } from "@/lib/services/auth";
+import { useMe } from "@/hooks/useMe";
 import { requestEarlyAccess } from "@/lib/services/marketing";
 import { can } from "@/lib/permissions";
 
@@ -74,30 +74,7 @@ const services = [
 
 export default function Services() {
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<string>("reader");
-  const [isSuperadmin, setIsSuperadmin] = useState(false);
-
-  useEffect(() => {
-    let mounted = true;
-    const loadProfile = async () => {
-      try {
-        const profile = await getMe();
-        if (mounted) {
-          setRole(profile.role ?? "reader");
-          setIsSuperadmin(false);
-        }
-      } catch {
-        if (mounted) {
-          setRole("reader");
-          setIsSuperadmin(false);
-        }
-      }
-    };
-    loadProfile();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const { role } = useMe();
 
   if (!can.manageTeam(role)) {
     return (

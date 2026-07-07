@@ -1,4 +1,4 @@
-import { apiFetch, API_BASE, Paginated } from "../api";
+import { apiFetch, apiFetchBlob, triggerBrowserDownload, API_BASE, Paginated } from "../api";
 import { getAccessToken } from "../supabase";
 
 // ===================== Types =====================
@@ -216,12 +216,13 @@ export function fetchEvidence(params: {
 }
 
 export async function uploadManualEvidence(payload: {
-  summary: string; check_id?: string; valid_days?: number; file?: File | null;
+  summary: string; check_id?: string; control_id?: string; valid_days?: number; file?: File | null;
 }): Promise<CaEvidence> {
   const token = await getAccessToken();
   const form = new FormData();
   form.set("summary", payload.summary);
   if (payload.check_id) form.set("check_id", payload.check_id);
+  if (payload.control_id) form.set("control_id", payload.control_id);
   form.set("valid_days", String(payload.valid_days ?? 180));
   if (payload.file) form.set("file", payload.file);
   const res = await fetch(`${API_BASE}/ca/evidence`, {
@@ -241,18 +242,8 @@ export function revokeEvidence(id: string, justification: string) {
 }
 
 export async function downloadEvidenceFile(id: string, filename: string) {
-  const token = await getAccessToken();
-  const res = await fetch(`${API_BASE}/ca/evidence/${id}/file`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  });
-  if (!res.ok) throw new Error("Download failed");
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  const { blob } = await apiFetchBlob(`/ca/evidence/${id}/file`);
+  triggerBrowserDownload(blob, filename);
 }
 
 // ===================== Gaps =====================
@@ -315,6 +306,13 @@ export function fetchPosture(framework_id?: string) {
 export function fetchPostureTrend(framework_id: string, days = 30) {
   return apiFetch<{ items: CaTrendPoint[] }>(`/ca/posture/trend?framework_id=${framework_id}&days=${days}`);
 }
+export async function downloadCaReport(framework_id: string | null, format: "pdf" | "json" = "pdf") {
+  const q = new URLSearchParams({ format });
+  if (framework_id) q.set("framework_id", framework_id);
+  const { blob } = await apiFetchBlob(`/ca/reports?${q.toString()}`);
+  triggerBrowserDownload(blob, `compliance-report.${format}`);
+}
+
 export function runEvaluation() {
   return apiFetch<{ evaluated: boolean; changes: Array<{ control_ref: string; from: string; to: string }> }>(
     "/ca/evaluate",

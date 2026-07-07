@@ -57,25 +57,17 @@ services:
       rabbitmq: {condition: service_healthy}
     restart: unless-stopped
 
-  worker-control-plane:
+  # Single worker binary: runs both ASM (in-process pipeline) and VS jobs.
+  consumer:
     build:
       context: .
-      dockerfile: backend/workers/Dockerfile
-    command: ["control-plane"]
+      dockerfile: backend/workers/deploy/Dockerfile
+    command: ["consumer"]
     env_file: [./backend/workers/.env]
     depends_on:
       rabbitmq: {condition: service_healthy}
       postgres: {condition: service_healthy}
-    restart: unless-stopped
-
-  asm-consumer:
-    build:
-      context: .
-      dockerfile: backend/workers/Dockerfile
-    command: ["asm-consumer"]
-    env_file: [./backend/workers/.env]
-    depends_on:
-      rabbitmq: {condition: service_healthy}
+      redis: {condition: service_healthy}
     restart: unless-stopped
 
   reporting:

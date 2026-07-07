@@ -28,11 +28,10 @@ from backend.api_service.scoring.vs_risk import compute_vs_risk
 from backend.api_service.scoring.vs_correlation import (
     build_corroboration, corroborated_confidence, confidence_rank, is_corroborated,
 )
+from backend.api_service.utils.constants import SLA_DAYS
 from backend.reporting.sanitize import clean_str, clean_deep
 
 logger = logging.getLogger("cybersentinel.reporting.vs")
-
-_SLA_DAYS = {"critical": 7, "high": 15, "medium": 30, "low": 90, "info": 0}
 _RESOLVED_STATES = {"remediated", "verified", "closed", "accepted_risk", "false_positive"}
 _ACTIVE_STATES = {"open", "confirmed", "in_progress"}
 
@@ -134,7 +133,9 @@ async def ingest_vs_result(db, payload: dict) -> dict:
             confidence=eff_conf,
             raw_severity=f.get("severity"),
         )
-        sla_days = _SLA_DAYS.get(risk.severity, 0)
+        # "info" has no SLA: SLA_DAYS has no key for it and the default of 0
+        # preserves the historical explicit {"info": 0} entry.
+        sla_days = SLA_DAYS.get(risk.severity, 0)
         sla_due = now + timedelta(days=sla_days) if sla_days else None
 
         row = existing.get(key)
@@ -249,11 +250,8 @@ async def ingest_vs_result(db, payload: dict) -> dict:
     # Continuous compliance: re-evaluate CA controls fed by VS data the moment
     # new results land. Isolated session + best-effort — a CA failure can never
     # affect scan-result persistence.
-    try:
-        from backend.api_service.ca.engine import evaluate_org_isolated
-        await evaluate_org_isolated(org_id, reason="vs_ingest")
-    except Exception as e:  # noqa: BLE001
-        logger.warning("CA evaluation hook failed: %s", e)
+    from backend.reporting.ca_hook import trigger_ca_evaluation
+    await trigger_ca_evaluation(org_id, reason="vs_ingest")
 
     return stats
 

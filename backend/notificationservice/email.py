@@ -1,6 +1,7 @@
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
 from decouple import config
 from typing import Optional, Iterable, List
 
@@ -88,6 +89,9 @@ def send_email(
     body: str,
     is_html: bool = False,
     cc_list: Optional[Iterable[str]] = None,
+    attachment: Optional[bytes] = None,
+    attachment_filename: Optional[str] = None,
+    attachment_mimetype: str = "application/octet-stream",
 ):
     if not SMTP_EMAIL or not SMTP_PASSWORD or not to_email:
         print(f"[EMAIL] Skipped (SMTP not configured or no recipient): {subject}")
@@ -106,6 +110,16 @@ def send_email(
             msg["Cc"] = ", ".join(cc_recipients)
 
         msg.attach(MIMEText(body, "html" if is_html else "plain"))
+
+        # Optional file attachment (e.g. a generated PDF/CSV report). Additive:
+        # existing callers pass no attachment and behaviour is unchanged.
+        if attachment is not None and attachment_filename:
+            _subtype = attachment_mimetype.split("/", 1)[-1] or "octet-stream"
+            part = MIMEApplication(attachment, _subtype=_subtype)
+            part.add_header(
+                "Content-Disposition", "attachment", filename=attachment_filename
+            )
+            msg.attach(part)
 
         recipients = [to_email] + cc_recipients
 

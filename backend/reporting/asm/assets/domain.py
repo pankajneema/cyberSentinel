@@ -16,19 +16,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
 from sqlalchemy.dialects.postgresql import insert
 from backend.api_service.models.asm_models import (
-    AsmDiscoveryRun, AsmSubdomain, AsmDiscovery, AsmIP,
+    AsmSubdomain, AsmDiscovery, AsmIP,
     AsmPort, AsmService, AsmSSLCert, AsmAPIEndpoint,
     AsmCloudResource, AsmAdminEndpoint, AsmBackupFile, AsmChange
 )
-from backend.reporting.sanitize import clean_str, clean_deep
+from backend.reporting.sanitize import (
+    clean_str, clean_deep, clean_str_stripped, clean_deep_stripped, strip_ansi,
+)
+from backend.reporting.asm.assets.common import ensure_discovery_run
 
 logger = logging.getLogger(__name__)
 
-# --- sslscan output sanitizers -------------------------------------------------
-# sslscan emits terminal-colored (ANSI) strings and a human-readable date for the
-# certificate expiry. These must be cleaned before they hit VARCHAR/TIMESTAMP
-# columns, otherwise the whole SSL insert fails (asyncpg DataError on the date).
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+# sslscan emits a human-readable date for the certificate expiry (often ANSI-
+# colored). It must be cleaned + parsed before it hits the TIMESTAMP column,
+# otherwise the whole SSL insert fails (asyncpg DataError on the date).
+# All ANSI/HTML sanitization itself lives in backend.reporting.sanitize.
 _CERT_DATE_FORMATS = (
     "%b %d %H:%M:%S %Y",        # sslscan: "Nov 26 23:59:59 2026" (after stripping TZ)
     "%Y-%m-%dT%H:%M:%S",
@@ -37,29 +39,10 @@ _CERT_DATE_FORMATS = (
 )
 
 
-def _clean_ansi(value: Any) -> str | None:
-    """Strip ANSI color codes + surrounding whitespace. Empty -> None."""
-    if not isinstance(value, str):
-        return value if value not in ("", None) else None
-    cleaned = _ANSI_RE.sub("", value).strip()
-    return cleaned or None
-
-
-def _clean_ansi_obj(obj: Any) -> Any:
-    """Recursively clean ANSI codes from a dict/list (for JSON detail columns)."""
-    if isinstance(obj, dict):
-        return {k: _clean_ansi_obj(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_clean_ansi_obj(v) for v in obj]
-    if isinstance(obj, str):
-        return _ANSI_RE.sub("", obj).strip()
-    return obj
-
-
 def _parse_cert_datetime(value: Any) -> datetime | None:
     """Parse an sslscan expiry like 'Nov 26 23:59:59 2026 GMT' (often ANSI-
     colored) into a naive UTC datetime, or None when empty/unparseable."""
-    s = _clean_ansi(value)
+    s = strip_ansi(value)
     if not s:
         return None
     # Drop a trailing timezone token (GMT/UTC) — sslscan reports UTC.
@@ -320,7 +303,7 @@ def extract_subdomains(payload: dict[str, Any]) -> list[tuple[str, str]]:
                 if fallback_asset_id:
                     entries.append((fallback_asset_id, subdomain.strip()))
                 else:
-                    logger.warning(f"Skipping subdomain '{subdomain}' - no asset_id found")
+                    logger.warning("Skipping subdomain '%s' - no asset_id found", subdomain)
 
     return entries
 
@@ -529,7 +512,7 @@ async def get_user_id_from_discovery(db: AsyncSession, discovery_id: str) -> str
         user_id = result.scalar_one_or_none()
         return user_id
     except Exception as e:
-        logger.error(f"Failed to fetch user_id for discovery {discovery_id}: {e}")
+        logger.error("Failed to fetch user_id for discovery %s: %s", discovery_id, e)
         return None
 
 
@@ -549,12 +532,12 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
     intensity = payload.get("intensity", "LIGHT")
     status = payload.get("status", "COMPLETED")
 
-    logger.info(f"Processing ASM job={job_id} intensity={intensity} status={status}")
+    logger.info("Processing ASM job=%s intensity=%s status=%s", job_id, intensity, status)
 
     # Get user_id from asm_discoveries table
     user_id = await get_user_id_from_discovery(db, job_id)
     if not user_id:
-        logger.warning(f"Could not find user_id for discovery {job_id}, using 'system'")
+        logger.warning("Could not find user_id for discovery %s, using 'system'", job_id)
         user_id = "system"
 
     # Get asset_id from first step or payload
@@ -568,48 +551,19 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                 break
     
     if not asset_id:
-        logger.warning(f"No asset_id found in payload or pipeline for job={job_id}, using empty string")
+        logger.warning("No asset_id found in payload or pipeline for job=%s, using empty string", job_id)
         asset_id = ""
 
     # Extract subdomains from pipeline results
     subdomain_entries = extract_subdomains(payload)
-    logger.info(f"Extracted {len(subdomain_entries)} subdomain entries from pipeline")
+    logger.info("Extracted %s subdomain entries from pipeline", len(subdomain_entries))
 
     run = None
 
     try:
-        # -------------------------
-        # Check if run already exists (avoid duplicates)
-        # -------------------------
-        existing_run_query = select(AsmDiscoveryRun).where(
-            AsmDiscoveryRun.asm_discovery_id == job_id
-        ).order_by(AsmDiscoveryRun.created_at.desc())
-        existing_run_result = await db.execute(existing_run_query)
-        existing_run = existing_run_result.scalar_one_or_none()
-
-        if existing_run:
-            logger.info(f"Found existing run id={existing_run.id} for job={job_id}, updating...")
-            run = existing_run
-            # Update existing run
-            if not run.started_at:
-                run.started_at = datetime.utcnow()
-            run.status = "RUNNING"
-        else:
-            #TODO Need to review it and remove its no nned now i want to remove it . 
-            # -------------------------
-            # Create New Run
-            # -------------------------
-            run = AsmDiscoveryRun(
-                asm_discovery_id=job_id,
-                user_id=user_id,
-                triggered_by="API",
-                run_mode="QUICK",
-                status="RUNNING",
-                started_at=datetime.utcnow()
-            )
-            db.add(run)
-            await db.flush()  # Flush to get run.id
-
+        # Find-or-create the run record (shared helper; strict_single preserves
+        # this call site's historical scalar_one_or_none semantics).
+        run = await ensure_discovery_run(db, job_id, user_id, strict_single=True)
         await db.commit()
         await db.refresh(run)
 
@@ -726,14 +680,14 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                     skipped += 1
             except Exception as e:
                 errors += 1
-                logger.warning(f"Error upserting subdomain {subdomain}: {e}")
+                logger.warning("Error upserting subdomain %s: %s", subdomain, e)
 
         # -------------------------
         # Insert IPs (from dns_resolution and ip_mapping steps)
         # HIERARCHY: IP belongs to Subdomain (subdomain_id links them)
         # -------------------------
         ip_entries = extract_ips(payload)
-        logger.info(f"Extracted {len(ip_entries)} IP entries from pipeline")
+        logger.info("Extracted %s IP entries from pipeline", len(ip_entries))
         geo_lookup = await build_ip_geo_lookup(
             [entry[1] for entry in ip_entries],
             intensity,
@@ -781,7 +735,7 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                 lookup_key = (asset_id, subdomain_name.lower().strip())
                 subdomain_id = subdomain_lookup.get(lookup_key)
                 if not subdomain_id:
-                    logger.debug(f"Could not find subdomain_id for '{subdomain_name}' (asset={asset_id}), IP will be inserted without parent link")
+                    logger.debug("Could not find subdomain_id for '%s' (asset=%s), IP will be inserted without parent link", subdomain_name, asset_id)
 
             # Determine reachable status based on parent subdomain's reachability
             reachable_status = None
@@ -862,7 +816,7 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                     ip_skipped += 1
             except Exception as e:
                 ip_errors += 1
-                logger.warning(f"Error upserting IP {ip_address}: {e}")
+                logger.warning("Error upserting IP %s: %s", ip_address, e)
 
         # Commit all successful inserts
         await db.commit()
@@ -893,12 +847,12 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         changes_inserted = 0
         
         pipeline = payload.get("pipeline", [])
-        logger.info(f"Processing {len(pipeline)} pipeline steps for job={job_id}")
+        logger.info("Processing %s pipeline steps for job=%s", len(pipeline), job_id)
         
         for step in pipeline:
             step_status = step.get("status")
             if step_status != "COMPLETED":
-                logger.debug(f"Skipping step {step.get('step')} - status={step_status}")
+                logger.debug("Skipping step %s - status=%s", step.get('step'), step_status)
                 continue
             
             step_name = step.get("step", "")
@@ -906,60 +860,40 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
             step_asset_id = step.get("asset_id") or asset_id or ""
             
             if not step_asset_id:
-                logger.warning(f"No asset_id for step {step_name}, skipping storage")
+                logger.warning("No asset_id for step %s, skipping storage", step_name)
                 continue
             
-            logger.info(f"Processing step: {step_name} for asset_id={step_asset_id}")
-            
-            # Debug: Log result structure
-            result_keys = list(result.keys()) if isinstance(result, dict) else "not a dict"
-            result_sample = str(result)[:500] if result else "empty"
-            logger.debug(f"Step {step_name} result: keys={result_keys}, sample={result_sample}")
-            
+            logger.info("Processing step: %s for asset_id=%s", step_name, step_asset_id)
+
             # Each step's storage runs in its own SAVEPOINT so a single bad row
             # (e.g. an unexpected value) rolls back ONLY that step and the job
             # keeps going — previously one failure poisoned the whole
             # transaction (InFailedSQLTransactionError) and aborted the run.
+            # Dispatch is shared with the incremental path (handle_step_event)
+            # via store_step_data; the lookups built above avoid its fallback
+            # rebuild queries.
             try:
                 async with db.begin_nested():
-                    if step_name == "common_port_scan":
-                        count = await store_ports(db, job_id, result, step_asset_id, ip_lookup, subdomain_lookup)
-                        ports_inserted += count
-                        logger.info(f"Stored {count} ports from {step_name}")
-                    elif step_name == "service_fingerprint":
-                        count = await store_services(db, job_id, result, step_asset_id, ip_lookup)
-                        services_inserted += count
-                        logger.info(f"Stored {count} services from {step_name}")
-                    elif step_name == "tls_metadata":
-                        count = await store_ssl_certs(db, job_id, result, step_asset_id, subdomain_lookup)
-                        ssl_inserted += count
-                        logger.info(f"Stored {count} SSL certs from {step_name}")
-                    elif step_name == "api_surface_hint":
-                        count = await store_api_endpoints(db, job_id, result, step_asset_id, subdomain_lookup)
-                        api_inserted += count
-                        logger.info(f"Stored {count} API endpoints from {step_name}")
-                    elif step_name in ("cloud_exposure_detect", "public_endpoint_detect", "config_review_readonly", "full_osint_correlation"):
-                        # Domain DEEP cloud stage + the cloud asset-type pipeline stages.
-                        count = await store_cloud_resources(db, job_id, result, step_asset_id)
-                        cloud_inserted += count
-                        logger.info(f"Stored {count} cloud resources from {step_name}")
-                    elif step_name == "admin_endpoint_check":
-                        count = await store_admin_endpoints(db, job_id, result, step_asset_id, subdomain_lookup)
-                        admin_inserted += count
-                        logger.info(f"Stored {count} admin endpoints from {step_name}")
-                    elif step_name == "backup_file_check":
-                        count = await store_backup_files(db, job_id, result, step_asset_id, subdomain_lookup)
-                        backup_inserted += count
-                        logger.info(f"Stored {count} backup files from {step_name}")
-                    elif step_name == "change_detection":
+                    if step_name == "change_detection":
                         # Change detection is computed from persisted snapshots below for accuracy.
                         logger.debug("Skipping raw change_detection payload storage for job=%s", job_id)
                     else:
-                        logger.debug(f"No storage handler for step: {step_name}")
+                        step_counts = await store_step_data(
+                            db, job_id, step_name, result, step_asset_id,
+                            subdomain_lookup=subdomain_lookup, ip_lookup=ip_lookup,
+                        )
+                        ports_inserted += step_counts["ports"]
+                        services_inserted += step_counts["services"]
+                        ssl_inserted += step_counts["ssl"]
+                        api_inserted += step_counts["api_endpoints"]
+                        cloud_inserted += step_counts["cloud_resources"]
+                        admin_inserted += step_counts["admin_endpoints"]
+                        backup_inserted += step_counts["backup_files"]
+                        logger.info("Stored step data: step=%s counts=%s", step_name, step_counts)
             except Exception as step_err:
                 # Savepoint already rolled back this step; the outer transaction
                 # stays healthy so remaining steps + the run record still persist.
-                logger.warning(f"Step '{step_name}' storage failed (isolated, job continues): {step_err}")
+                logger.warning("Step '%s' storage failed (isolated, job continues): %s", step_name, step_err)
 
         changes_found = 0
         if intensity == "DEEP":
@@ -992,7 +926,7 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
             change_summary = {}
 
         await db.commit()
-        logger.info(f"Completed storing additional data: ports={ports_inserted} services={services_inserted} ssl={ssl_inserted} api={api_inserted} cloud={cloud_inserted} admin={admin_inserted} backup={backup_inserted} changes={changes_inserted}")
+        logger.info("Completed storing additional data: ports=%s services=%s ssl=%s api=%s cloud=%s admin=%s backup=%s changes=%s", ports_inserted, services_inserted, ssl_inserted, api_inserted, cloud_inserted, admin_inserted, backup_inserted, changes_inserted)
 
         # -------------------------
         # Complete Run
@@ -1101,15 +1035,19 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         await db.commit()
 
         logger.info(
-            f"✅ ASM Completed job={job_id} "
-            f"subdomains: inserted={inserted} skipped={skipped} errors={errors} | "
-            f"IPs: inserted={ip_inserted} skipped={ip_skipped} errors={ip_errors} | "
-            f"Ports: {ports_inserted} | Services: {services_inserted} | SSL: {ssl_inserted} | "
-            f"APIs: {api_inserted} | Cloud: {cloud_inserted} | Admin: {admin_inserted} | Backup: {backup_inserted} | Changes: {changes_inserted}"
+            "ASM Completed job=%s "
+            "subdomains: inserted=%s skipped=%s errors=%s | "
+            "IPs: inserted=%s skipped=%s errors=%s | "
+            "Ports: %s | Services: %s | SSL: %s | "
+            "APIs: %s | Cloud: %s | Admin: %s | Backup: %s | Changes: %s",
+            job_id, inserted, skipped, errors,
+            ip_inserted, ip_skipped, ip_errors,
+            ports_inserted, services_inserted, ssl_inserted,
+            api_inserted, cloud_inserted, admin_inserted, backup_inserted, changes_inserted,
         )
 
     except Exception as e:
-        logger.error(f"ASM Failed job={job_id} error={e}", exc_info=True)
+        logger.error("ASM Failed job=%s error=%s", job_id, e, exc_info=True)
 
         if run:
             try:
@@ -1119,7 +1057,7 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                     run.completed_at = datetime.utcnow()
                 await db.commit()
             except Exception as commit_err:
-                logger.error(f"Failed to update run status: {commit_err}")
+                logger.error("Failed to update run status: %s", commit_err)
 
         raise
 
@@ -1203,16 +1141,16 @@ async def store_ports(
     """Extract and store ports from common_port_scan step result."""
     inserted = 0
     
-    # Debug: Log the result structure
-    logger.debug(f"store_ports: result keys={list(result.keys())}, result={result}")
-    
+    # Debug: log the shape only — never the raw result body.
+    logger.debug("store_ports: result keys=%s", list(result.keys()))
+
     ports_data = result.get("ports", [])
-    
+
     if not isinstance(ports_data, list):
-        logger.warning(f"store_ports: ports_data is not a list, type={type(ports_data)}, value={ports_data}")
+        logger.warning("store_ports: ports_data is not a list, type=%s", type(ports_data))
         return 0
-    
-    logger.info(f"store_ports: Found {len(ports_data)} ports in result")
+
+    logger.info("store_ports: Found %s ports in result", len(ports_data))
     
     for port_item in ports_data:
         if not isinstance(port_item, dict):
@@ -1254,7 +1192,7 @@ async def store_ports(
             if res.scalar_one_or_none():
                 inserted += 1
         except Exception as e:
-            logger.warning(f"Error inserting port {ip_address}:{port}: {e}")
+            logger.warning("Error inserting port %s:%s: %s", ip_address, port, e)
     
     return inserted
 
@@ -1325,7 +1263,7 @@ async def store_changes(
         await db.flush()
         inserted += 1
     except Exception as e:
-        logger.warning(f"Error inserting change detection result: {e}")
+        logger.warning("Error inserting change detection result: %s", e)
     return inserted
 
 
@@ -1339,16 +1277,16 @@ async def store_services(
     """Extract and store services from service_fingerprint step result."""
     inserted = 0
     
-    # Debug: Log the result structure
-    logger.debug(f"store_services: result keys={list(result.keys())}, result={result}")
-    
+    # Debug: log the shape only — never the raw result body.
+    logger.debug("store_services: result keys=%s", list(result.keys()))
+
     services_data = result.get("services", [])
-    
+
     if not isinstance(services_data, list):
-        logger.warning(f"store_services: services_data is not a list, type={type(services_data)}, value={services_data}")
+        logger.warning("store_services: services_data is not a list, type=%s", type(services_data))
         return 0
-    
-    logger.info(f"store_services: Found {len(services_data)} services in result")
+
+    logger.info("store_services: Found %s services in result", len(services_data))
 
     # Pre-load (ip_address, port) -> port_id once per run instead of a
     # per-row SELECT ... LIMIT 1 for every service.
@@ -1405,7 +1343,7 @@ async def store_services(
             if res.scalar_one_or_none():
                 inserted += 1
         except Exception as e:
-            logger.warning(f"Error inserting service {ip_address}:{port}:{service_name}: {e}")
+            logger.warning("Error inserting service %s:%s:%s: %s", ip_address, port, service_name, e)
     
     return inserted
 
@@ -1420,16 +1358,16 @@ async def store_ssl_certs(
     """Extract and store SSL certificates from tls_metadata step result."""
     inserted = 0
     
-    # Debug: Log the result structure
-    logger.debug(f"store_ssl_certs: result keys={list(result.keys())}, result={result}")
-    
+    # Debug: log the shape only — never the raw result body.
+    logger.debug("store_ssl_certs: result keys=%s", list(result.keys()))
+
     ssl_data = result.get("ssl_results", [])
-    
+
     if not isinstance(ssl_data, list):
-        logger.warning(f"store_ssl_certs: ssl_data is not a list, type={type(ssl_data)}, value={ssl_data}")
+        logger.warning("store_ssl_certs: ssl_data is not a list, type=%s", type(ssl_data))
         return 0
-    
-    logger.info(f"store_ssl_certs: Found {len(ssl_data)} SSL results in result")
+
+    logger.info("store_ssl_certs: Found %s SSL results in result", len(ssl_data))
     
     for ssl_item in ssl_data:
         if not isinstance(ssl_item, dict):
@@ -1460,12 +1398,12 @@ async def store_ssl_certs(
                     host=host.strip(),
                     port=int(port),
                     subdomain_id=subdomain_id,
-                    protocol=clean_str(_clean_ansi(ssl_item.get("protocol"))),
-                    cipher=clean_str(_clean_ansi(ssl_item.get("cipher"))),
-                    certificate_issuer=clean_str(_clean_ansi(ssl_item.get("issuer"))),
-                    certificate_subject=clean_str(_clean_ansi(ssl_item.get("certificate"))),
+                    protocol=clean_str_stripped(ssl_item.get("protocol")),
+                    cipher=clean_str_stripped(ssl_item.get("cipher")),
+                    certificate_issuer=clean_str_stripped(ssl_item.get("issuer")),
+                    certificate_subject=clean_str_stripped(ssl_item.get("certificate")),
                     valid_until=_parse_cert_datetime(ssl_item.get("valid_until")),
-                    certificate_details=clean_deep(_clean_ansi_obj(ssl_item)),
+                    certificate_details=clean_deep_stripped(ssl_item),
                 )
                 .on_conflict_do_nothing(index_elements=["asm_discovery_id", "host", "port"])
                 .returning(AsmSSLCert.id)
@@ -1474,7 +1412,7 @@ async def store_ssl_certs(
             if res.scalar_one_or_none():
                 inserted += 1
         except Exception as e:
-            logger.warning(f"Error inserting SSL cert {host}:{port}: {e}")
+            logger.warning("Error inserting SSL cert %s:%s: %s", host, port, e)
     
     return inserted
 
@@ -1489,16 +1427,16 @@ async def store_api_endpoints(
     """Extract and store API endpoints from api_surface_hint step result."""
     inserted = 0
     
-    # Debug: Log the result structure
-    logger.debug(f"store_api_endpoints: result keys={list(result.keys())}, result={result}")
-    
+    # Debug: log the shape only — never the raw result body.
+    logger.debug("store_api_endpoints: result keys=%s", list(result.keys()))
+
     endpoints_data = result.get("endpoints", [])
-    
+
     if not isinstance(endpoints_data, list):
-        logger.warning(f"store_api_endpoints: endpoints_data is not a list, type={type(endpoints_data)}, value={endpoints_data}")
+        logger.warning("store_api_endpoints: endpoints_data is not a list, type=%s", type(endpoints_data))
         return 0
-    
-    logger.info(f"store_api_endpoints: Found {len(endpoints_data)} endpoints in result")
+
+    logger.info("store_api_endpoints: Found %s endpoints in result", len(endpoints_data))
     
     for endpoint_item in endpoints_data:
         if not isinstance(endpoint_item, dict):
@@ -1539,7 +1477,7 @@ async def store_api_endpoints(
             if res.scalar_one_or_none():
                 inserted += 1
         except Exception as e:
-            logger.warning(f"Error inserting API endpoint {url}: {e}")
+            logger.warning("Error inserting API endpoint %s: %s", url, e)
     
     return inserted
 
@@ -1587,7 +1525,7 @@ async def store_cloud_resources(
             if res.scalar_one_or_none():
                 inserted += 1
         except Exception as e:
-            logger.warning(f"Error inserting cloud resource {resource_name}: {e}")
+            logger.warning("Error inserting cloud resource %s: %s", resource_name, e)
     
     return inserted
 
@@ -1645,7 +1583,7 @@ async def store_admin_endpoints(
             if res.scalar_one_or_none():
                 inserted += 1
         except Exception as e:
-            logger.warning(f"Error inserting admin endpoint {url}: {e}")
+            logger.warning("Error inserting admin endpoint %s: %s", url, e)
     
     return inserted
 
@@ -1702,7 +1640,7 @@ async def store_backup_files(
             if res.scalar_one_or_none():
                 inserted += 1
         except Exception as e:
-            logger.warning(f"Error inserting backup file {file_url}: {e}")
+            logger.warning("Error inserting backup file %s: %s", file_url, e)
     
     return inserted
 

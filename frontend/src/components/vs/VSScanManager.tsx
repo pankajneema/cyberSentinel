@@ -64,21 +64,13 @@ import {
   type VsScheduleType,
 } from "@/lib/services/vs";
 import { fetchAssets, type ApiAsset } from "@/lib/services/assets";
+import { STATUS_META } from "@/components/shared/StatusBadge";
 
 interface VSScanManagerProps {
   canWrite?: boolean;
 }
 
-const STATUS_META: Record<
-  VsScanStatus,
-  { label: string; icon: JSX.Element }
-> = {
-  PENDING: { label: "Pending", icon: <Clock className="w-4 h-4 text-muted-foreground" /> },
-  RUNNING: { label: "Running", icon: <RefreshCw className="w-4 h-4 text-primary animate-spin" /> },
-  COMPLETED: { label: "Completed", icon: <CheckCircle2 className="w-4 h-4 text-success" /> },
-  FAILED: { label: "Failed", icon: <AlertTriangle className="w-4 h-4 text-destructive" /> },
-  PAUSED: { label: "Paused", icon: <Pause className="w-4 h-4 text-warning" /> },
-};
+const SCAN_STATUS_META = STATUS_META.vsScan;
 
 function fmtDate(iso?: string | null) {
   if (!iso) return "—";
@@ -422,8 +414,8 @@ export function VSScanManager({ canWrite = true }: VSScanManagerProps) {
                     </td>
                     <td className="p-4">
                       <div className="flex items-center gap-2">
-                        {STATUS_META[scan.status]?.icon}
-                        <span className="text-sm text-foreground">{STATUS_META[scan.status]?.label ?? scan.status}</span>
+                        {SCAN_STATUS_META[scan.status]?.icon}
+                        <span className="text-sm text-foreground">{SCAN_STATUS_META[scan.status]?.label ?? scan.status}</span>
                       </div>
                     </td>
                     <td className="p-4 text-sm text-muted-foreground">{fmtDate(scan.last_run_at)}</td>
@@ -699,9 +691,9 @@ export function VSScanManager({ canWrite = true }: VSScanManagerProps) {
             <div className="space-y-2 max-h-80 overflow-y-auto">
               {runs.map((run) => (
                 <div key={run.id} className="flex items-center gap-3 p-3 bg-muted/30 rounded-xl">
-                  {STATUS_META[run.status]?.icon}
+                  {SCAN_STATUS_META[run.status]?.icon}
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium">{STATUS_META[run.status]?.label ?? run.status}</div>
+                    <div className="text-sm font-medium">{SCAN_STATUS_META[run.status]?.label ?? run.status}</div>
                     <div className="text-xs text-muted-foreground">
                       {fmtDate(run.started_at)}
                       {run.finished_at ? ` → ${fmtDate(run.finished_at)}` : ""}

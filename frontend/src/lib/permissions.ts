@@ -28,6 +28,15 @@ export const can = {
   assignableRoles: ["admin", "analyst", "reader"] as Role[],
 };
 
+/**
+ * App-wide operational write gate as currently enforced by the pages:
+ * everyone except readers. (Unknown roles are treated as writable, matching
+ * the existing `role !== "reader"` checks.)
+ */
+export function canWrite(role?: string | null): boolean {
+  return role !== "reader";
+}
+
 export const ROLE_LABELS: Record<Role, string> = {
   owner: "Owner",
   admin: "Admin",

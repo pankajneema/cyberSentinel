@@ -1,5 +1,4 @@
-import { apiFetch, API_BASE, Paginated } from "../api";
-import { getAccessToken } from "../supabase";
+import { apiDownload, apiFetch, Paginated } from "../api";
 
 // ===================== Dashboard =====================
 export interface VsDashboard {
@@ -343,41 +342,13 @@ export function fetchVsReportJson(reportType = "executive") {
   return apiFetch<Record<string, unknown>>(`/vs/report?report_type=${reportType}&format=json`);
 }
 
-/**
- * Download a VS report as a file. apiFetch returns JSON, so we do a raw
- * authenticated fetch that reads the blob and triggers a browser download.
- */
-export async function downloadVsReport(
+/** Download a VS report as a file (server filename preferred). */
+export function downloadVsReport(
   reportType: string,
   format: "pdf" | "csv"
 ): Promise<void> {
-  const token = await getAccessToken();
-  const res = await fetch(
-    `${API_BASE}/vs/report?report_type=${encodeURIComponent(
-      reportType
-    )}&format=${format}`,
-    {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    }
+  return apiDownload(
+    `/vs/report?report_type=${encodeURIComponent(reportType)}&format=${format}`,
+    `vs-${reportType}.${format}`
   );
-  if (!res.ok) {
-    const text = await res.text().catch(() => `HTTP ${res.status}`);
-    throw new Error(text || "Report download failed");
-  }
-  const blob = await res.blob();
-
-  // Prefer the server-provided filename, otherwise synthesize a sensible one.
-  let filename = `vs-${reportType}.${format}`;
-  const disposition = res.headers.get("Content-Disposition") || "";
-  const match = disposition.match(/filename="?([^"]+)"?/i);
-  if (match) filename = match[1];
-
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
 }

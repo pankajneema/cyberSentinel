@@ -27,7 +27,11 @@ _VS_RESOLVED = ("remediated", "verified", "closed", "accepted_risk", "false_posi
 
 @dataclass
 class CheckOutcome:
-    result: str                      # "pass" | "fail"
+    # "pass" | "fail" | "no_data". no_data = the check cannot be honestly
+    # asserted either way (e.g. "no open criticals" for an org that has never
+    # scanned). It is recorded as evidence for transparency but contributes
+    # NOTHING to control status — the control stays unknown, never satisfied.
+    result: str
     summary: str
     source_ref: dict = field(default_factory=dict)
     content: dict = field(default_factory=dict)
@@ -35,6 +39,30 @@ class CheckOutcome:
 
 def _window(days: int) -> datetime:
     return datetime.utcnow() - timedelta(days=days)
+
+
+def _naive_utc(dt: datetime | None) -> datetime | None:
+    """Timestamptz columns (e.g. assets.updated_at) come back tz-aware while
+    our comparisons use naive UTC — normalize before any Python-side compare."""
+    if dt is None or dt.tzinfo is None:
+        return dt
+    from datetime import timezone
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+async def _has_completed_scan(db, org_id: str, window_days: int = 92) -> bool:
+    row = (
+        await db.execute(
+            select(VsScanRun.id)
+            .where(
+                VsScanRun.org_id == org_id,
+                VsScanRun.status == "COMPLETED",
+                VsScanRun.completed_at >= _window(window_days),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return row is not None
 
 
 async def vs_scan_recency(db, org_id: str, params: dict) -> CheckOutcome:
@@ -72,6 +100,16 @@ async def vs_scan_recency(db, org_id: str, params: dict) -> CheckOutcome:
 async def vs_no_open_findings(db, org_id: str, params: dict) -> CheckOutcome:
     severity = params.get("severity", "critical")
     max_open = int(params.get("max_open", 0))
+    # Anti-inflation gate: "zero open criticals" is only meaningful if the org
+    # actually scans. A never-scanned org must NOT pass this check vacuously.
+    if not await _has_completed_scan(db, org_id):
+        return CheckOutcome(
+            "no_data",
+            "No completed vulnerability scan in the last 92 days — absence of "
+            f"open {severity} findings cannot be asserted.",
+            {"table": "vs_scan_runs", "ids": []},
+            {"gated": "no_completed_scan"},
+        )
     rows = (
         await db.execute(
             select(VsFinding.id)
@@ -100,6 +138,14 @@ async def vs_no_open_findings(db, org_id: str, params: dict) -> CheckOutcome:
 
 async def vs_remediation_sla(db, org_id: str, params: dict) -> CheckOutcome:
     severities = params.get("severities", ["critical", "high"])
+    if not await _has_completed_scan(db, org_id):
+        return CheckOutcome(
+            "no_data",
+            "No completed vulnerability scan in the last 92 days — SLA compliance "
+            "cannot be asserted without scan data.",
+            {"table": "vs_scan_runs", "ids": []},
+            {"gated": "no_completed_scan"},
+        )
     now = datetime.utcnow()
     overdue = (
         await db.execute(
@@ -182,11 +228,14 @@ async def vs_rescan_after_remediation(db, org_id: str, params: dict) -> CheckOut
         )
     ).all()
     if not resolved:
+        # Nothing was remediated, so "rescans confirm resolution" cannot be
+        # demonstrated — no_data, NOT a vacuous pass (SOC2 CC7.5 inflation fix).
         return CheckOutcome(
-            "pass",
-            f"No findings verified/closed in the last {window_days} days — nothing requiring rescan.",
+            "no_data",
+            f"No findings verified/closed in the last {window_days} days — "
+            "rescan verification has nothing to attest.",
             {"table": "vs_findings", "ids": []},
-            {"resolved_count": 0, "unverified_by_rescan": 0},
+            {"resolved_count": 0},
         )
     unverified = []
     for row in resolved:
@@ -274,11 +323,13 @@ async def asm_inventory_maintained(db, org_id: str, params: dict) -> CheckOutcom
             {"table": "assets", "ids": []},
             {"active_assets": 0},
         )
-    latest = (
-        await db.execute(
-            select(func.max(Asset.updated_at)).where(Asset.org_id == org_id)
-        )
-    ).scalar()
+    latest = _naive_utc(
+        (
+            await db.execute(
+                select(func.max(Asset.updated_at)).where(Asset.org_id == org_id)
+            )
+        ).scalar()
+    )
     fresh = latest is not None and latest >= _window(max_age)
     if fresh:
         return CheckOutcome(

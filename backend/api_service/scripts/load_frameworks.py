@@ -66,7 +66,7 @@ async def load_checks(db) -> dict:
     return by_key
 
 
-async def load_framework(db, path: Path, checks_by_key: dict) -> tuple[str, int]:
+async def load_framework(db, path: Path, checks_by_key: dict, prune: bool = False) -> tuple[str, int]:
     spec = json.loads(path.read_text())
     fw = (
         await db.execute(
@@ -124,6 +124,36 @@ async def load_framework(db, path: Path, checks_by_key: dict) -> tuple[str, int]
                 db.add(link)
             link.required = bool(m.get("required", True))
             link.rationale = m.get("rationale")
+
+        if prune:
+            listed_check_ids = {checks_by_key[m["key"]].id for m in c.get("checks", [])}
+            stale_links = (
+                await db.execute(
+                    select(CaControlCheckMap).where(
+                        CaControlCheckMap.control_id == ctrl.id,
+                        CaControlCheckMap.check_id.notin_(listed_check_ids)
+                        if listed_check_ids else True,
+                    )
+                )
+            ).scalars().all()
+            for link in stale_links:
+                await db.delete(link)
+
+    if prune:
+        # Remove controls dropped from the catalog (e.g. refs corrected between
+        # versions). Cascades states/gaps/links for those controls — use only
+        # when a catalog correction intends exactly that.
+        valid_refs = {c["control_ref"] for c in spec["controls"]}
+        stale = (
+            await db.execute(
+                select(CaControl).where(
+                    CaControl.framework_id == fw.id, CaControl.control_ref.notin_(valid_refs)
+                )
+            )
+        ).scalars().all()
+        for ctrl in stale:
+            print(f"  pruning {spec['key']} {ctrl.control_ref} (no longer in catalog)")
+            await db.delete(ctrl)
     return spec["key"], n
 
 
@@ -172,7 +202,9 @@ async def load_policy_templates(db) -> int:
 
 
 async def main() -> None:
-    only_key = sys.argv[1] if len(sys.argv) > 1 else None
+    args = [a for a in sys.argv[1:] if a != "--prune"]
+    prune = "--prune" in sys.argv[1:]
+    only_key = args[0] if args else None
     await init_db()
     async with AsyncSessionLocal() as db:
         checks = await load_checks(db)
@@ -183,7 +215,7 @@ async def main() -> None:
             spec_key = json.loads(path.read_text()).get("key")
             if only_key and spec_key != only_key:
                 continue
-            key, n = await load_framework(db, path, checks)
+            key, n = await load_framework(db, path, checks, prune=prune)
             print(f"framework {key}: {n} controls upserted")
         if not only_key:
             n = await load_policy_templates(db)

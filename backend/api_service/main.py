@@ -12,8 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from config.settings import settings
 from utils.database import init_db, close_db 
 from utils.redis_client import  close_redis
-from utils.queue import close_queue, get_queue_connection
-from utils.clickhouse_client import close_clickhouse, get_clickhouse
+from utils.queue import close_queue
+from utils.clickhouse_client import close_clickhouse
 
 # Import all routes
 from routes import billing, services, asm, vs, activity, assets, tasks, marketing, reports, notifications
@@ -24,8 +24,8 @@ from routes import orgs            # Phase 2: organizations & memberships
 from models import marketing_models  # ensure marketing tables are registered
 from models import tenancy_models   # ensure organizations/member_profiles tables are registered
 from models import notification_models  # ensure notifications tables are registered
-from models import task_models  # ensure tasks/task_messages tables are regis
-from models import vs_models  # ensure VS (vulnerability scanning) tables are registeredtered
+from models import task_models  # ensure tasks/task_messages tables are registered
+from models import vs_models  # ensure VS (vulnerability scanning) tables are registered
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -63,15 +63,6 @@ async def startup_event():
     except Exception as e:
         print(f"Warning: Database initialization failed: {e}")
     
-    # Initialize other connections (optional)
-    try:
-        from utils import get_redis, get_clickhouse, get_queue_connection
-        # await get_redis()
-        # get_clickhouse()
-        # get_queue_connection()
-    except Exception as e:
-        print(f"Info: Some optional connections not available: {e}")
-
     # Recurring-discovery scheduler (re-runs INTERVAL discoveries when due).
     try:
         import asyncio
@@ -163,7 +154,6 @@ app.include_router(orgs.router)           # /orgs/* (members, invites, roles)
 app.include_router(billing.router)
 app.include_router(services.router)
 app.include_router(asm.router)
-app.include_router(vs.router)
 app.include_router(vs.vs_router)
 app.include_router(ca_routes.router)   # /api/v1/ca (Compliance & Audit)
 app.include_router(activity.router)

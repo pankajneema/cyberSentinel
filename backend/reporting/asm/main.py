@@ -45,13 +45,13 @@ async def handle_step_event(event: dict[str, Any]) -> None:
     asset_id = event.get("asset_id")
     
     logger.info(
-        f"Step event: job={job_id} stage={stage} tool={tool} "
-        f"status={status} progress={progress}% asset_id={asset_id}"
+        "Step event: job=%s stage=%s tool=%s status=%s progress=%s%% asset_id=%s",
+        job_id, stage, tool, status, progress, asset_id,
     )
     
     # Only store data if step completed successfully
     if status != "COMPLETED":
-        logger.debug(f"Skipping data storage for failed step: {stage}")
+        logger.debug("Skipping data storage for failed step: %s", stage)
         return
     
     # Get step result from Redis pipeline state
@@ -62,7 +62,6 @@ async def handle_step_event(event: dict[str, Any]) -> None:
             if isinstance(pipeline_data, (bytes, bytearray)):
                 pipeline_data = pipeline_data.decode()
             if isinstance(pipeline_data, str):
-                import json
                 pipeline_data = json.loads(pipeline_data)
             
             # Find the current step in pipeline
@@ -74,8 +73,11 @@ async def handle_step_event(event: dict[str, Any]) -> None:
                     break
             
             if step_result:
-                # Debug: Log what we're trying to store
-                logger.debug(f"Step result for {stage}: keys={list(step_result.keys()) if isinstance(step_result, dict) else 'not a dict'}, result={step_result}")
+                # Debug: log the shape only — never the raw step result body.
+                logger.debug(
+                    "Step result for %s: keys=%s", stage,
+                    list(step_result.keys()) if isinstance(step_result, dict) else "not a dict",
+                )
                 
                 # Store data incrementally
                 async with AsyncSessionLocal() as db:
@@ -85,18 +87,18 @@ async def handle_step_event(event: dict[str, Any]) -> None:
                         )
                         await db.commit()
                         logger.info(
-                            f"✅ Stored step data: job={job_id} stage={stage} "
-                            f"counts={counts}"
+                            "Stored step data: job=%s stage=%s counts=%s",
+                            job_id, stage, counts,
                         )
                     except Exception as e:
                         await db.rollback()
-                        logger.error(f"Failed to store step data for {stage}: {e}", exc_info=True)
+                        logger.error("Failed to store step data for %s: %s", stage, e, exc_info=True)
             else:
-                logger.warning(f"No result found for step {stage} in pipeline state. Available steps: {[s.get('step') for s in pipeline]}")
+                logger.warning("No result found for step %s in pipeline state. Available steps: %s", stage, [s.get('step') for s in pipeline])
         else:
-            logger.debug(f"No pipeline state found for job {job_id}")
+            logger.debug("No pipeline state found for job %s", job_id)
     except Exception as e:
-        logger.warning(f"Failed to process step event incrementally: {e}", exc_info=True)
+        logger.warning("Failed to process step event incrementally: %s", e, exc_info=True)
         # Don't fail the entire event processing if incremental storage fails
 
 async def handle_final_event(event: dict[str, Any], redis_client=None) -> None:
@@ -109,12 +111,12 @@ async def handle_final_event(event: dict[str, Any], redis_client=None) -> None:
     status = event.get("status")
     progress = event.get("progress", 100)
     
-    logger.info(f"Final event received: job={job_id} status={status} progress={progress}%")
+    logger.info("Final event received: job=%s status=%s progress=%s%%", job_id, status, progress)
     
     # Get complete pipeline state from Redis
     job_detail = await redis_client.get(f"asm:pipeline:{job_id}")
     if not job_detail:
-        logger.warning(f"No pipeline state found in cache for final event job={job_id}")
+        logger.warning("No pipeline state found in cache for final event job=%s", job_id)
         return
     
     # Parse pipeline state
@@ -124,37 +126,37 @@ async def handle_final_event(event: dict[str, Any], redis_client=None) -> None:
         if isinstance(job_detail, str):
             job_detail = json.loads(job_detail)
     except Exception as e:
-        logger.error(f"Failed to parse pipeline state for job {job_id}: {e}", exc_info=True)
+        logger.error("Failed to parse pipeline state for job %s: %s", job_id, e, exc_info=True)
         return
     
     # Persist the complete pipeline (scoring runs later via the API scheduler tick)
     asset_type = job_detail.get("asset_type")
     if not asset_type:
-        logger.error(f"Missing asset_type in pipeline state for job {job_id}")
+        logger.error("Missing asset_type in pipeline state for job %s", job_id)
         return
     
     async with AsyncSessionLocal() as db:
         try:
             if asset_type == "domain":
                 await process_domain_asm(db, job_detail)
-                logger.info(f"✅ Domain pipeline processing completed for job={job_id}")
+                logger.info("Domain pipeline processing completed for job=%s", job_id)
             elif asset_type == "ip":
                 await process_ip_asm(db, job_detail)
-                logger.info(f"✅ IP pipeline processing completed for job={job_id}")
+                logger.info("IP pipeline processing completed for job=%s", job_id)
             elif asset_type == "cloud":
                 await process_cloud_asm(db, job_detail)
-                logger.info(f"✅ Cloud pipeline processing completed for job={job_id}")
+                logger.info("Cloud pipeline processing completed for job=%s", job_id)
             elif asset_type == "repo":
                 await process_repo_asm(db, job_detail)
-                logger.info(f"✅ Repo pipeline processing completed for job={job_id}")
+                logger.info("Repo pipeline processing completed for job=%s", job_id)
             elif asset_type == "saas":
                 await process_saas_asm(db, job_detail)
-                logger.info(f"✅ SaaS pipeline processing completed for job={job_id}")
+                logger.info("SaaS pipeline processing completed for job=%s", job_id)
             elif asset_type == "user":
                 await process_user_asm(db, job_detail)
-                logger.info(f"✅ User pipeline processing completed for job={job_id}")
+                logger.info("User pipeline processing completed for job=%s", job_id)
             else:
-                logger.warning(f"Unsupported asset type: {asset_type} for job={job_id}")
+                logger.warning("Unsupported asset type: %s for job=%s", asset_type, job_id)
 
             # Continuous compliance: refresh CA controls fed by ASM data as soon
             # as discovery results are persisted. Isolated session + best-effort —
@@ -165,13 +167,14 @@ async def handle_final_event(event: dict[str, Any], redis_client=None) -> None:
                 _org_id = (
                     await db.execute(_select(AsmDiscovery.org_id).where(AsmDiscovery.id == job_id))
                 ).scalar_one_or_none()
-                if _org_id:
-                    from backend.api_service.ca.engine import evaluate_org_isolated
-                    await evaluate_org_isolated(_org_id, reason="asm_ingest")
             except Exception as e:  # noqa: BLE001
-                logger.warning(f"CA evaluation hook failed: {e}")
+                logger.warning("CA hook org lookup failed: %s", e)
+                _org_id = None
+            if _org_id:
+                from backend.reporting.ca_hook import trigger_ca_evaluation
+                await trigger_ca_evaluation(_org_id, reason="asm_ingest")
         except Exception as e:
-            logger.error(f"Failed to process pipeline for job {job_id}: {e}", exc_info=True)
+            logger.error("Failed to process pipeline for job %s: %s", job_id, e, exc_info=True)
             raise
 
 async def handle_pipeline_event(event: dict[str, Any]) -> None:
@@ -180,12 +183,12 @@ async def handle_pipeline_event(event: dict[str, Any]) -> None:
     asset_type = event.get("asset_type")
     status = event.get("status")
     
-    logger.info(f"Pipeline event: job={job_id} asset_type={asset_type} status={status}")
+    logger.info("Pipeline event: job=%s asset_type=%s status=%s", job_id, asset_type, status)
     
     # Only process if pipeline is COMPLETED or FAILED
     # Step events are handled separately, final event triggers full processing
     if status not in ["COMPLETED", "FAILED"]:
-        logger.debug(f"Skipping pipeline event for job={job_id} - status={status} (not final)")
+        logger.debug("Skipping pipeline event for job=%s - status=%s (not final)", job_id, status)
         return
     
     async with AsyncSessionLocal() as db:
@@ -203,9 +206,9 @@ async def handle_pipeline_event(event: dict[str, Any]) -> None:
             elif asset_type == "user":
                 await process_user_asm(db, event)
             else:
-                logger.warning(f"Unsupported asset type: {asset_type} for job={job_id}")
+                logger.warning("Unsupported asset type: %s for job=%s", asset_type, job_id)
         except Exception as e:
-            logger.error(f"Failed to process pipeline event for job {job_id}: {e}", exc_info=True)
+            logger.error("Failed to process pipeline event for job %s: %s", job_id, e, exc_info=True)
             raise
 
 async def handle_event(event: dict[str, Any], redis_client=None) -> None:
@@ -220,7 +223,8 @@ async def handle_event(event: dict[str, Any], redis_client=None) -> None:
         if event.get("status") == "PIPELINE_COMPLETED":
             await handle_final_event(event, redis_client)
         else:
-            logger.warning(f"Unknown final event type: {event}")
+            # Log the shape only — never the raw message body.
+            logger.warning("Unknown final event type: job=%s keys=%s", job_id, list(event.keys()))
     elif "stage" in event and "tool" in event:
         # StepEvent - step completion event
         await handle_step_event(event)
@@ -228,18 +232,18 @@ async def handle_event(event: dict[str, Any], redis_client=None) -> None:
         # EnhancedPipeline - complete pipeline state
         await handle_pipeline_event(event)
     else:
-        logger.warning(f"Unknown event type for job={job_id}: {list(event.keys())}")         
+        logger.warning("Unknown event type for job=%s: %s", job_id, list(event.keys()))
 
 async def consume_events(redis_client) -> None:
     """Consume events from RabbitMQ queue and process them"""
     async def event_callback(payload: dict[str, Any]) -> None:
         """Callback for each message from queue"""
         try:
-            logger.info(f"Received event: {payload.get('job_id')}")
+            logger.info("Received event: %s", payload.get('job_id'))
             await handle_event(payload, redis_client=redis_client)
-            logger.info(f"✅ Event processed: {payload.get('job_id')}")
+            logger.info("Event processed: %s", payload.get('job_id'))
         except Exception as e:
-            logger.error(f"❌ Failed: {e}", exc_info=True)
+            logger.error("Failed: %s", e, exc_info=True)
             raise
     
     await consume_messages("report.asm", event_callback)
@@ -256,7 +260,7 @@ async def main() -> None:
     except KeyboardInterrupt:
         logger.info("Shutdown requested")
     except Exception as e:
-        logger.error(f"Consumer error: {e}", exc_info=True)
+        logger.error("Consumer error: %s", e, exc_info=True)
     finally:
         await close_queue()
         logger.info("Consumer stopped")

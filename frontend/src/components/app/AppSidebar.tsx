@@ -23,7 +23,7 @@ import { supabase } from "@/lib/supabase";
 import { LogoMark } from "@/components/Logo";
 import { toast } from "@/hooks/use-toast";
 import { useEffect, useMemo, useState } from "react";
-import { getMe } from "@/lib/services/auth";
+import { useMe } from "@/hooks/useMe";
 import { getCurrentPlan } from "@/lib/services/billing";
 
 const navItems = [
@@ -47,25 +47,17 @@ export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { collapsed, toggleCollapsed } = useSidebar();
-  const [profile, setProfile] = useState<{ full_name: string; email: string; role?: string; is_superadmin?: boolean } | null>(null);
+  const { me } = useMe();
   const [plan, setPlan] = useState<string>("Starter");
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        // Real identity from the verified Supabase session.
-        const me = await getMe();
-        setProfile({
-          full_name: me.full_name || me.email,
-          email: me.email,
-          role: me.role,
-        });
-      } catch {
-        // silent fallback
-      }
-    };
-    load();
-  }, []);
+  // Real identity from the verified Supabase session.
+  const profile = useMemo(
+    () =>
+      me
+        ? { full_name: me.full_name || me.email, email: me.email, role: me.role }
+        : null,
+    [me]
+  );
 
   const initials = useMemo(() => {
     if (profile?.full_name) {

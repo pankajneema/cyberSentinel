@@ -11,7 +11,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api_service.models.asm_models import AsmDiscoveryRun, AsmIP
+from backend.api_service.models.asm_models import AsmIP
+from backend.reporting.asm.assets.common import ensure_discovery_run
 from backend.reporting.asm.assets.domain import get_user_id_from_discovery, store_step_data
 
 logger = logging.getLogger(__name__)
@@ -132,32 +133,7 @@ async def process_ip_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
     status = payload.get("status", "COMPLETED")
 
     user_id = await get_user_id_from_discovery(db, job_id) or "system"
-    run = (
-        (
-            await db.execute(
-                select(AsmDiscoveryRun)
-                .where(AsmDiscoveryRun.asm_discovery_id == job_id)
-                .order_by(AsmDiscoveryRun.created_at.desc())
-            )
-        )
-        .scalars()
-        .first()
-    )
-    if not run:
-        run = AsmDiscoveryRun(
-            asm_discovery_id=job_id,
-            user_id=user_id,
-            triggered_by="API",
-            run_mode="QUICK",
-            status="RUNNING",
-            started_at=datetime.utcnow(),
-        )
-        db.add(run)
-        await db.flush()
-    else:
-        run.status = "RUNNING"
-        if not run.started_at:
-            run.started_at = datetime.utcnow()
+    run = await ensure_discovery_run(db, job_id, user_id)
 
     ip_asset_map, metadata = _extract_ips(payload)
     inserted = 0
@@ -295,7 +271,7 @@ async def process_ip_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
 
     await db.commit()
     logger.info(
-        "✅ IP ASM Completed job=%s ips(total=%d inserted=%d updated=%d) ports=%d services=%d ssl=%d changes=%d",
+        "IP ASM Completed job=%s ips(total=%d inserted=%d updated=%d) ports=%d services=%d ssl=%d changes=%d",
         job_id,
         len(ip_asset_map),
         inserted,

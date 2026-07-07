@@ -21,8 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from utils.database import get_db
 from utils.supabase_auth import CurrentUser, get_current_user, require_role
 from utils.tenancy import require_org
-from utils.queue import publish_message
+from utils.ownership import get_owned_or_404
+from utils.lifecycle import validate_transition
+from utils.pagination import page_params, paginate
 from utils.target_guard import validate_scan_target
+from vs.service import build_job_message, enqueue_run
 from models.vs_models import (
     VsScan, VsScanProfile, VsScanRun, VsScanTarget,
     VsFinding, VsFindingHistory, VsCveMetadata, VsCredential, VsTrendSnapshot,
@@ -36,12 +39,9 @@ from schemas.vs_schema import (
 
 logger = logging.getLogger("cybersentinel.vs")
 
-# Legacy path kept mounted so nothing 404s; all real routes live on vs_router.
-router = APIRouter(prefix="/api/v1/scans", tags=["Vulnerability Scanning (legacy)"])
 vs_router = APIRouter(prefix="/api/v1/vs", tags=["Vulnerability Scanning (VS)"])
 
 _writer = require_role("owner", "admin", "analyst")
-VS_QUEUE = "jobs.vs"
 
 # Lifecycle state machine (Domain 5).
 _TRANSITIONS: dict[str, set[str]] = {
@@ -106,12 +106,10 @@ async def delete_profile(profile_id: str, db: AsyncSession = Depends(get_db),
 # Scans
 # ---------------------------------------------------------------------------
 async def _owned_scan(scan_id: str, db: AsyncSession, org_id: str) -> VsScan:
-    scan = (await db.execute(select(VsScan).where(
-        VsScan.id == scan_id, VsScan.org_id == org_id,
-        VsScan.status != "DELETED"))).scalar_one_or_none()
-    if not scan:
-        raise HTTPException(404, "Scan not found")
-    return scan
+    return await get_owned_or_404(
+        db, VsScan, scan_id, org_id, detail="Scan not found",
+        extra_criteria=(VsScan.status != "DELETED",),
+    )
 
 
 @vs_router.post("/scans", response_model=VsScanResponse)
@@ -136,15 +134,12 @@ async def create_scan(payload: VsScanCreate, db: AsyncSession = Depends(get_db),
 @vs_router.get("/scans")
 async def list_scans(db: AsyncSession = Depends(get_db),
                      user: CurrentUser = Depends(get_current_user),
-                     page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200)):
+                     pp: tuple = Depends(page_params)):
+    page, page_size = pp
     org_id = require_org(user.org_id)
     base = select(VsScan).where(VsScan.org_id == org_id, VsScan.status != "DELETED")
-    total = (await db.execute(
-        select(func.count()).select_from(base.subquery()))).scalar() or 0
-    rows = (await db.execute(
-        base.order_by(VsScan.created_at.desc())
-        .limit(page_size).offset((page - 1) * page_size))).scalars().all()
-    return {"items": [s.to_dict() for s in rows], "total": total, "page": page, "page_size": page_size}
+    return await paginate(db, base, page, page_size,
+                          order_by=(VsScan.created_at.desc(),))
 
 
 @vs_router.get("/scans/{scan_id}", response_model=VsScanResponse)
@@ -216,17 +211,14 @@ async def run_scan(scan_id: str, db: AsyncSession = Depends(get_db),
 
     prof = (await db.execute(select(VsScanProfile).where(
         VsScanProfile.id == scan.profile_id))).scalar_one_or_none()
-    message = {
-        "type": "vs", "id": run.id, "scan_id": scan.id, "org_id": org_id,
-        "profile": prof.to_dict() if prof else {},
-        "targets": [{"asset_id": a.id, "host": a.name} for a in assets],
-    }
+    message = build_job_message(run.id, scan.id, org_id, prof.to_dict() if prof else {},
+                                [{"asset_id": a.id, "host": a.name} for a in assets])
     scan.status = "RUNNING"
     scan.last_run_at = datetime.utcnow()
     scan.last_run_id = run.id
     await db.commit()
 
-    if not await publish_message(VS_QUEUE, message):
+    if not await enqueue_run(message):
         scan.status = "FAILED"
         run.status = "FAILED"
         run.error_message = "failed to enqueue scan job"
@@ -289,8 +281,9 @@ async def list_findings(
     db: AsyncSession = Depends(get_db), user: CurrentUser = Depends(get_current_user),
     severity: str | None = None, status: str | None = None, asset_id: str | None = None,
     kev: bool | None = None, q: str | None = None,
-    page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200),
+    pp: tuple = Depends(page_params),
 ):
+    page, page_size = pp
     org_id = require_org(user.org_id)
     query = select(VsFinding).where(VsFinding.org_id == org_id)
     if severity:
@@ -304,19 +297,13 @@ async def list_findings(
     if q:
         like = f"%{q}%"
         query = query.where(or_(VsFinding.title.ilike(like), VsFinding.cve_id.ilike(like)))
-    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
-    query = query.order_by(VsFinding.composite_risk.desc().nullslast(),
-                           VsFinding.first_detected_at.desc())
-    rows = (await db.execute(query.limit(page_size).offset((page - 1) * page_size))).scalars().all()
-    return {"items": [f.to_dict() for f in rows], "total": total, "page": page, "page_size": page_size}
+    return await paginate(db, query, page, page_size,
+                          order_by=(VsFinding.composite_risk.desc().nullslast(),
+                                    VsFinding.first_detected_at.desc()))
 
 
 async def _owned_finding(finding_id: str, db: AsyncSession, org_id: str) -> VsFinding:
-    f = (await db.execute(select(VsFinding).where(
-        VsFinding.id == finding_id, VsFinding.org_id == org_id))).scalar_one_or_none()
-    if not f:
-        raise HTTPException(404, "Finding not found")
-    return f
+    return await get_owned_or_404(db, VsFinding, finding_id, org_id, detail="Finding not found")
 
 
 @vs_router.get("/findings/{finding_id}", response_model=VsFindingResponse)
@@ -333,10 +320,12 @@ async def transition_finding(finding_id: str, payload: VsFindingStatusUpdate,
     org_id = require_org(user.org_id)
     f = await _owned_finding(finding_id, db, org_id)
     target = payload.status
-    if target not in _TRANSITIONS.get(f.status, set()):
-        raise HTTPException(409, f"Illegal transition {f.status} -> {target}")
-    if target in _JUSTIFY_REQUIRED and not (payload.justification or "").strip():
-        raise HTTPException(400, f"Justification required to mark {target}")
+    validate_transition(
+        _TRANSITIONS, f.status, target,
+        justify_required=_JUSTIFY_REQUIRED, justification=payload.justification,
+        illegal_detail=f"Illegal transition {f.status} -> {target}",
+        justify_detail=f"Justification required to mark {target}",
+    )
 
     db.add(VsFindingHistory(finding_id=f.id, org_id=org_id, from_status=f.status,
                             to_status=target, actor_user_id=user.user_id,
@@ -456,11 +445,11 @@ async def verify_finding(finding_id: str, db: AsyncSession = Depends(get_db),
     await db.flush()
     db.add(VsScanTarget(scan_run_id=run.id, org_id=org_id, asset_id=asset.id,
                         host=asset.name, authorized=True, status="pending"))
-    message = {"type": "vs", "id": run.id, "scan_id": run.scan_id, "org_id": org_id,
-               "profile": {"engines": [f.source_engine or "nuclei"]},
-               "targets": [{"asset_id": asset.id, "host": asset.name}]}
+    message = build_job_message(run.id, run.scan_id, org_id,
+                                {"engines": [f.source_engine or "nuclei"]},
+                                [{"asset_id": asset.id, "host": asset.name}])
     await db.commit()
-    if not await publish_message(VS_QUEUE, message):
+    if not await enqueue_run(message):
         run.status = "FAILED"
         run.error_message = "failed to enqueue verification scan"
         await db.commit()

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SeverityBadge } from "./SeverityBadge";
@@ -73,7 +74,8 @@ import {
   type CreateAssetPayload,
   type UpdateAssetPayload,
 } from "@/lib/api";
-import { getMe } from "@/lib/services/auth";
+import { useMe } from "@/hooks/useMe";
+import { exportRowsToCsv } from "@/lib/csv";
 import { importAssets, parseAssetsCsv, rescoreAsset, type RescoreResult } from "@/lib/services/assets";
 
 const typeIcons: Record<string, typeof Globe> = {
@@ -161,8 +163,9 @@ export function AssetInventory() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [currentRole, setCurrentRole] = useState<string>("reader");
-  const canWrite = currentRole !== "reader";
+  const { canWrite } = useMe();
+
+  const debouncedSearch = useDebouncedValue(searchQuery);
 
   // Fetch assets with filters
   useEffect(() => {
@@ -174,7 +177,7 @@ export function AssetInventory() {
         setLoadError(null);
 
         const params: AssetListParams = {
-          q: searchQuery || undefined,
+          q: debouncedSearch || undefined,
           type: typeFilter !== "all" ? typeFilter : undefined,
           exposure: exposureFilter !== "all" ? exposureFilter : undefined,
         };
@@ -198,27 +201,7 @@ export function AssetInventory() {
 
     loadAssets();
     return () => controller.abort();
-  }, [searchQuery, typeFilter, exposureFilter]);
-
-  useEffect(() => {
-    let mounted = true;
-    const loadProfile = async () => {
-      try {
-        const me = await getMe();
-        if (mounted) {
-          setCurrentRole(me.role ?? "reader");
-        }
-      } catch {
-        if (mounted) {
-          setCurrentRole("reader");
-        }
-      }
-    };
-    loadProfile();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  }, [debouncedSearch, typeFilter, exposureFilter]);
 
   const filteredAssets = assets;
 
@@ -499,32 +482,16 @@ export function AssetInventory() {
       toast({ title: "Nothing to export", description: "No assets match the current filters." });
       return;
     }
-    const esc = (v: unknown) => {
-      const s = String(v ?? "");
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const header = ["name", "type", "exposure", "risk_score", "status", "tags", "last_seen"];
-    const rows = filteredAssets.map((a) =>
-      [
-        a.name,
-        a.type,
-        a.exposure,
-        a.risk_score == null ? "unscanned" : a.risk_score,
-        a.status ?? "",
-        (a.tags || []).join("|"),
-        a.last_seen ?? "",
-      ].map(esc).join(",")
-    );
-    const csv = [header.join(","), ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `assets-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const rows = filteredAssets.map((a) => ({
+      name: a.name,
+      type: a.type,
+      exposure: a.exposure,
+      risk_score: a.risk_score == null ? "unscanned" : a.risk_score,
+      status: a.status ?? "",
+      tags: (a.tags || []).join("|"),
+      last_seen: a.last_seen ?? "",
+    }));
+    exportRowsToCsv(rows, `assets-${new Date().toISOString().slice(0, 10)}.csv`);
     toast({ title: "Exported", description: `${filteredAssets.length} asset(s) exported to CSV.` });
   };
 

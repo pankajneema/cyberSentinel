@@ -15,7 +15,8 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api_service.models.asm_models import AsmDiscovery, AsmDiscoveryRun, AsmRepoFinding
+from backend.api_service.models.asm_models import AsmDiscovery, AsmRepoFinding
+from backend.reporting.asm.assets.common import ensure_discovery_run
 from backend.reporting.asm.assets.domain import get_user_id_from_discovery
 from backend.reporting.sanitize import clean_str, clean_deep
 
@@ -75,7 +76,7 @@ async def store_repo_findings(
             if res.scalar_one_or_none():
                 inserted += 1
         except Exception as e:
-            logger.warning(f"Error inserting repo finding {repo_url}: {e}")
+            logger.warning("Error inserting repo finding %s: %s", repo_url, e)
 
     return inserted
 
@@ -89,32 +90,7 @@ async def process_repo_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         await db.execute(select(AsmDiscovery.org_id).where(AsmDiscovery.id == job_id))
     ).scalar_one_or_none()
 
-    run = (
-        (
-            await db.execute(
-                select(AsmDiscoveryRun)
-                .where(AsmDiscoveryRun.asm_discovery_id == job_id)
-                .order_by(AsmDiscoveryRun.created_at.desc())
-            )
-        )
-        .scalars()
-        .first()
-    )
-    if not run:
-        run = AsmDiscoveryRun(
-            asm_discovery_id=job_id,
-            user_id=user_id,
-            triggered_by="API",
-            run_mode="QUICK",
-            status="RUNNING",
-            started_at=datetime.utcnow(),
-        )
-        db.add(run)
-        await db.flush()
-    else:
-        run.status = "RUNNING"
-        if not run.started_at:
-            run.started_at = datetime.utcnow()
+    run = await ensure_discovery_run(db, job_id, user_id)
 
     findings_inserted = 0
     for step in payload.get("pipeline", []):
@@ -136,7 +112,7 @@ async def process_repo_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
                     org_id=org_id,
                 )
         except Exception as step_err:
-            logger.warning(f"Repo step '{step_name}' failed (isolated, job continues): {step_err}")
+            logger.warning("Repo step '%s' failed (isolated, job continues): %s", step_name, step_err)
 
     run.status = status
     run.completed_at = datetime.utcnow()
@@ -146,4 +122,4 @@ async def process_repo_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         "pipeline_steps": len(payload.get("pipeline", [])),
     }
     await db.commit()
-    logger.info("✅ Repo ASM Completed job=%s repo_findings=%d", job_id, findings_inserted)
+    logger.info("Repo ASM Completed job=%s repo_findings=%d", job_id, findings_inserted)

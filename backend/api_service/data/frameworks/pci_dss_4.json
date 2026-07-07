@@ -1,136 +1,706 @@
 {
-  "key": "pci_dss",
-  "name": "PCI DSS",
-  "version": "4.0",
-  "authority": "PCI SSC",
-  "region": "global",
-  "description": "Payment Card Industry Data Security Standard v4.0 (paraphrased requirement subset relevant to scanning, inventory, access and policy).",
-  "is_reference": false,
-  "controls": [
+ "key": "pci_dss",
+ "name": "PCI DSS",
+ "version": "4.0",
+ "authority": "PCI SSC",
+ "region": "global",
+ "description": "Payment Card Industry Data Security Standard v4.0 (paraphrased requirement subset relevant to scanning, inventory, access and policy).",
+ "is_reference": false,
+ "controls": [
+  {
+   "control_ref": "1.1",
+   "title": "Processes and mechanisms for network security controls are defined",
+   "description": null,
+   "category": "Req 1 — Network Security Controls",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "1.2",
+   "title": "Network security controls are configured and maintained",
+   "description": null,
+   "category": "Req 1 — Network Security Controls",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "1.3",
+   "title": "Network access to and from the CDE is restricted",
+   "description": null,
+   "category": "Req 1 — Network Security Controls",
+   "criticality": "high",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "1.4",
+   "title": "Connections between trusted and untrusted networks are controlled",
+   "description": null,
+   "category": "Req 1 — Network Security Controls",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "1.5",
+   "title": "Risks from computing devices connecting to both untrusted networks and the CDE are mitigated",
+   "description": null,
+   "category": "Req 1 — Network Security Controls",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "2.1",
+   "title": "Processes for applying secure configurations are defined",
+   "description": null,
+   "category": "Req 2 — Secure Configurations",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "2.2",
+   "title": "System components are configured and managed securely",
+   "description": null,
+   "category": "Req 2 — Secure Configurations",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "2.3",
+   "title": "Wireless environments are configured and managed securely",
+   "description": null,
+   "category": "Req 2 — Secure Configurations",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "3.1",
+   "title": "Processes for protecting stored account data are defined",
+   "description": null,
+   "category": "Req 3 — Stored Account Data",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "3.2",
+   "title": "Storage of account data is kept to a minimum",
+   "description": null,
+   "category": "Req 3 — Stored Account Data",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "3.3",
+   "title": "Sensitive authentication data is not stored after authorization",
+   "description": null,
+   "category": "Req 3 — Stored Account Data",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "3.4",
+   "title": "Display of full PAN is restricted",
+   "description": null,
+   "category": "Req 3 — Stored Account Data",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "3.5",
+   "title": "PAN is secured wherever stored",
+   "description": null,
+   "category": "Req 3 — Stored Account Data",
+   "criticality": "critical",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "3.6",
+   "title": "Cryptographic keys protecting account data are secured",
+   "description": null,
+   "category": "Req 3 — Stored Account Data",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "3.7",
+   "title": "Key lifecycle processes are defined and implemented",
+   "description": null,
+   "category": "Req 3 — Stored Account Data",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "4.1",
+   "title": "Processes for protecting PAN in transit are defined",
+   "description": null,
+   "category": "Req 4 — Transmission Encryption",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "4.2",
+   "title": "PAN is protected with strong cryptography during transmission",
+   "description": null,
+   "category": "Req 4 — Transmission Encryption",
+   "criticality": "critical",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "5.1",
+   "title": "Processes for malware protection are defined",
+   "description": null,
+   "category": "Req 5 — Anti-Malware",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "5.2",
+   "title": "Malware is prevented, or detected and addressed",
+   "description": null,
+   "category": "Req 5 — Anti-Malware",
+   "criticality": "critical",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "5.3",
+   "title": "Anti-malware mechanisms are active, maintained and monitored",
+   "description": null,
+   "category": "Req 5 — Anti-Malware",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "5.4",
+   "title": "Anti-phishing mechanisms protect users",
+   "description": null,
+   "category": "Req 5 — Anti-Malware",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "6.1",
+   "title": "Processes for developing and maintaining secure systems are defined",
+   "description": null,
+   "category": "Req 6 — Secure Systems & Software",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "6.2",
+   "title": "Bespoke and custom software is developed securely",
+   "description": null,
+   "category": "Req 6 — Secure Systems & Software",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "6.3",
+   "title": "Security vulnerabilities are identified and addressed",
+   "description": null,
+   "category": "Req 6 — Secure Systems & Software",
+   "criticality": "critical",
+   "control_type": "technical",
+   "checks": [
     {
-      "control_ref": "2.4",
-      "title": "Inventory of system components",
-      "description": "An inventory of system components in scope for PCI DSS is maintained and kept current.",
-      "category": "Req 2 — Secure Configurations",
-      "criticality": "high",
-      "control_type": "technical",
-      "evidence_guidance": "Current asset inventory covering in-scope components.",
-      "checks": [
-        { "key": "asm.inventory_maintained", "required": true, "rationale": "A maintained asset inventory is the 2.4 artifact." },
-        { "key": "asm.ownership_verified", "required": false, "rationale": "Verified ownership strengthens inventory accuracy." }
-      ]
+     "key": "vs.no_overdue_highs",
+     "required": true
     },
     {
-      "control_ref": "7.2",
-      "title": "Access assignment by role and least privilege",
-      "description": "Access to system components and data is assigned based on job classification and least privilege, and approved.",
-      "category": "Req 7 — Access Control",
-      "criticality": "critical",
-      "control_type": "technical",
-      "evidence_guidance": "Role-based access records with approvals.",
-      "checks": [
-        { "key": "policy.access_control.active_and_acked", "required": true, "rationale": "The access-control policy defines the role/least-privilege rules." },
-        { "key": "audit.access_managed", "required": true, "rationale": "Recorded role assignments evidence assignment by role." }
-      ]
-    },
-    {
-      "control_ref": "10.2",
-      "title": "Audit logs capture activity",
-      "description": "Audit logs are implemented to record required events and support anomaly detection and forensics.",
-      "category": "Req 10 — Logging & Monitoring",
-      "criticality": "critical",
-      "control_type": "technical",
-      "evidence_guidance": "Operative audit logging.",
-      "checks": [
-        { "key": "audit.trail_active", "required": true, "rationale": "An operative audit trail recording administrative events is the direct 10.2 artifact." }
-      ]
-    },
-    {
-      "control_ref": "11.3.1",
-      "title": "Internal vulnerability scans (quarterly)",
-      "description": "Internal vulnerability scans are performed at least once every three months, high-risk and critical vulnerabilities are resolved, and rescans confirm resolution.",
-      "category": "Req 11 — Testing",
-      "criticality": "critical",
-      "control_type": "technical",
-      "evidence_guidance": "Quarterly completed scan runs; zero unresolved criticals; verification rescans.",
-      "checks": [
-        { "key": "vs.scan_recency.quarterly", "required": true, "rationale": "PCI 11.3.1 mandates a scan at least every three months — a completed run in the last 92 days is direct proof." },
-        { "key": "vs.no_open_criticals", "required": true, "rationale": "11.3.1 requires high-risk/critical vulnerabilities to be resolved." },
-        { "key": "vs.rescan_after_remediation", "required": true, "rationale": "11.3.1.1 requires rescans confirming resolution." }
-      ]
-    },
-    {
-      "control_ref": "11.3.1.2",
-      "title": "Scan coverage of in-scope components",
-      "description": "Vulnerability scans cover all in-scope system components.",
-      "category": "Req 11 — Testing",
-      "criticality": "high",
-      "control_type": "technical",
-      "evidence_guidance": "Scan target coverage across the asset inventory.",
-      "checks": [
-        { "key": "vs.scan_coverage.90d", "required": true, "rationale": "Coverage % of active assets scanned proves scans reach all in-scope components." }
-      ]
-    },
-    {
-      "control_ref": "11.4.1",
-      "title": "Penetration testing methodology and execution",
-      "description": "External and internal penetration testing is performed per a defined methodology at least annually and after significant changes.",
-      "category": "Req 11 — Testing",
-      "criticality": "high",
-      "control_type": "administrative",
-      "evidence_guidance": "Annual penetration test report.",
-      "checks": [
-        { "key": "manual.penetration_test.annual", "required": true, "rationale": "The annual pen-test report is the 11.4.1 artifact." }
-      ]
-    },
-    {
-      "control_ref": "12.1",
-      "title": "Information security policy",
-      "description": "An overall information security policy is established, published, maintained, and disseminated to all relevant personnel.",
-      "category": "Req 12 — Governance",
-      "criticality": "high",
-      "control_type": "administrative",
-      "evidence_guidance": "Active policy with acknowledgment records.",
-      "checks": [
-        { "key": "policy.infosec.active_and_acked", "required": true, "rationale": "An active, disseminated, acknowledged policy is the direct 12.1 artifact." }
-      ]
-    },
-    {
-      "control_ref": "12.6.3",
-      "title": "Security awareness training",
-      "description": "Personnel receive security awareness training upon hire and at least annually.",
-      "category": "Req 12 — Governance",
-      "criticality": "medium",
-      "control_type": "administrative",
-      "evidence_guidance": "Training completion records.",
-      "checks": [
-        { "key": "manual.security_training.annual", "required": true, "rationale": "Annual training records directly evidence 12.6.3." }
-      ]
-    },
-    {
-      "control_ref": "12.8",
-      "title": "Third-party service provider risk",
-      "description": "Risk to information assets associated with third-party service provider relationships is managed.",
-      "category": "Req 12 — Governance",
-      "criticality": "medium",
-      "control_type": "administrative",
-      "evidence_guidance": "Vendor review documentation.",
-      "checks": [
-        { "key": "manual.vendor_review.annual", "required": true, "rationale": "Annual vendor security reviews evidence 12.8 management." }
-      ]
-    },
-    {
-      "control_ref": "12.10.1",
-      "title": "Incident response plan",
-      "description": "An incident response plan exists and is ready to be activated in the event of a suspected or confirmed security incident.",
-      "category": "Req 12 — Governance",
-      "criticality": "critical",
-      "control_type": "administrative",
-      "evidence_guidance": "IR policy plus timely remediation of criticals.",
-      "checks": [
-        { "key": "policy.incident_response.active_and_acked", "required": true, "rationale": "The published IR policy is the 12.10.1 plan." },
-        { "key": "vs.no_overdue_highs", "required": false, "rationale": "SLA-compliant remediation shows response readiness in practice." }
-      ]
+     "key": "vs.scan_recency.quarterly",
+     "required": false
     }
-  ]
+   ]
+  },
+  {
+   "control_ref": "6.4",
+   "title": "Public-facing web applications are protected against attacks",
+   "description": null,
+   "category": "Req 6 — Secure Systems & Software",
+   "criticality": "high",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "6.5",
+   "title": "Changes to system components are managed securely",
+   "description": null,
+   "category": "Req 6 — Secure Systems & Software",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "7.1",
+   "title": "Processes for restricting access are defined",
+   "description": null,
+   "category": "Req 7 — Access Control",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "7.2",
+   "title": "Access assignment by role and least privilege",
+   "description": "Access to system components and data is assigned based on job classification and least privilege, and approved.",
+   "category": "Req 7 — Access Control",
+   "criticality": "critical",
+   "control_type": "technical",
+   "evidence_guidance": "Role-based access records with approvals.",
+   "checks": [
+    {
+     "key": "policy.access_control.active_and_acked",
+     "required": true,
+     "rationale": "The access-control policy defines the role/least-privilege rules."
+    },
+    {
+     "key": "audit.access_managed",
+     "required": true,
+     "rationale": "Recorded role assignments evidence assignment by role."
+    }
+   ]
+  },
+  {
+   "control_ref": "7.3",
+   "title": "Access is managed via access control system(s)",
+   "description": null,
+   "category": "Req 7 — Access Control",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "8.1",
+   "title": "Processes for identification and authentication are defined",
+   "description": null,
+   "category": "Req 8 — Identification & Authentication",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "8.2",
+   "title": "User identification is managed through account lifecycle",
+   "description": null,
+   "category": "Req 8 — Identification & Authentication",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "8.3",
+   "title": "Strong authentication is established and managed",
+   "description": null,
+   "category": "Req 8 — Identification & Authentication",
+   "criticality": "critical",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "8.4",
+   "title": "MFA is implemented for access into the CDE",
+   "description": null,
+   "category": "Req 8 — Identification & Authentication",
+   "criticality": "critical",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "8.5",
+   "title": "MFA systems are configured to prevent misuse",
+   "description": null,
+   "category": "Req 8 — Identification & Authentication",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "8.6",
+   "title": "Application and system account use is managed",
+   "description": null,
+   "category": "Req 8 — Identification & Authentication",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "9.1",
+   "title": "Processes for restricting physical access are defined",
+   "description": null,
+   "category": "Req 9 — Physical Security",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "9.2",
+   "title": "Physical access controls manage entry to CDE facilities",
+   "description": null,
+   "category": "Req 9 — Physical Security",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "9.3",
+   "title": "Physical access for personnel and visitors is authorized",
+   "description": null,
+   "category": "Req 9 — Physical Security",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "9.4",
+   "title": "Media with cardholder data is securely stored, accessed, destroyed",
+   "description": null,
+   "category": "Req 9 — Physical Security",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "9.5",
+   "title": "POI devices are protected from tampering",
+   "description": null,
+   "category": "Req 9 — Physical Security",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "10.1",
+   "title": "Processes for logging and monitoring are defined",
+   "description": null,
+   "category": "Req 10 — Logging & Monitoring",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "10.2",
+   "title": "Audit logs capture activity",
+   "description": "Audit logs are implemented to record required events and support anomaly detection and forensics.",
+   "category": "Req 10 — Logging & Monitoring",
+   "criticality": "critical",
+   "control_type": "technical",
+   "evidence_guidance": "Operative audit logging.",
+   "checks": [
+    {
+     "key": "audit.trail_active",
+     "required": true,
+     "rationale": "An operative audit trail recording administrative events is the direct 10.2 artifact."
+    }
+   ]
+  },
+  {
+   "control_ref": "10.3",
+   "title": "Audit logs are protected from destruction and modification",
+   "description": null,
+   "category": "Req 10 — Logging & Monitoring",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "10.4",
+   "title": "Audit logs are reviewed to identify anomalies",
+   "description": null,
+   "category": "Req 10 — Logging & Monitoring",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "10.5",
+   "title": "Audit log history is retained (12 months, 3 months online)",
+   "description": null,
+   "category": "Req 10 — Logging & Monitoring",
+   "criticality": "high",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "10.6",
+   "title": "Time synchronization supports consistent time across systems",
+   "description": null,
+   "category": "Req 10 — Logging & Monitoring",
+   "criticality": "medium",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "manual.time_sync_npl",
+     "required": true
+    }
+   ]
+  },
+  {
+   "control_ref": "10.7",
+   "title": "Failures of critical security control systems are detected and responded to",
+   "description": null,
+   "category": "Req 10 — Logging & Monitoring",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "11.1",
+   "title": "Processes for testing security are defined",
+   "description": null,
+   "category": "Req 11 — Testing",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "11.2",
+   "title": "Wireless access points are identified and monitored",
+   "description": null,
+   "category": "Req 11 — Testing",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "11.3",
+   "title": "External and internal vulnerabilities are regularly identified and addressed",
+   "description": null,
+   "category": "Req 11 — Testing",
+   "criticality": "critical",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "vs.scan_recency.quarterly",
+     "required": true
+    },
+    {
+     "key": "vs.scan_coverage.90d",
+     "required": true
+    }
+   ]
+  },
+  {
+   "control_ref": "11.3.1",
+   "title": "Internal vulnerability scans (quarterly)",
+   "description": "Internal vulnerability scans are performed at least once every three months, high-risk and critical vulnerabilities are resolved, and rescans confirm resolution.",
+   "category": "Req 11 — Testing",
+   "criticality": "critical",
+   "control_type": "technical",
+   "evidence_guidance": "Quarterly completed scan runs; zero unresolved criticals; verification rescans.",
+   "checks": [
+    {
+     "key": "vs.scan_recency.quarterly",
+     "required": true,
+     "rationale": "PCI 11.3.1 mandates a scan at least every three months — a completed run in the last 92 days is direct proof."
+    },
+    {
+     "key": "vs.no_open_criticals",
+     "required": true,
+     "rationale": "11.3.1 requires high-risk/critical vulnerabilities to be resolved."
+    },
+    {
+     "key": "vs.rescan_after_remediation",
+     "required": true,
+     "rationale": "11.3.1.1 requires rescans confirming resolution."
+    }
+   ]
+  },
+  {
+   "control_ref": "11.3.1.1",
+   "title": "Vulnerabilities not ranked high/critical are managed",
+   "description": null,
+   "category": "Req 11 — Testing",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "11.3.1.2",
+   "title": "Internal scans are performed via authenticated scanning",
+   "description": "Vulnerability scans cover all in-scope system components.",
+   "category": "Req 11 — Testing",
+   "criticality": "high",
+   "control_type": "technical",
+   "evidence_guidance": "Scan target coverage across the asset inventory."
+  },
+  {
+   "control_ref": "11.3.2",
+   "title": "External vulnerability scans via ASV (quarterly)",
+   "description": null,
+   "category": "Req 11 — Testing",
+   "criticality": "high",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "11.4",
+   "title": "Penetration testing is regularly performed",
+   "description": null,
+   "category": "Req 11 — Testing",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "11.4.1",
+   "title": "Penetration testing methodology and execution",
+   "description": "External and internal penetration testing is performed per a defined methodology at least annually and after significant changes.",
+   "category": "Req 11 — Testing",
+   "criticality": "high",
+   "control_type": "administrative",
+   "evidence_guidance": "Annual penetration test report.",
+   "checks": [
+    {
+     "key": "manual.penetration_test.annual",
+     "required": true,
+     "rationale": "The annual pen-test report is the 11.4.1 artifact."
+    }
+   ]
+  },
+  {
+   "control_ref": "11.5",
+   "title": "Network intrusions and unexpected file changes are detected and responded to",
+   "description": null,
+   "category": "Req 11 — Testing",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "11.6",
+   "title": "Unauthorized changes on payment pages are detected and responded to",
+   "description": null,
+   "category": "Req 11 — Testing",
+   "criticality": "medium",
+   "control_type": "technical"
+  },
+  {
+   "control_ref": "12.1",
+   "title": "Information security policy",
+   "description": "An overall information security policy is established, published, maintained, and disseminated to all relevant personnel.",
+   "category": "Req 12 — Governance",
+   "criticality": "high",
+   "control_type": "administrative",
+   "evidence_guidance": "Active policy with acknowledgment records.",
+   "checks": [
+    {
+     "key": "policy.infosec.active_and_acked",
+     "required": true,
+     "rationale": "An active, disseminated, acknowledged policy is the direct 12.1 artifact."
+    }
+   ]
+  },
+  {
+   "control_ref": "12.2",
+   "title": "Acceptable use policies for end-user technologies are defined",
+   "description": null,
+   "category": "Req 12 — Governance",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "12.3",
+   "title": "Risks to the CDE are formally identified, evaluated and managed",
+   "description": null,
+   "category": "Req 12 — Governance",
+   "criticality": "medium",
+   "control_type": "administrative",
+   "checks": [
+    {
+     "key": "manual.risk_assessment.annual",
+     "required": true
+    }
+   ]
+  },
+  {
+   "control_ref": "12.4",
+   "title": "PCI DSS compliance is managed",
+   "description": null,
+   "category": "Req 12 — Governance",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "12.5",
+   "title": "PCI DSS scope is documented and validated",
+   "description": null,
+   "category": "Req 12 — Governance",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "12.5.1",
+   "title": "Inventory of system components in scope is maintained",
+   "description": null,
+   "category": "Req 12 — Governance",
+   "criticality": "high",
+   "control_type": "technical",
+   "checks": [
+    {
+     "key": "asm.inventory_maintained",
+     "required": true
+    },
+    {
+     "key": "asm.ownership_verified",
+     "required": false
+    }
+   ]
+  },
+  {
+   "control_ref": "12.6",
+   "title": "Security awareness education is ongoing",
+   "description": null,
+   "category": "Req 12 — Governance",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "12.6.3",
+   "title": "Security awareness training",
+   "description": "Personnel receive security awareness training upon hire and at least annually.",
+   "category": "Req 12 — Governance",
+   "criticality": "medium",
+   "control_type": "administrative",
+   "evidence_guidance": "Training completion records.",
+   "checks": [
+    {
+     "key": "manual.security_training.annual",
+     "required": true,
+     "rationale": "Annual training records directly evidence 12.6.3."
+    }
+   ]
+  },
+  {
+   "control_ref": "12.7",
+   "title": "Personnel are screened to reduce insider risk",
+   "description": null,
+   "category": "Req 12 — Governance",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "12.8",
+   "title": "Third-party service provider risk",
+   "description": "Risk to information assets associated with third-party service provider relationships is managed.",
+   "category": "Req 12 — Governance",
+   "criticality": "medium",
+   "control_type": "administrative",
+   "evidence_guidance": "Vendor review documentation.",
+   "checks": [
+    {
+     "key": "manual.vendor_review.annual",
+     "required": true,
+     "rationale": "Annual vendor security reviews evidence 12.8 management."
+    }
+   ]
+  },
+  {
+   "control_ref": "12.9",
+   "title": "TPSPs support their customers' PCI DSS compliance",
+   "description": null,
+   "category": "Req 12 — Governance",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "12.10",
+   "title": "Suspected and confirmed incidents are responded to immediately",
+   "description": null,
+   "category": "Req 12 — Governance",
+   "criticality": "medium",
+   "control_type": "administrative"
+  },
+  {
+   "control_ref": "12.10.1",
+   "title": "Incident response plan",
+   "description": "An incident response plan exists and is ready to be activated in the event of a suspected or confirmed security incident.",
+   "category": "Req 12 — Governance",
+   "criticality": "critical",
+   "control_type": "administrative",
+   "evidence_guidance": "IR policy plus timely remediation of criticals.",
+   "checks": [
+    {
+     "key": "policy.incident_response.active_and_acked",
+     "required": true,
+     "rationale": "The published IR policy is the 12.10.1 plan."
+    },
+    {
+     "key": "vs.no_overdue_highs",
+     "required": false,
+     "rationale": "SLA-compliant remediation shows response readiness in practice."
+    }
+   ]
+  }
+ ]
 }

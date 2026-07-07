@@ -1,4 +1,4 @@
-import { apiFetch, Paginated } from "../api";
+import { apiFetch, buildQuery, Paginated } from "../api";
 
 // Types
 export interface AsmDiscovery {
@@ -442,106 +442,35 @@ export function updateAsmSettings(payload: AsmSettingsPayload) {
 }
 
 export function fetchPorts(params?: { discovery_id?: string; ip_address?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
-  const search = new URLSearchParams();
-  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
-  if (params?.ip_address) search.set("ip_address", params.ip_address);
-  if (params?.q) search.set("q", params.q);
-  if (params?.sort_by) search.set("sort_by", params.sort_by);
-  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
-  if (params?.page) search.set("page", String(params.page));
-  if (params?.page_size) search.set("page_size", String(params.page_size));
-  const qs = search.toString();
-  return apiFetch<Paginated<AsmPort>>(`/asm/ports${qs ? `?${qs}` : ""}`);
+  return apiFetch<Paginated<AsmPort>>(`/asm/ports${buildQuery(params)}`);
 }
 
 export function fetchServices(params?: { discovery_id?: string; ip_address?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
-  const search = new URLSearchParams();
-  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
-  if (params?.ip_address) search.set("ip_address", params.ip_address);
-  if (params?.q) search.set("q", params.q);
-  if (params?.sort_by) search.set("sort_by", params.sort_by);
-  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
-  if (params?.page) search.set("page", String(params.page));
-  if (params?.page_size) search.set("page_size", String(params.page_size));
-  const qs = search.toString();
-  return apiFetch<Paginated<AsmService>>(`/asm/services${qs ? `?${qs}` : ""}`);
+  return apiFetch<Paginated<AsmService>>(`/asm/services${buildQuery(params)}`);
 }
 
 export function fetchSSLCerts(params?: { discovery_id?: string; host?: string; subdomain_id?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
-  const search = new URLSearchParams();
-  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
-  if (params?.host) search.set("host", params.host);
-  if (params?.subdomain_id) search.set("subdomain_id", params.subdomain_id);
-  if (params?.q) search.set("q", params.q);
-  if (params?.sort_by) search.set("sort_by", params.sort_by);
-  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
-  if (params?.page) search.set("page", String(params.page));
-  if (params?.page_size) search.set("page_size", String(params.page_size));
-  const qs = search.toString();
-  return apiFetch<Paginated<AsmSSLCert>>(`/asm/ssl${qs ? `?${qs}` : ""}`);
+  return apiFetch<Paginated<AsmSSLCert>>(`/asm/ssl${buildQuery(params)}`);
 }
 
 export function fetchApiEndpoints(params?: { discovery_id?: string; subdomain_id?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
-  const search = new URLSearchParams();
-  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
-  if (params?.subdomain_id) search.set("subdomain_id", params.subdomain_id);
-  if (params?.q) search.set("q", params.q);
-  if (params?.sort_by) search.set("sort_by", params.sort_by);
-  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
-  if (params?.page) search.set("page", String(params.page));
-  if (params?.page_size) search.set("page_size", String(params.page_size));
-  const qs = search.toString();
-  return apiFetch<Paginated<AsmAPIEndpoint>>(`/asm/api-endpoints${qs ? `?${qs}` : ""}`);
+  return apiFetch<Paginated<AsmAPIEndpoint>>(`/asm/api-endpoints${buildQuery(params)}`);
 }
 
 export function fetchCloudResources(params?: { discovery_id?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
-  const search = new URLSearchParams();
-  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
-  if (params?.q) search.set("q", params.q);
-  if (params?.sort_by) search.set("sort_by", params.sort_by);
-  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
-  if (params?.page) search.set("page", String(params.page));
-  if (params?.page_size) search.set("page_size", String(params.page_size));
-  const qs = search.toString();
-  return apiFetch<Paginated<AsmCloudResource>>(`/asm/cloud-resources${qs ? `?${qs}` : ""}`);
+  return apiFetch<Paginated<AsmCloudResource>>(`/asm/cloud-resources${buildQuery(params)}`);
 }
 
 export function fetchAdminEndpoints(params?: { discovery_id?: string; subdomain_id?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
-  const search = new URLSearchParams();
-  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
-  if (params?.subdomain_id) search.set("subdomain_id", params.subdomain_id);
-  if (params?.q) search.set("q", params.q);
-  if (params?.sort_by) search.set("sort_by", params.sort_by);
-  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
-  if (params?.page) search.set("page", String(params.page));
-  if (params?.page_size) search.set("page_size", String(params.page_size));
-  const qs = search.toString();
-  return apiFetch<Paginated<AsmAdminEndpoint>>(`/asm/admin-endpoints${qs ? `?${qs}` : ""}`);
+  return apiFetch<Paginated<AsmAdminEndpoint>>(`/asm/admin-endpoints${buildQuery(params)}`);
 }
 
 export function fetchBackupFiles(params?: { discovery_id?: string; subdomain_id?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
-  const search = new URLSearchParams();
-  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
-  if (params?.subdomain_id) search.set("subdomain_id", params.subdomain_id);
-  if (params?.q) search.set("q", params.q);
-  if (params?.sort_by) search.set("sort_by", params.sort_by);
-  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
-  if (params?.page) search.set("page", String(params.page));
-  if (params?.page_size) search.set("page_size", String(params.page_size));
-  const qs = search.toString();
-  return apiFetch<Paginated<AsmBackupFile>>(`/asm/backup-files${qs ? `?${qs}` : ""}`);
+  return apiFetch<Paginated<AsmBackupFile>>(`/asm/backup-files${buildQuery(params)}`);
 }
 
 export function fetchChanges(params?: { discovery_id?: string; q?: string; sort_by?: string; sort_dir?: string; page?: number; page_size?: number; }) {
-  const search = new URLSearchParams();
-  if (params?.discovery_id) search.set("discovery_id", params.discovery_id);
-  if (params?.q) search.set("q", params.q);
-  if (params?.sort_by) search.set("sort_by", params.sort_by);
-  if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
-  if (params?.page) search.set("page", String(params.page));
-  if (params?.page_size) search.set("page_size", String(params.page_size));
-  const qs = search.toString();
-  return apiFetch<Paginated<AsmChange>>(`/asm/changes${qs ? `?${qs}` : ""}`);
+  return apiFetch<Paginated<AsmChange>>(`/asm/changes${buildQuery(params)}`);
 }
 
 export function fetchAsmDashboard() {

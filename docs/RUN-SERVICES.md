@@ -99,7 +99,7 @@ Pulls scan jobs off RabbitMQ (`jobs.asm`) and forwards them to the control-plane
 
 ```bash
 cd backend/workers
-go run ./consumer/cmd/asm/
+go run ./consumer/cmd/
 ```
 - No port — it's a background queue worker. Watch its logs for job pickups.
 

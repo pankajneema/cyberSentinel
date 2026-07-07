@@ -92,7 +92,7 @@ services:
   #   container_name: asmConsumer
   #   env_file:
   #     - ../backend/workers/.env
-  #   command: ["go", "run", "./consumer/cmd/asm/"]
+  #   command: ["go", "run", "./consumer/cmd/"]
   #   environment:
   #     RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
   #     POSTGRESQL_URL: postgres://postgres:postgres@postgres:5432/cybersentinel?sslmode=disable

@@ -14,7 +14,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 COPY --from=build /install /usr/local
 WORKDIR /app
 COPY backend /app/backend
-ENV PYTHONPATH=/app:/app/backend
+# api_service must be on the path: its modules use bare internal imports
+# (from utils.database import Base) even when imported as backend.api_service.*
+ENV PYTHONPATH=/app:/app/backend:/app/backend/api_service
 
 RUN useradd --create-home --uid 10002 reporter && chown -R reporter /app
 USER reporter

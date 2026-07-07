@@ -21,8 +21,8 @@
 import uuid
 
 from sqlalchemy import (
-    Column, String, DateTime, JSON, Integer, Boolean, Float, Text,
-    ForeignKey, LargeBinary, UniqueConstraint, Index,
+    Column, String, DateTime, JSON, Integer, BigInteger, Boolean, Float, Text,
+    ForeignKey, Identity, LargeBinary, UniqueConstraint, Index,
 )
 from sqlalchemy.sql import func
 
@@ -510,6 +510,9 @@ class CaAuditTrail(Base):
     target = Column(String, nullable=True)                # "control:<id>"|"evidence:<id>"
     meta = Column(JSON, nullable=True)
     at = Column(DateTime, server_default=func.now(), index=True)
+    # Monotonic DB-assigned sequence: gives the hash chain a deterministic
+    # order (uuid ids + microsecond timestamps cannot).
+    seq = Column(BigInteger, Identity(), nullable=False, index=True)
     prev_hash = Column(String, nullable=True)
     row_hash = Column(String, nullable=False)
 
