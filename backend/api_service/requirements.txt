@@ -21,3 +21,4 @@ python-decouple==3.8
 alembic
 croniter==2.0.5
 reportlab==4.2.2
+greenlet  # required by SQLAlchemy async (asyncpg); not pulled in automatically

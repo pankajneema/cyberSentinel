@@ -22,8 +22,11 @@ cd "$ROOT"
 
 # ---- config ----------------------------------------------------------------
 API_DIR="$ROOT/backend/api_service"
-WORKERS_DIR="$ROOT/backend/workers"
-VENV="$API_DIR/venv"
+WORKERS_DIR="$ROOT/worker"
+# Prefer the Python 3.11 venv (.venv-run); the system python may be too new for
+# asyncpg/greenlet. Falls back to venv/ then python3.
+VENV="$API_DIR/.venv-run"
+[ -x "$VENV/bin/python" ] || VENV="$API_DIR/venv"
 
 # Reporting needs all three on PYTHONPATH (matches its Dockerfile setup) so both
 # `backend.*` and `config.*`/`utils.*` style imports resolve.
@@ -62,11 +65,13 @@ echo "▶ starting CyberSentinel services (Ctrl+C to stop all)…"
 # 1) FastAPI API service (loads its own .env via settings.py)
 run api 36 -- bash -c "cd '$API_DIR' && '$PY' -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
 
-# 2) Go queue consumer (drains jobs.asm + jobs.vs; runs both pipelines in-process)
-run consumer 33 -- bash -c "cd '$WORKERS_DIR' && set -a && [ -f .env ] && . ./.env; set +a && go run ./consumer/cmd/"
+# 2) Go worker (consumes asm.*/vs.*/ca.* priority queues; one engine, all services)
+run consumer 33 -- bash -c "cd '$WORKERS_DIR' && set -a && [ -f .env ] && . ./.env; set +a && go run ."
 
-# 4) Python reporting consumer
-run reporting 32 -- bash -c "cd '$ROOT' && PYTHONPATH='$REPORT_PYTHONPATH' '$PY' backend/reporting/asm/main.py"
+# 4) Python reporting consumers — one per service (reporting.asm/vs/ca -> Postgres).
+run rpt-asm 32 -- bash -c "cd '$ROOT' && PYTHONPATH='$REPORT_PYTHONPATH' '$PY' -m backend.reporting.asm"
+run rpt-vs  35 -- bash -c "cd '$ROOT' && PYTHONPATH='$REPORT_PYTHONPATH' '$PY' -m backend.reporting.vs"
+run rpt-ca  36 -- bash -c "cd '$ROOT' && PYTHONPATH='$REPORT_PYTHONPATH' '$PY' -m backend.reporting.ca"
 
 # 5) Frontend (Vite, reads frontend/.env)
 run frontend 34 -- bash -c "cd '$ROOT/frontend' && npm run dev"

@@ -118,6 +118,33 @@ export function rescoreAsset(assetId: string) {
   return apiFetch<RescoreResult>(`/assets/${assetId}/rescore`, { method: "POST" });
 }
 
+// ---- ownership verification (authorization-to-scan gate) ----
+export interface VerificationToken {
+  asset_id: string;
+  name: string;
+  type: string;
+  ownership_verified: boolean;
+  token: string;
+  dns_txt_record: string;   // e.g. "cybersentinel-site-verification=<token>"
+  instructions: string;
+}
+
+export interface VerifyResult {
+  asset_id: string;
+  ownership_verified: boolean;
+  method: string;           // dns_txt | attestation | already_verified
+}
+
+/** Issue (or return) the ownership-verification token + DNS TXT instructions. */
+export function getVerificationToken(assetId: string) {
+  return apiFetch<VerificationToken>(`/assets/${assetId}/verification-token`, { method: "POST" });
+}
+
+/** Verify ownership. Domains: DNS TXT check; other types: owner/admin attestation. */
+export function verifyOwnership(assetId: string) {
+  return apiFetch<VerifyResult>(`/assets/${assetId}/verify`, { method: "POST" });
+}
+
 /** Parse a CSV string into import rows. Supports a header row with
  *  name,type,exposure,tags,description (tags pipe- or semicolon-separated). */
 export function parseAssetsCsv(text: string): ImportAssetRow[] {

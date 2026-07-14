@@ -17,7 +17,8 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
 
-from utils.queue import publish_message
+from utils.queue import publish_message  # noqa: F401 (legacy; retained for reference)
+from utils.scan_publish import publish_scan_job
 from utils.schedule_math import compute_next_run
 
 logger = logging.getLogger("cybersentinel.vs")
@@ -38,7 +39,33 @@ def build_job_message(run_id: str, scan_id: str, org_id: str, profile: dict, tar
 
 
 async def enqueue_run(message: dict) -> bool:
-    return await publish_message(QUEUE, message)
+    """Publish a VS scan to the redesigned per-priority queue (vs.<priority>).
+
+    Translates the legacy envelope into the unified job message: task_id = run id,
+    VS specifics (engines, profile knobs, credential, structured targets) ride in
+    config so the Go VS tools read them. The in-memory credential is fetched
+    just-in-time by the worker (never carried in the message)."""
+    profile = message.get("profile") or {}
+    targets = message.get("targets") or []
+    return await publish_scan_job(
+        type="vs",
+        priority="medium",
+        task_id=message.get("id"),
+        org_id=message.get("org_id"),
+        asset_id=(targets[0].get("asset_id") if targets else None),
+        targets=[t.get("host") for t in targets if t.get("host")],
+        mode="NORMAL",
+        config={
+            "scan_id": message.get("scan_id"),
+            "engines": profile.get("engines") or [],
+            "safe_mode": profile.get("safe_mode", False),
+            "max_requests_per_sec": profile.get("max_requests_per_sec", 0),
+            "web_scan": profile.get("web_scan", False),
+            "authenticated": profile.get("authenticated", False),
+            "credential_id": profile.get("credential_id"),
+            "vs_targets": targets,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

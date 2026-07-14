@@ -271,7 +271,7 @@ async def delete_asset(
 # Active discoveries (NORMAL/DEEP) require proven ownership of the target so the
 # platform cannot be used to actively scan third-party infrastructure.
 
-_VERIFY_PREFIX = "cybersentinel-site-verification"
+from utils.ownership_verify import VERIFY_PREFIX as _VERIFY_PREFIX, domain_txt_matches  # noqa: E402
 
 
 @router.post("/{asset_id}/verification-token")
@@ -318,26 +318,14 @@ async def verify_ownership(
     if not asset.verification_token:
         raise HTTPException(status_code=400, detail="Request a verification token first.")
 
-    expected = f"{_VERIFY_PREFIX}={asset.verification_token}"
-
     if asset.type == "domain":
-        try:
-            import dns.resolver  # dnspython
-
-            answers = dns.resolver.resolve(asset.name.rstrip("."), "TXT")
-            values = [b.decode() if isinstance(b, bytes) else str(b)
-                      for r in answers for b in getattr(r, "strings", [str(r)])]
-            joined = " ".join(values).replace('"', "")
-            if expected not in joined:
-                raise HTTPException(
-                    status_code=400,
-                    detail="DNS TXT record not found yet. Add it and retry (propagation can take minutes).",
-                )
-            method = "dns_txt"
-        except HTTPException:
-            raise
-        except Exception as exc:  # NXDOMAIN / no TXT / resolver error
-            raise HTTPException(status_code=400, detail=f"DNS verification failed: {exc}")
+        # Same DNS-TXT check the scheduler's background re-check uses.
+        if not await domain_txt_matches(asset.name, asset.verification_token):
+            raise HTTPException(
+                status_code=400,
+                detail="DNS TXT record not found yet. Add it and retry (propagation can take minutes).",
+            )
+        method = "dns_txt"
     else:
         # ip/cloud/repo/saas/user: owner/admin attests ownership (audited via role).
         if user.role not in ("owner", "admin"):

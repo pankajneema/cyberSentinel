@@ -26,7 +26,7 @@ cd "$ROOT"
 
 # ---- config ----------------------------------------------------------------
 API_DIR="$ROOT/backend/api_service"
-WORKERS_DIR="$ROOT/backend/workers"
+WORKERS_DIR="$ROOT/worker"
 FRONTEND_DIR="$ROOT/frontend"
 REPORTING_DIR="$ROOT/backend/reporting"
 VENV="$API_DIR/venv"
