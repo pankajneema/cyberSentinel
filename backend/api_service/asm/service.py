@@ -16,10 +16,19 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.asm_models import AsmDiscovery
-from utils.queue import publish_message
+from models.asset_models import Asset
+from utils.database import AsyncSessionLocal
+from utils.queue import publish_message  # noqa: F401 (legacy; retained for reference)
+from utils.scan_publish import publish_scan_job
 from utils.schedule_math import compute_next_run
 
 logger = logging.getLogger("cybersentinel.asm")
+
+
+def _naive(dt):
+    """Drop tzinfo so tz-aware and naive datetimes compare cleanly (naive UTC).
+    Asset.last_scored_at is TZ-aware while other timestamps here are naive."""
+    return dt.replace(tzinfo=None) if dt is not None and dt.tzinfo is not None else dt
 
 QUEUE = "jobs.asm"
 
@@ -67,8 +76,43 @@ def build_job_message(discovery: AsmDiscovery) -> dict:
     }
 
 
+async def _resolve_targets(discovery: AsmDiscovery) -> list[str]:
+    """Resolve the concrete scan targets (domain names / IPs) for the worker.
+    MANUAL_ENTRY uses manual_targets; FROM_ASSET resolves asset names."""
+    if discovery.target_source == "MANUAL_ENTRY":
+        mt = discovery.manual_targets or []
+        return [str(t).strip() for t in mt if str(t).strip()] if isinstance(mt, list) else []
+    ids = discovery.asset_ids or []
+    if not isinstance(ids, list) or not ids:
+        return []
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(select(Asset.name).where(Asset.id.in_(ids)))).all()
+    return [r[0] for r in rows if r[0]]
+
+
 async def enqueue_discovery(discovery: AsmDiscovery) -> bool:
-    return await publish_message(QUEUE, build_job_message(discovery))
+    """Publish an ASM scan to the redesigned per-priority queue (asm.<priority>).
+
+    task_id IS the discovery id, so the reporting consumer writes findings with
+    asm_discovery_id = task_id. NOTE: a multi-asset discovery runs as ONE pipeline;
+    findings attribute to the first asset_id (single-asset is the common case).
+    """
+    targets = await _resolve_targets(discovery)
+    ids = discovery.asset_ids if isinstance(discovery.asset_ids, list) else []
+    return await publish_scan_job(
+        type="asm",
+        priority="medium",
+        task_id=discovery.id,
+        org_id=discovery.org_id,
+        asset_id=(ids[0] if ids else ""),
+        targets=targets,
+        mode=discovery.intensity or "NORMAL",
+        config={
+            "asset_type": discovery.asset_type,
+            "target_source": discovery.target_source,
+            "user_id": discovery.user_id,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +393,9 @@ async def auto_score_assets(db, limit: int = 200) -> int:
         ).scalars().all()
         for a in scored_assets:
             newest = latest_by_org.get(a.org_id)
-            if newest and a.last_scored_at and a.last_scored_at < newest and a.id not in already:
+            # Asset.last_scored_at is TZ-aware, AsmDiscovery.updated_at is naive —
+            # compare on a common (naive-UTC) basis to avoid a mixed-tz TypeError.
+            if newest and a.last_scored_at and _naive(a.last_scored_at) < _naive(newest) and a.id not in already:
                 candidates.append(a)
                 if len(candidates) >= limit:
                     break

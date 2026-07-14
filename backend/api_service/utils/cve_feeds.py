@@ -60,7 +60,9 @@ async def _upsert(db, rows: list[dict]) -> int:
     without clobbering each other's fields."""
     if not rows:
         return 0
-    now = datetime.now(timezone.utc)
+    # Naive UTC: vs_cve_metadata timestamps are TIMESTAMP WITHOUT TIME ZONE, and
+    # asyncpg rejects a tz-aware value for those columns.
+    now = datetime.utcnow()
     for r in rows:
         r["last_synced_at"] = now
     stmt = pg_insert(VsCveMetadata).values(rows)

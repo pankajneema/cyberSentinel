@@ -171,7 +171,7 @@ async def handle_final_event(event: dict[str, Any], redis_client=None) -> None:
                 logger.warning("CA hook org lookup failed: %s", e)
                 _org_id = None
             if _org_id:
-                from backend.reporting.ca_hook import trigger_ca_evaluation
+                from backend.reporting.ca.ca_hook import trigger_ca_evaluation
                 await trigger_ca_evaluation(_org_id, reason="asm_ingest")
         except Exception as e:
             logger.error("Failed to process pipeline for job %s: %s", job_id, e, exc_info=True)
@@ -254,9 +254,10 @@ async def main() -> None:
     logger.info("Starting ASM Reporting Consumer...")
     redis_client = await get_redis()
     try:
-        # Run the ASM and VS reporting consumers concurrently on their own queues.
-        from backend.reporting.vs.consumer import run_vs_consumer
-        await asyncio.gather(consume_events(redis_client), run_vs_consumer())
+        # Legacy report.asm consumer (pre-redesign). The current pipeline uses
+        # the per-service consumers instead:
+        #   python -m backend.reporting.asm | vs | ca
+        await consume_events(redis_client)
     except KeyboardInterrupt:
         logger.info("Shutdown requested")
     except Exception as e:

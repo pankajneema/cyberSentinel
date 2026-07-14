@@ -25,6 +25,7 @@ import {
   Upload,
   FileText,
   CheckCircle2,
+  Copy,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -76,7 +77,15 @@ import {
 } from "@/lib/api";
 import { useMe } from "@/hooks/useMe";
 import { exportRowsToCsv } from "@/lib/csv";
-import { importAssets, parseAssetsCsv, rescoreAsset, type RescoreResult } from "@/lib/services/assets";
+import {
+  importAssets,
+  parseAssetsCsv,
+  rescoreAsset,
+  getVerificationToken,
+  verifyOwnership,
+  type RescoreResult,
+  type VerificationToken,
+} from "@/lib/services/assets";
 
 const typeIcons: Record<string, typeof Globe> = {
   domain: Globe,
@@ -111,6 +120,74 @@ export function AssetInventory() {
   const [rescoringId, setRescoringId] = useState<string | null>(null);
   // Cache of the latest score breakdown per asset (for the detail sheet "why").
   const [scoreBreakdown, setScoreBreakdown] = useState<Record<string, RescoreResult>>({});
+
+  // ---- ownership verification (authorization-to-scan gate) ----
+  const [verifyAsset, setVerifyAsset] = useState<ApiAsset | null>(null);
+  const [verifyToken, setVerifyToken] = useState<VerificationToken | null>(null);
+  const [verifyLoading, setVerifyLoading] = useState(false);      // generating the token
+  const [verifySubmitting, setVerifySubmitting] = useState(false); // checking / attesting
+
+  const openVerify = async (asset: ApiAsset) => {
+    setVerifyAsset(asset);
+    setVerifyToken(null);
+    setVerifyLoading(true);
+    try {
+      setVerifyToken(await getVerificationToken(asset.id));
+    } catch (e: any) {
+      toast({ title: "Couldn't start verification", description: e?.message ?? "Please try again.", variant: "destructive" });
+      setVerifyAsset(null);
+    } finally {
+      setVerifyLoading(false);
+    }
+  };
+
+  const submitVerify = async () => {
+    if (!verifyAsset) return;
+    setVerifySubmitting(true);
+    try {
+      const res = await verifyOwnership(verifyAsset.id);
+      if (res.ownership_verified) {
+        setAssets((prev) => prev.map((a) => (a.id === verifyAsset.id ? { ...a, ownership_verified: true } : a)));
+        setSelectedAsset((s) => (s && s.id === verifyAsset.id ? { ...s, ownership_verified: true } : s));
+        toast({ title: "Ownership verified", description: `${verifyAsset.name} can now be scanned at any intensity.` });
+        setVerifyAsset(null);
+        setVerifyToken(null);
+      }
+    } catch (e: any) {
+      toast({
+        title: "Not verified yet",
+        description: e?.message ?? "Add the DNS TXT record, wait for propagation, then try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setVerifySubmitting(false);
+    }
+  };
+
+  // While the verify modal is open for a domain, auto-poll so the badge flips the
+  // moment DNS propagates — no manual "check again". (The server also re-checks in
+  // the background, so it verifies even if the customer closes the tab.)
+  useEffect(() => {
+    if (!verifyAsset || verifyAsset.type !== "domain" || !verifyToken) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await verifyOwnership(verifyAsset.id);
+        if (!cancelled && res.ownership_verified) {
+          setAssets((prev) => prev.map((a) => (a.id === verifyAsset.id ? { ...a, ownership_verified: true } : a)));
+          setSelectedAsset((s) => (s && s.id === verifyAsset.id ? { ...s, ownership_verified: true } : s));
+          toast({ title: "Ownership verified", description: `${verifyAsset.name} can now be scanned at any intensity.` });
+          setVerifyAsset(null);
+          setVerifyToken(null);
+        }
+      } catch {
+        /* not propagated yet — keep polling silently */
+      }
+    };
+    const id = setInterval(check, 12000);
+    return () => { cancelled = true; clearInterval(id); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verifyAsset, verifyToken]);
 
   const handleCsvFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -951,6 +1028,7 @@ export function AssetInventory() {
                 <th className="p-4 font-medium">Risk Score</th>
                 <th className="p-4 font-medium">Tags</th>
                 <th className="p-4 font-medium">Last Seen</th>
+                <th className="p-4 font-medium">Verified</th>
                 <th className="p-4 font-medium"></th>
               </tr>
             </thead>
@@ -1030,6 +1108,21 @@ export function AssetInventory() {
                       {asset.last_seen ?? "—"}
                     </td>
                     <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                      {asset.ownership_verified ? (
+                        <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium bg-success/10 text-success">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Verified
+                        </span>
+                      ) : canWrite ? (
+                        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => openVerify(asset)}>
+                          <Shield className="w-3.5 h-3.5 mr-1" /> Verify
+                        </Button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium bg-muted text-muted-foreground">
+                          Unverified
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-4" onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon">
@@ -1081,6 +1174,66 @@ export function AssetInventory() {
         )}
       </div>
 
+      {/* Ownership verification */}
+      <Dialog
+        open={!!verifyAsset}
+        onOpenChange={(o) => { if (!o) { setVerifyAsset(null); setVerifyToken(null); } }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5 text-primary" /> Verify ownership
+            </DialogTitle>
+            <DialogDescription>
+              {verifyAsset?.type === "domain"
+                ? `Prove you control ${verifyAsset?.name} to run active (NORMAL/DEEP) scans. Passive (LIGHT) scans never need this.`
+                : `Attest that your organization owns ${verifyAsset?.name}.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {verifyLoading ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">Generating token…</div>
+          ) : verifyAsset?.type === "domain" && verifyToken ? (
+            <ol className="space-y-3 text-sm">
+              <li>
+                <span className="font-medium">1.</span> Add this <span className="font-medium">TXT record</span> to{" "}
+                <span className="font-mono">{verifyAsset.name}</span>’s DNS:
+                <div className="mt-2 flex items-center gap-2">
+                  <code className="flex-1 text-xs bg-muted rounded-lg p-2 break-all">{verifyToken.dns_txt_record}</code>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => { navigator.clipboard.writeText(verifyToken.dns_txt_record); toast({ title: "Copied to clipboard" }); }}
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Host/Name: <span className="font-mono">@</span> (root) · Type: <span className="font-mono">TXT</span>
+                </div>
+              </li>
+              <li><span className="font-medium">2.</span> Wait a few minutes for DNS to propagate.</li>
+              <li>
+                <span className="font-medium">3.</span> That's it — we detect it <span className="font-medium">automatically</span>.
+                This dialog flips to verified the moment it propagates, and we keep re-checking in the background even if
+                you close it. (Or hit <span className="font-medium">Check now</span> to try immediately.)
+              </li>
+            </ol>
+          ) : (
+            <div className="py-4 text-sm text-muted-foreground">
+              As an owner/admin you can attest ownership of this {verifyAsset?.type}. Click below to confirm.
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => { setVerifyAsset(null); setVerifyToken(null); }}>Cancel</Button>
+            <Button onClick={submitVerify} disabled={verifySubmitting || verifyLoading}>
+              {verifySubmitting ? "Checking…" : verifyAsset?.type === "domain" ? "Check now" : "Attest ownership"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Asset Detail Sheet */}
       <Sheet open={!!selectedAsset && !isEditOpen} onOpenChange={() => setSelectedAsset(null)}>
         <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
@@ -1108,6 +1261,15 @@ export function AssetInventory() {
                       {rescoringId === selectedAsset.id ? "Rescoring…" : "Rescore"}
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => openEditDialog(selectedAsset)}><Edit className="w-4 h-4 mr-1" />Edit</Button>
+                    {selectedAsset.ownership_verified ? (
+                      <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium bg-success/10 text-success">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Ownership verified
+                      </span>
+                    ) : (
+                      <Button variant="outline" size="sm" onClick={() => openVerify(selectedAsset)}>
+                        <Shield className="w-4 h-4 mr-1" /> Verify ownership
+                      </Button>
+                    )}
                   </div>
                 )}
 

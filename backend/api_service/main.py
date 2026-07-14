@@ -164,6 +164,10 @@ from routes import ws as ws_route  # realtime WebSocket (/ws/realtime)
 app.include_router(ws_route.router)
 from routes import internal_vs  # internal (worker-only) VS credential materialize
 app.include_router(internal_vs.router)
+from routes import scan_events  # SSE live scan progress (/api/v1/scans/events)
+app.include_router(scan_events.router)
+from routes import internal_scans  # internal enqueue → redesigned priority queues
+app.include_router(internal_scans.router)
 app.include_router(tasks.router)
 app.include_router(marketing.router)
 

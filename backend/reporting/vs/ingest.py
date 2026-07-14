@@ -29,7 +29,7 @@ from backend.api_service.scoring.vs_correlation import (
     build_corroboration, corroborated_confidence, confidence_rank, is_corroborated,
 )
 from backend.api_service.utils.constants import SLA_DAYS
-from backend.reporting.sanitize import clean_str, clean_deep
+from backend.api_service.utils.sanitize import clean_str, clean_deep
 
 logger = logging.getLogger("cybersentinel.reporting.vs")
 _RESOLVED_STATES = {"remediated", "verified", "closed", "accepted_risk", "false_positive"}
@@ -250,7 +250,7 @@ async def ingest_vs_result(db, payload: dict) -> dict:
     # Continuous compliance: re-evaluate CA controls fed by VS data the moment
     # new results land. Isolated session + best-effort — a CA failure can never
     # affect scan-result persistence.
-    from backend.reporting.ca_hook import trigger_ca_evaluation
+    from backend.reporting.ca.ca_hook import trigger_ca_evaluation
     await trigger_ca_evaluation(org_id, reason="vs_ingest")
 
     return stats

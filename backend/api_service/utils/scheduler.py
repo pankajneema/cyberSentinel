@@ -100,6 +100,14 @@ async def _tick() -> int:
         except Exception as exc:  # noqa: BLE001
             logger.warning("CA evaluation pass failed: %s", exc)
 
+        # 4c) Auto-verify domain ownership: a customer who added the DNS TXT
+        #     record — and maybe closed the tab — gets flipped to verified here
+        #     within one tick, so nobody has to sit and click "check again".
+        try:
+            await _recheck_pending_ownership(db)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ownership re-check pass failed: %s", exc)
+
     # 5) Refresh VS CVE intelligence (KEV/EPSS/NVD) ~daily, off the tick's
     #    session and non-blocking so a slow feed can't stall scheduling.
     _maybe_launch_cve_sync(now)
@@ -213,6 +221,40 @@ async def _run_due_ca_evaluations(db, now: datetime, batch: int = 10) -> int:
             logger.warning("CA evaluation failed for org %s: %s", org_id, exc)
             await db.rollback()
     return n
+
+
+async def _recheck_pending_ownership(db, batch: int = 50) -> int:
+    """Auto-verify domains whose DNS TXT record has appeared.
+
+    Picks domain assets that have a verification token but aren't verified yet,
+    re-resolves their TXT record, and flips ownership_verified when it matches —
+    so a customer who added the record and left still gets verified within a tick.
+    """
+    from models.asset_models import Asset
+    from utils.ownership_verify import domain_txt_matches
+
+    pending = (
+        await db.execute(
+            select(Asset).where(
+                Asset.type == "domain",
+                Asset.ownership_verified.is_(False),
+                Asset.verification_token.isnot(None),
+            ).limit(batch)
+        )
+    ).scalars().all()
+
+    verified = 0
+    for a in pending:
+        try:
+            if await domain_txt_matches(a.name, a.verification_token):
+                a.ownership_verified = True
+                verified += 1
+                logger.info("ownership auto-verified: %s (%s)", a.name, a.id)
+        except Exception as exc:  # noqa: BLE001 — one asset's DNS failure must not block others
+            logger.debug("ownership re-check failed for %s: %s", a.name, exc)
+    if verified:
+        await db.commit()
+    return verified
 
 
 async def scheduler_loop(poll_seconds: int = POLL_SECONDS) -> None:

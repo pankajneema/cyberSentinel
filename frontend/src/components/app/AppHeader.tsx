@@ -10,8 +10,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Link, useNavigate } from "react-router-dom";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMe } from "@/hooks/useMe";
+import { useRealtime } from "@/hooks/useRealtime";
 import {
   fetchNotifications,
   getUnreadCount,
@@ -60,20 +61,24 @@ export function AppHeader() {
   const [unread, setUnread] = useState(0);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loadingNotifs, setLoadingNotifs] = useState(false);
+  const { events } = useRealtime();
+  const seenEventIds = useRef<Set<string>>(new Set());
+  const seededRef = useRef(false);
+  const notifOpenRef = useRef(false);
 
   const refreshUnread = useCallback(async () => {
     try {
       const { count } = await getUnreadCount();
       setUnread(count);
     } catch {
-      /* ignore polling errors */
+      /* ignore */
     }
   }, []);
 
+  // Fetch the count ONCE. No polling — the badge is kept live by realtime events
+  // (below) and re-synced from the DB whenever the bell is opened.
   useEffect(() => {
     refreshUnread();
-    const id = setInterval(refreshUnread, 30000);
-    return () => clearInterval(id);
   }, [refreshUnread]);
 
   const loadNotifications = useCallback(async () => {
@@ -87,15 +92,35 @@ export function AppHeader() {
     }
   }, []);
 
+  // Event-driven unread count: each realtime notification bumps the badge (+1)
+  // with no API call. Its row is already persisted by the notification consumer,
+  // so opening the bell (or a page refresh) renders it straight from the DB.
+  useEffect(() => {
+    if (!seededRef.current) {
+      events.forEach((e) => seenEventIds.current.add(e.id)); // don't count pre-existing
+      seededRef.current = true;
+      return;
+    }
+    const fresh = events.filter((e) => !seenEventIds.current.has(e.id));
+    if (fresh.length === 0) return;
+    fresh.forEach((e) => seenEventIds.current.add(e.id));
+    setUnread((u) => u + fresh.length);
+    if (notifOpenRef.current) loadNotifications(); // live-refresh the open list
+  }, [events, loadNotifications]);
+
   const onNotifOpenChange = (open: boolean) => {
-    if (open) loadNotifications();
+    notifOpenRef.current = open;
+    if (open) {
+      loadNotifications();
+      refreshUnread(); // re-sync the badge with the DB (on-demand, not polling)
+    }
   };
 
   const toggleRead = async (n: Notification) => {
     try {
       const updated = n.is_read ? await markUnread(n.id) : await markRead(n.id);
       setNotifications((prev) => prev.map((x) => (x.id === n.id ? updated : x)));
-      refreshUnread();
+      setUnread((u) => Math.max(0, u + (n.is_read ? 1 : -1)));
     } catch {
       toast({ title: "Could not update notification" });
     }
@@ -105,7 +130,8 @@ export function AppHeader() {
     if (!n.is_read) {
       try {
         await markRead(n.id);
-        refreshUnread();
+        setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)));
+        setUnread((u) => Math.max(0, u - 1));
       } catch {
         /* ignore */
       }

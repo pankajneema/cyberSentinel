@@ -20,7 +20,7 @@ from backend.api_service.models.asm_models import (
     AsmPort, AsmService, AsmSSLCert, AsmAPIEndpoint,
     AsmCloudResource, AsmAdminEndpoint, AsmBackupFile, AsmChange
 )
-from backend.reporting.sanitize import (
+from backend.api_service.utils.sanitize import (
     clean_str, clean_deep, clean_str_stripped, clean_deep_stripped, strip_ansi,
 )
 from backend.reporting.asm.assets.common import ensure_discovery_run
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # sslscan emits a human-readable date for the certificate expiry (often ANSI-
 # colored). It must be cleaned + parsed before it hits the TIMESTAMP column,
 # otherwise the whole SSL insert fails (asyncpg DataError on the date).
-# All ANSI/HTML sanitization itself lives in backend.reporting.sanitize.
+# All ANSI/HTML sanitization itself lives in backend.api_service.utils.sanitize.
 _CERT_DATE_FORMATS = (
     "%b %d %H:%M:%S %Y",        # sslscan: "Nov 26 23:59:59 2026" (after stripping TZ)
     "%Y-%m-%dT%H:%M:%S",

@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api_service.models.asm_models import AsmDiscovery, AsmRepoFinding
 from backend.reporting.asm.assets.common import ensure_discovery_run
 from backend.reporting.asm.assets.domain import get_user_id_from_discovery
-from backend.reporting.sanitize import clean_str, clean_deep
+from backend.api_service.utils.sanitize import clean_str, clean_deep
 
 logger = logging.getLogger(__name__)
 

@@ -50,6 +50,13 @@ services:
       context: .
       dockerfile: backend/api_service/Dockerfile
     env_file: [./backend/api_service/.env]
+    # Inside the compose network, reach infra by SERVICE NAME (the .env uses
+    # localhost, which is correct only when services run on the host).
+    environment: &svc_hosts
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-cybersentinel}
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
     ports: ["8000:8000"]
     depends_on:
       postgres: {condition: service_healthy}
@@ -57,28 +64,43 @@ services:
       rabbitmq: {condition: service_healthy}
     restart: unless-stopped
 
-  # Single worker binary: runs both ASM (in-process pipeline) and VS jobs.
+  # Single worker binary: the redesigned scan-execution engine (ASM + VS + CA).
   consumer:
     build:
       context: .
-      dockerfile: backend/workers/deploy/Dockerfile
-    command: ["consumer"]
-    env_file: [./backend/workers/.env]
+      dockerfile: worker/deploy/Dockerfile
+    env_file: [./worker/.env]
+    environment:
+      POSTGRESQL_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-cybersentinel}?sslmode=disable
+      REDISADDR: redis:6379
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
     depends_on:
       rabbitmq: {condition: service_healthy}
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
     restart: unless-stopped
 
-  reporting:
+  # Reporting consumers — one per service (reporting.asm/vs/ca). They reuse the
+  # api image (same deps + backend code); only the command differs.
+  reporting-asm: &reporting
     build:
       context: .
-      dockerfile: backend/reporting/Dockerfile
+      dockerfile: backend/api_service/Dockerfile
     env_file: [./backend/api_service/.env]
+    environment:
+      <<: *svc_hosts
+      PYTHONPATH: /app:/app/backend:/app/backend/api_service
+    command: ["python", "-m", "backend.reporting.asm"]
     depends_on:
       postgres: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
     restart: unless-stopped
+  reporting-vs:
+    <<: *reporting
+    command: ["python", "-m", "backend.reporting.vs"]
+  reporting-ca:
+    <<: *reporting
+    command: ["python", "-m", "backend.reporting.ca"]
 
   frontend:
     build:
