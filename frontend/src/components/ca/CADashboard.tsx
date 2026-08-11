@@ -26,6 +26,7 @@ export function CADashboard({ canWrite, onNavigateToFrameworks, onNavigateToGaps
   const [trend, setTrend] = useState<CaTrendPoint[]>([]);
   const [selectedFw, setSelectedFw] = useState<string>("");
   const [slaBreaches, setSlaBreaches] = useState(0);
+  const [openGaps, setOpenGaps] = useState(0);
   const [loading, setLoading] = useState(true);
   const [evaluating, setEvaluating] = useState(false);
   const [reload, setReload] = useState(0);
@@ -39,6 +40,7 @@ export function CADashboard({ canWrite, onNavigateToFrameworks, onNavigateToGaps
         if (cancelled) return;
         setPosture(p.items);
         setSlaBreaches(g.sla_breaches);
+        setOpenGaps(g.by_status.open ?? 0);
         if (p.items.length && !p.items.find((i) => i.framework_id === selectedFw)) {
           setSelectedFw(p.items[0].framework_id);
         }
@@ -66,10 +68,9 @@ export function CADashboard({ canWrite, onNavigateToFrameworks, onNavigateToGaps
   const totals = posture.reduce(
     (acc, p) => ({
       satisfied: acc.satisfied + p.counts.satisfied,
-      gap: acc.gap + p.counts.gap,
       unknown: acc.unknown + p.counts.unknown,
     }),
-    { satisfied: 0, gap: 0, unknown: 0 },
+    { satisfied: 0, unknown: 0 },
   );
 
   const handleEvaluate = async () => {
@@ -107,7 +108,7 @@ export function CADashboard({ canWrite, onNavigateToFrameworks, onNavigateToGaps
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 flex-1 min-w-0">
           <StatCard label="Controls satisfied" value={totals.satisfied} icon={ShieldCheck} variant="success" />
-          <StatCard label="Open gaps" value={totals.gap} icon={ShieldAlert} variant="critical" onClick={onNavigateToGaps} />
+          <StatCard label="Open gaps" value={openGaps} icon={ShieldAlert} variant="critical" onClick={onNavigateToGaps} />
           <StatCard label="Not assessed" value={totals.unknown} icon={HelpCircle} />
           <StatCard label="Gap SLA breaches" value={slaBreaches} icon={AlarmClock} variant={slaBreaches ? "warning" : "default"} onClick={onNavigateToGaps} />
         </div>

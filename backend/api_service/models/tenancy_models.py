@@ -1,13 +1,10 @@
 """
-Tenancy models for the Supabase-auth era.
+Tenancy models.
 
-These are additive and keyed by the Supabase user id (the JWT `sub`). They are
-the new source of truth for *who belongs to which org and with what role*.
-Application data (assets, ASM, reporting) will gain an `org_id` FK to
-`organizations.id` during Phase 3.
-
-Identity (passwords, email verification, OAuth, MFA) lives entirely in
-Supabase. We never store credentials here.
+Keyed by our own `users.id` (see user_models.py). These are the source of
+truth for *who belongs to which org and with what role*. Identity
+(passwords, OAuth) lives in `users`/`oauth_identities` — this module only
+holds membership/role/profile data, never credentials.
 """
 
 from datetime import datetime
@@ -31,7 +28,7 @@ class Organization(Base):
     id = Column(String, primary_key=True, default=_uuid)
     name = Column(String, nullable=False)
     plan = Column(String, nullable=False, default="starter")
-    owner_user_id = Column(String, nullable=False, index=True)  # Supabase sub of the owner
+    owner_user_id = Column(String, nullable=False, index=True)  # users.id of the owner
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -40,18 +37,18 @@ class Organization(Base):
 
 class MemberProfile(Base):
     """
-    One row per (org, supabase user). Holds the app-side role and the synced
-    profile fields. `supabase_user_id` is the JWT `sub`.
+    One row per (org, user). Holds the app-side role and the synced profile
+    fields. `user_id` points at `users.id`.
     """
 
     __tablename__ = "member_profiles"
     __table_args__ = (
-        UniqueConstraint("org_id", "supabase_user_id", name="uq_org_member"),
+        UniqueConstraint("org_id", "user_id", name="uq_org_member"),
     )
 
     id = Column(String, primary_key=True, default=_uuid)
     org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
-    supabase_user_id = Column(String, nullable=False, index=True)  # JWT sub (uuid)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     email = Column(String, nullable=False, index=True)
     full_name = Column(String, nullable=True)
     role = Column(String, nullable=False, default="reader")  # owner | admin | analyst | reader
@@ -71,12 +68,12 @@ class MemberSettings(Base):
 
     __tablename__ = "member_settings"
     __table_args__ = (
-        UniqueConstraint("org_id", "supabase_user_id", name="uq_org_member_settings"),
+        UniqueConstraint("org_id", "user_id", name="uq_org_member_settings"),
     )
 
     id = Column(String, primary_key=True, default=_uuid)
     org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
-    supabase_user_id = Column(String, nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     notifications = Column(JSON, nullable=False, default=dict)
     preferences = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -97,7 +94,7 @@ class OrgInvite(Base):
     role = Column(String, nullable=False, default="reader")  # admin | analyst | reader
     token = Column(String, nullable=False, unique=True, index=True)
     status = Column(String, nullable=False, default="pending")  # pending | accepted | declined | revoked
-    invited_by = Column(String, nullable=False)  # Supabase sub of inviter
+    invited_by = Column(String, nullable=False)  # users.id of inviter
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     responded_at = Column(DateTime, nullable=True)
@@ -110,7 +107,7 @@ class AuditLog(Base):
 
     id = Column(String, primary_key=True, default=_uuid)
     org_id = Column(String, index=True, nullable=True)
-    actor_user_id = Column(String, index=True, nullable=True)  # Supabase sub
+    actor_user_id = Column(String, index=True, nullable=True)  # users.id
     action = Column(String, nullable=False)                    # e.g. member.invited
     target = Column(String, nullable=True)                     # affected entity id/email
     meta = Column(JSON, nullable=False, default=dict)

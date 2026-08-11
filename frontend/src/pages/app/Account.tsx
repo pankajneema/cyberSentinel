@@ -39,9 +39,10 @@ import {
 } from "@/lib/services/auth";
 import { useMe, refreshMe } from "@/hooks/useMe";
 import { getCurrentPlan, listInvoices } from "@/lib/services/billing";
-import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function Account() {
+  const { updatePassword } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [profile, setProfile] = useState<{ full_name: string; email: string; phone?: string; country?: string; avatar_url?: string; role?: string; is_superadmin?: boolean } | null>(null);
   const [profileForm, setProfileForm] = useState({
@@ -64,7 +65,7 @@ export default function Account() {
   const isSuperadmin = profile?.is_superadmin;
   const isAnalystOrReader = role === "analyst" || role === "reader";
 
-  // Identity + profile from the verified Supabase session.
+  // Identity + profile from the verified session.
   const { me, loading: meLoading } = useMe();
 
   useEffect(() => {
@@ -210,6 +211,10 @@ export default function Account() {
   };
 
   const handleChangePassword = async () => {
+    if (!passwordForm.current) {
+      toast({ title: "Missing fields", description: "Enter your current password." });
+      return;
+    }
     if (!passwordForm.next) {
       toast({ title: "Missing fields", description: "Enter a new password." });
       return;
@@ -223,9 +228,7 @@ export default function Account() {
       return;
     }
     try {
-      // Supabase updates the password for the currently signed-in user.
-      const { error } = await supabase.auth.updateUser({ password: passwordForm.next });
-      if (error) throw error;
+      await updatePassword(passwordForm.current, passwordForm.next);
       setPasswordForm({ current: "", next: "", confirm: "" });
       toast({ title: "Password Updated", description: "Your password was changed." });
     } catch (error: any) {

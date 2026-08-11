@@ -1,5 +1,6 @@
-// Forgot password — sends a Supabase recovery email. Replaces the old stub
-// endpoint that silently did nothing (audit H-2).
+// Forgot password — requests a reset link (see routes/auth.py forgot-password;
+// no email delivery exists yet, so the link is logged server-side in dev).
+// Replaces the old stub endpoint that silently did nothing (audit H-2).
 
 import { useState } from "react";
 import { Link } from "react-router-dom";

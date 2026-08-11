@@ -36,10 +36,9 @@ class Settings:
     RABBITMQ_USER: str = os.getenv("RABBITMQ_USER", "guest")
     RABBITMQ_PASSWORD: str = os.getenv("RABBITMQ_PASSWORD", "guest")
 
-    # -------------------- JWT (legacy — being removed) -------------------------
-    # Supabase now signs/verifies all tokens. These remain ONLY until the legacy
-    # auth routes are deleted. No hardcoded fallbacks: empty unless explicitly set.
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "")
+    # -------------------- JWT (self-issued) -------------------------
+    # We are the identity provider: we sign and verify our own access/refresh
+    # tokens. No hardcoded fallback for the secret — empty unless explicitly set.
     JWT_SECRET: str = os.getenv("JWT_SECRET", "")
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
 
@@ -49,16 +48,21 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
         os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
     )
+    REFRESH_TOKEN_EXPIRE_DAYS: int = int(
+        os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30")
+    )
 
-    # -------------------- Supabase (identity provider) --------------------
-    # Supabase owns ALL authentication. The backend only validates its JWTs.
-    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
-    # HS256 projects: set the project's JWT secret. Leave empty to use JWKS (RS256).
-    SUPABASE_JWT_SECRET: str = os.getenv("SUPABASE_JWT_SECRET", "")
-    # Service-role key only for admin actions (invites, role changes). Never expose to client.
-    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-    # Shared secret for the Supabase DB webhook (user.created/deleted provisioning).
-    SUPABASE_WEBHOOK_SECRET: str = os.getenv("SUPABASE_WEBHOOK_SECRET", "")
+    # -------------------- OAuth (Google / GitHub) --------------------
+    # Optional: unset providers return a 503 from their /oauth/{provider} route
+    # rather than failing app startup — OAuth is additive, not a hard requirement.
+    GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    GITHUB_CLIENT_ID: str = os.getenv("GITHUB_CLIENT_ID", "")
+    GITHUB_CLIENT_SECRET: str = os.getenv("GITHUB_CLIENT_SECRET", "")
+    # Base URL this API is reachable at, used to build OAuth callback URLs.
+    OAUTH_REDIRECT_BASE_URL: str = os.getenv("OAUTH_REDIRECT_BASE_URL", "http://localhost:8000")
+    # Frontend origin, used for post-auth redirects (OAuth callback, password reset links).
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:8080")
 
     # -------------------- ClickHouse ------------------
     CLICKHOUSE_URL: str = os.getenv(
@@ -95,15 +99,12 @@ if not settings.DATABASE_URL:
         "DATABASE_URL is not set. Check your .env file loading."
     )
 
-# Fail fast on misconfigured identity. Supabase must be configured (a JWT
-# secret for HS256, or a URL for JWKS/RS256) or the API cannot authenticate.
-if not settings.SUPABASE_URL:
+# Fail fast on misconfigured identity. We sign our own tokens, so a real
+# secret is mandatory or the API cannot issue or verify sessions.
+if not settings.JWT_SECRET:
     raise RuntimeError(
-        "SUPABASE_URL is not set. Supabase is the identity provider; configure it in .env."
-    )
-if not settings.SUPABASE_JWT_SECRET and not settings.SUPABASE_URL:
-    raise RuntimeError(
-        "Set SUPABASE_JWT_SECRET (HS256) or rely on SUPABASE_URL JWKS (RS256)."
+        "JWT_SECRET is not set. Required to sign/verify access tokens. "
+        'Generate one: python -c "import secrets; print(secrets.token_urlsafe(48))"'
     )
 
 # In production, never run with permissive CORS or empty origins.

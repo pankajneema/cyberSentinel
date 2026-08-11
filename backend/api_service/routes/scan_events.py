@@ -1,13 +1,13 @@
 """Server-Sent Events stream of live scan task/stage progress.
 
-    GET /api/v1/scans/events?token=<supabase-access-token>
+    GET /api/v1/scans/events?token=<access-token>
 
 The Go worker publishes task/stage events to the Redis pub/sub channel
 ``task_events:{org_id}`` (see worker/core/events.go). This endpoint subscribes to
 the caller's org channel and streams each event to the browser as SSE. The
 browser never touches Redis directly.
 
-Auth: EventSource can't set Authorization headers, so the Supabase access token
+Auth: EventSource can't set Authorization headers, so the access token
 is passed as the ``token`` query param and verified exactly like the WebSocket
 endpoint (reusing its identity resolver).
 """
@@ -24,7 +24,7 @@ from fastapi.responses import StreamingResponse
 from routes.ws import _resolve_identity  # token -> (user_id, org_id)
 from utils.redis_client import get_redis
 from utils.scan_contracts import cancel_key, events_channel, task_key
-from utils.supabase_auth import CurrentUser, get_current_user
+from utils.auth import CurrentUser, get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/scans", tags=["scan-events"])

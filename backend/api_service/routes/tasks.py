@@ -1,5 +1,5 @@
 """
-Tasks route (org-scoped, Supabase identity).
+Tasks route (org-scoped, identity).
 
 Team tasks and their message threads are persisted in PostgreSQL and scoped to
 the caller's organization. Every query filters by `user.org_id`; a task (or its
@@ -18,7 +18,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from utils.database import get_db
-from utils.supabase_auth import CurrentUser, get_current_user
+from utils.auth import CurrentUser, get_current_user
 from utils.tenancy import require_org
 from utils.ownership import get_owned_or_404
 from models.task_models import Task as TaskModel, TaskMessage as TaskMessageModel

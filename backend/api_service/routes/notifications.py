@@ -1,12 +1,12 @@
 """
-Notifications — real, org-scoped + recipient-scoped (Supabase identity).
+Notifications — real, org-scoped + recipient-scoped (identity).
 
 Producers for dedicated Notification rows can be added later; until then the
 feed is seeded read-only from the org's real `audit_logs` so it never shows
 fabricated content. Preferences persist per user.
 
 Tenancy pattern mirrors routes/assets.py: CurrentUser + require_org, every query
-filtered by org_id AND user_id (the recipient's Supabase sub).
+filtered by org_id AND user_id (the recipient's user id).
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
 
 from utils.database import get_db
-from utils.supabase_auth import CurrentUser, get_current_user
+from utils.auth import CurrentUser, get_current_user
 from utils.tenancy import require_org
 from utils.ownership import get_owned_or_404
 from models.notification_models import Notification, NotificationPreference

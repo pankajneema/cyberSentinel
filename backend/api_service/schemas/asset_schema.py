@@ -2,6 +2,12 @@ from pydantic import BaseModel
 from typing import List, Optional, Literal
 
 
+class ScoreFactorResponse(BaseModel):
+    name: str
+    points: float
+    detail: str
+
+
 # ---------------------------------------------------
 # Asset Response
 # ---------------------------------------------------
@@ -12,6 +18,7 @@ class AssetResponse(BaseModel):
     exposure: str
     criticality: str = "normal"
     risk_score: Optional[int] = None      # None = never scored ("Unscanned")
+    risk_factors: Optional[List[ScoreFactorResponse]] = None
     last_scored_at: Optional[str] = None
     tags: List[str]
     status: str
@@ -80,12 +87,6 @@ class AssetImportResult(BaseModel):
 # ---------------------------------------------------
 # Rescore (real exposure scoring from ASM data)
 # ---------------------------------------------------
-class ScoreFactorResponse(BaseModel):
-    name: str
-    points: float
-    detail: str
-
-
 class AssetRescoreResult(BaseModel):
     scored: bool                       # False => no ASM scan data matched this asset
     risk_score: Optional[int] = None

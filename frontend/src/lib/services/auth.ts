@@ -2,12 +2,10 @@ import { apiFetch } from "../api";
 
 // Types
 export interface SignupPayload {
-  company_name: string;
-  full_name: string;
   email: string;
   password: string;
-  role: string;
-  country: string;
+  full_name: string;
+  company_name?: string;
 }
 
 export interface LoginPayload {
@@ -17,17 +15,23 @@ export interface LoginPayload {
 
 export interface AuthResponse {
   access_token: string;
+  refresh_token: string;
   token_type: string;
   user: {
     id: string;
     email: string;
-    full_name: string;
+    full_name: string | null;
     role: string;
   };
 }
 
-export interface MagicLinkPayload {
-  email: string;
+export interface RefreshPayload {
+  refresh_token: string;
+}
+
+export interface LogoutPayload {
+  refresh_token?: string;
+  all?: boolean;
 }
 
 export interface ForgotPasswordPayload {
@@ -36,6 +40,11 @@ export interface ForgotPasswordPayload {
 
 export interface ResetPasswordPayload {
   token: string;
+  new_password: string;
+}
+
+export interface ChangePasswordPayload {
+  current_password: string;
   new_password: string;
 }
 
@@ -54,12 +63,39 @@ export function login(payload: LoginPayload) {
   });
 }
 
-// logout / magic-link / refresh / forgot-password / reset-password are now
-// handled entirely by Supabase (see contexts/AuthContext.tsx). The old backend
-// stubs were removed in Phase 1.
+export function refresh(payload: RefreshPayload) {
+  return apiFetch<AuthResponse>("/auth/refresh", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
 
-export function verifyToken() {
-  return apiFetch<{ valid: boolean; user: any }>("/auth/verify");
+export function logout(payload: LogoutPayload) {
+  return apiFetch<{ message: string }>("/auth/logout", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function forgotPassword(payload: ForgotPasswordPayload) {
+  return apiFetch<{ message: string }>("/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function resetPassword(payload: ResetPasswordPayload) {
+  return apiFetch<{ message: string }>("/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function changePassword(payload: ChangePasswordPayload) {
+  return apiFetch<{ message: string }>("/auth/password", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
 }
 
 export interface MeResponse {
@@ -74,7 +110,7 @@ export interface MeResponse {
   country: string | null;
 }
 
-/** Verified identity + synced profile/org/role (Supabase era). */
+/** Verified identity + synced profile/org/role. */
 export function getMe() {
   return apiFetch<MeResponse>("/auth/me");
 }

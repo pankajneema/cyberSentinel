@@ -121,10 +121,19 @@ func Run(ctx context.Context, svc Service, job Job) (err error) {
 		emitStage(taskCtx, task, *stage, progress(i+1, total))
 	}
 
+	// Use a fresh, undeadlined context for this final state transition (matching
+	// the panic-recovery path above and finishCancelled's lease-clear): taskCtx
+	// carries the per-task execution deadline, and when total stage time runs
+	// right up against TASK_TIMEOUT_SECONDS, taskCtx can expire between the
+	// stage loop finishing and this persist — silently dropping the Redis write
+	// (error discarded) while leaving Status=RUNNING on record. The reaper later
+	// finds that stale RUNNING state with no lease and "correctly" (by its own
+	// logic) marks an already-successfully-completed task FAILED.
+	finalCtx := context.Background()
 	task.Status = StateCompleted
-	_ = task.persist(taskCtx)
-	emitTask(taskCtx, task, 100)
-	publishTerminal(taskCtx, task)
+	_ = task.persist(finalCtx)
+	emitTask(finalCtx, task, 100)
+	publishTerminal(finalCtx, task)
 	return nil
 }
 
@@ -183,6 +192,14 @@ func finishCancelled(ctx context.Context, task *Task, from int) error {
 // publishTerminal hands a terminal task summary to the reporting queue. Findings
 // themselves are shipped per-stage by the service's SaveFindings; this is the
 // "task is done" marker Python uses to finalize the run + notify.
+//
+// "targets" echoes the original job's target list (task.job.Targets — the plain
+// host list every service is published with) so a consumer that ran cleanly and
+// found nothing can still tell "we scanned N targets, 0 findings" apart from
+// "nothing was ever dispatched". VS's reporting consumer (backend/reporting/
+// vs/consumer.py) reads this to build its per-target "scanned" status instead of
+// inferring it from findings, which was empty (and thus indistinguishable from
+// an undispatched scan) whenever a real scan legitimately found nothing.
 func publishTerminal(ctx context.Context, task *Task) {
 	msg := map[string]any{
 		"type":     task.Service,
@@ -192,6 +209,8 @@ func publishTerminal(ctx context.Context, task *Task) {
 		"asset_id": task.AssetID,
 		"status":   string(task.Status),
 		"stages":   task.Stages,
+		"targets":  task.job.Targets,
+		"config":   task.job.Config,
 	}
 	if err := PublishReport(ctx, task.Service, msg); err != nil {
 		utils.Logger.Warnf("reporting publish failed for task=%s: %v", task.TaskID, err)

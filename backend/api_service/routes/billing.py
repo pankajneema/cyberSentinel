@@ -4,9 +4,8 @@ from sqlalchemy import select
 from typing import List
 
 from utils.database import get_db
-from utils.supabase_auth import CurrentUser, get_current_user
+from utils.auth import CurrentUser, get_current_user
 from models.billing_model import Subscription, Invoice
-from models.auth_models import User, Company
 from schemas.billing_schema import (
     SubscriptionRequest,
     SubscriptionResponse,
@@ -19,19 +18,10 @@ router = APIRouter(
 )
 
 
-async def _require_superadmin(
-    db: AsyncSession,
-    current_user: CurrentUser,
-):
-    user_res = await db.execute(select(User).where(User.id == current_user.user_id))
-    user = user_res.scalar_one_or_none()
-    if not user or not user.company_id:
-        raise HTTPException(status_code=404, detail="Account not found")
-    company_res = await db.execute(select(Company).where(Company.id == user.company_id))
-    company = company_res.scalar_one_or_none()
-    if not company or company.owner_user_id != user.id:
-        raise HTTPException(status_code=403, detail="Only superadmin can access billing")
-    return user
+def _require_superadmin(current_user: CurrentUser) -> CurrentUser:
+    if current_user.role != "owner":
+        raise HTTPException(status_code=403, detail="Only the org owner can access billing")
+    return current_user
 
 # ---------------------------------------------------
 # Get current subscription
@@ -41,8 +31,8 @@ async def get_plan(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    user = await _require_superadmin(db, current_user)
-    user_id = user.id
+    _require_superadmin(current_user)
+    user_id = current_user.user_id
 
     result = await db.execute(
         select(Subscription).where(Subscription.user_id == user_id)
@@ -68,8 +58,8 @@ async def subscribe(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    user = await _require_superadmin(db, current_user)
-    user_id = user.id
+    _require_superadmin(current_user)
+    user_id = current_user.user_id
 
     result = await db.execute(
         select(Subscription).where(Subscription.user_id == user_id)
@@ -106,8 +96,8 @@ async def upgrade_plan(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    user = await _require_superadmin(db, current_user)
-    user_id = user.id
+    _require_superadmin(current_user)
+    user_id = current_user.user_id
     new_plan = plan_data.get("plan")
 
     if not new_plan:
@@ -135,8 +125,8 @@ async def cancel_subscription(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    user = await _require_superadmin(db, current_user)
-    user_id = user.id
+    _require_superadmin(current_user)
+    user_id = current_user.user_id
 
     result = await db.execute(
         select(Subscription).where(Subscription.user_id == user_id)
@@ -160,8 +150,8 @@ async def list_invoices(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    user = await _require_superadmin(db, current_user)
-    user_id = user.id
+    _require_superadmin(current_user)
+    user_id = current_user.user_id
 
     result = await db.execute(
         select(Invoice).where(Invoice.user_id == user_id)
@@ -178,8 +168,8 @@ async def get_invoice(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    user = await _require_superadmin(db, current_user)
-    user_id = user.id
+    _require_superadmin(current_user)
+    user_id = current_user.user_id
 
     result = await db.execute(
         select(Invoice).where(

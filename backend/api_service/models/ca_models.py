@@ -392,7 +392,7 @@ class CaPolicyAck(Base):
     id = Column(String, primary_key=True, default=_uuid)
     org_id = Column(String, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     policy_version_id = Column(String, ForeignKey("ca_policy_versions.id", ondelete="CASCADE"), nullable=False, index=True)
-    member_user_id = Column(String, nullable=False)  # Supabase sub
+    member_user_id = Column(String, nullable=False)  # user id
     acked_at = Column(DateTime, server_default=func.now())
 
     __table_args__ = (UniqueConstraint("policy_version_id", "member_user_id", name="uq_ca_ack"),)
@@ -500,7 +500,7 @@ class CaAttestation(Base):
 # ---------------------------------------------------------------------------
 class CaAuditTrail(Base):
     """Append-only, hash-chained per org. UPDATE/DELETE revoked at DB level in
-    the migration. actor_user_id: Supabase sub | NULL=system | "auditor:<grant_id>"."""
+    the migration. actor_user_id: user id | NULL=system | "auditor:<grant_id>"."""
     __tablename__ = "ca_audit_trail"
 
     id = Column(String, primary_key=True, default=_uuid)

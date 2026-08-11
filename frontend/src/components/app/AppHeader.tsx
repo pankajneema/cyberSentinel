@@ -21,7 +21,7 @@ import {
   markUnread,
   type Notification,
 } from "@/lib/services/notifications";
-import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 
 function timeAgo(iso?: string | null): string {
@@ -42,7 +42,8 @@ function timeAgo(iso?: string | null): string {
 export function AppHeader() {
   const navigate = useNavigate();
   const { me } = useMe();
-  // Real identity from the verified Supabase session.
+  const { signOut } = useAuth();
+  // Real identity from the verified session.
   const profile = useMemo(
     () =>
       me
@@ -280,7 +281,7 @@ export function AppHeader() {
             <DropdownMenuItem
               onClick={async () => {
                 try {
-                  await supabase.auth.signOut();
+                  await signOut();
                 } catch {
                   toast({ title: "Sign out failed", description: "Please try again." });
                 } finally {

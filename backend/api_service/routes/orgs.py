@@ -1,13 +1,13 @@
 """
 Organizations & memberships (Phase 2).
 
-The new, tenant-correct team model on top of Supabase identity:
+The tenant-correct team model:
   - members are `member_profiles` rows scoped by `org_id`
   - invites are single-use, expiring `org_invites`
   - all mutations are RBAC-enforced (owner/admin) and audit-logged
 
 This supersedes the legacy `team.py` flow built on the old `companies`/`users`
-tables. Endpoints authenticate via the verified Supabase identity.
+tables. Endpoints authenticate via the verified identity (utils/auth.py).
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from utils.database import get_db
-from utils.supabase_auth import CurrentUser, get_current_user, require_role
+from utils.auth import CurrentUser, get_current_user, require_role
 from models.tenancy_models import (
     Organization,
     MemberProfile,
@@ -86,7 +86,7 @@ async def list_members(user: CurrentUser = Depends(get_current_user), db: AsyncS
     ).scalars().all()
     return [
         MemberOut(
-            id=m.id, user_id=m.supabase_user_id, email=m.email,
+            id=m.id, user_id=m.user_id, email=m.email,
             full_name=m.full_name, role=m.role, is_active=m.is_active,
         )
         for m in rows
@@ -115,7 +115,7 @@ async def change_role(
                  target=member.email, meta={"role": payload.role})
     await db.commit()
     await db.refresh(member)
-    return MemberOut(id=member.id, user_id=member.supabase_user_id, email=member.email,
+    return MemberOut(id=member.id, user_id=member.user_id, email=member.email,
                      full_name=member.full_name, role=member.role, is_active=member.is_active)
 
 
@@ -245,7 +245,7 @@ async def accept_invite(
     member = (
         await db.execute(
             select(MemberProfile).where(
-                MemberProfile.supabase_user_id == user.user_id,
+                MemberProfile.user_id == user.user_id,
                 MemberProfile.deleted_at.is_(None),
             )
         )
@@ -254,7 +254,7 @@ async def accept_invite(
     if member is None:
         member = MemberProfile(
             org_id=invite.org_id,
-            supabase_user_id=user.user_id,
+            user_id=user.user_id,
             email=user.email,
             full_name=user.email,
             role=invite.role,
@@ -270,5 +270,5 @@ async def accept_invite(
     await db.commit()
     await db.refresh(member)
 
-    return MemberOut(id=member.id, user_id=member.supabase_user_id, email=member.email,
+    return MemberOut(id=member.id, user_id=member.user_id, email=member.email,
                      full_name=member.full_name, role=member.role, is_active=member.is_active)

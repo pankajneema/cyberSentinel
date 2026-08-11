@@ -1,7 +1,7 @@
 """
 SQLAlchemy models for in-app notifications and per-user notification preferences.
 
-Org-scoped (org_id) and recipient-scoped (user_id = Supabase sub). Notifications
+Org-scoped (org_id) and recipient-scoped (user_id = user id). Notifications
 are real, derived from the org's audit trail at read-time until dedicated
 producers exist; preferences persist per (org, user).
 """
@@ -23,7 +23,7 @@ class Notification(Base):
 
     id = Column(String, primary_key=True, default=_uuid)
     org_id = Column(String, nullable=True, index=True)
-    user_id = Column(String, nullable=False, index=True)   # recipient Supabase sub
+    user_id = Column(String, nullable=False, index=True)   # recipient user id
     title = Column(String, nullable=False)
     body = Column(Text, nullable=True)
     type = Column(String, nullable=False, default="info")  # category

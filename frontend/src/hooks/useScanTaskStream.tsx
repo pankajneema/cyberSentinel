@@ -8,7 +8,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-import { getAccessToken } from "@/lib/supabase";
+import { getTokens } from "@/lib/token-storage";
 
 export interface ScanTaskEvent {
   task_id: string;
@@ -40,9 +40,8 @@ export function useScanTaskStream(taskId?: string) {
     let closed = false;
     let es: EventSource | null = null;
 
-    (async () => {
-      const token = await getAccessToken();
-      if (!token || closed) return;
+    const token = getTokens()?.accessToken;
+    if (token && !closed) {
       // EventSource cannot set headers, so the JWT rides as a query param (the
       // SSE endpoint verifies it the same way the WebSocket endpoint does).
       const url = `${apiBaseUrl()}/api/v1/scans/events?token=${encodeURIComponent(token)}`;
@@ -62,7 +61,7 @@ export function useScanTaskStream(taskId?: string) {
       es.onerror = () => {
         setConnected(false); // EventSource auto-reconnects
       };
-    })();
+    }
 
     return () => {
       closed = true;

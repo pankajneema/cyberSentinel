@@ -11,11 +11,12 @@ import logging
 from typing import Any
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api_service.models.asm_models import AsmDiscovery, AsmUserAccount
+from backend.api_service.models.asset_models import Asset
 from backend.reporting.asm.assets.common import ensure_discovery_run
 from backend.reporting.asm.assets.domain import get_user_id_from_discovery
 from backend.api_service.utils.sanitize import clean_str, clean_deep
@@ -93,6 +94,7 @@ async def process_user_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
     run = await ensure_discovery_run(db, job_id, user_id)
 
     accounts_inserted = 0
+    touched_asset_ids: set[str] = set()
     for step in payload.get("pipeline", []):
         if step.get("status") != "COMPLETED":
             continue
@@ -102,6 +104,7 @@ async def process_user_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         step_asset_id = step.get("asset_id") or payload.get("asset_id")
         if not step_asset_id:
             continue
+        touched_asset_ids.add(step_asset_id)
         try:
             async with db.begin_nested():  # isolate each step (one bad row != whole job)
                 accounts_inserted += await store_user_accounts(
@@ -116,6 +119,14 @@ async def process_user_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
 
     run.status = status
     run.completed_at = datetime.utcnow()
+
+    # See domain.py's process_domain_asm for why this is here: Asset.last_seen
+    # had no writer anywhere in the codebase.
+    if status == "COMPLETED" and touched_asset_ids:
+        await db.execute(
+            update(Asset).where(Asset.id.in_(touched_asset_ids)).values(last_seen=run.completed_at.isoformat())
+        )
+
     run.summary = {
         "intensity": intensity,
         "user_accounts": {"inserted": accounts_inserted},

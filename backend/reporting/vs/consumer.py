@@ -40,8 +40,22 @@ async def _finalize(payload: dict[str, Any]) -> None:
     status = payload.get("status") or STATE_COMPLETED
     findings = _buffers.pop(task_id, []) if task_id else []
 
-    asset_ids = {f.get("asset_id") for f in findings if f.get("asset_id")}
-    targets = [{"asset_id": a, "host": "", "status": "scanned"} for a in asset_ids]
+    # Prefer the real dispatched target list (worker echoes back
+    # job.config.vs_targets — see core/engine.go's publishTerminal) so a scan
+    # that legitimately finds nothing still reports "N targets scanned" instead
+    # of looking identical to "nothing was ever dispatched", which broke the
+    # fixed-finding delta in ingest.py (stale findings only close on assets
+    # listed here). Falls back to inferring from findings for messages from an
+    # older worker build that doesn't echo vs_targets yet.
+    vs_targets = (payload.get("config") or {}).get("vs_targets")
+    if isinstance(vs_targets, list) and vs_targets:
+        targets = [
+            {"asset_id": t.get("asset_id"), "host": t.get("host") or "", "status": "scanned"}
+            for t in vs_targets if isinstance(t, dict) and t.get("asset_id")
+        ]
+    else:
+        asset_ids = {f.get("asset_id") for f in findings if f.get("asset_id")}
+        targets = [{"asset_id": a, "host": "", "status": "scanned"} for a in asset_ids]
 
     ingest_payload = {
         "scan_run_id": task_id,

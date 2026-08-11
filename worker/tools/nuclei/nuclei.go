@@ -136,7 +136,12 @@ func RunWithOptions(ctx context.Context, hosts []string, extraHeaders []string, 
 		return nil, err
 	}
 
-	args := []string{"-silent", "-jsonl", "-duc", "-list", "-"}
+	// No -l/-list/-u flag: nuclei v3 auto-detects targets piped on stdin (wired
+	// below via cmd.Stdin). Passing "-list -" does NOT mean stdin — nuclei treats
+	// "-" as a literal filename and fails with "could not open targets file",
+	// which silently zeroed every nuclei-based scan (ASM's nuclei/deep_misconfig_
+	// analysis stages and every VS engine) before this fix.
+	args := []string{"-silent", "-jsonl", "-duc"}
 	for _, h := range extraHeaders {
 		if h = strings.TrimSpace(h); h != "" {
 			args = append(args, "-H", h)

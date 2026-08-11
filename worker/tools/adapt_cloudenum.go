@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"worker/tools/cloudenum"
+	"worker/utils"
 )
 
 // cloudenum adapters: discover exposed cloud resources / public endpoints over
@@ -23,6 +24,7 @@ func runCloudEnum(ctx context.Context, in Input, source string) (Output, error) 
 	for _, d := range roots(in) {
 		resources, err := cloudenum.RunCloudOSINT(ctx, d)
 		if err != nil {
+			utils.Logger.Warnf("cloud enum for root %q failed (best-effort, continuing): %v", d, err)
 			continue // best-effort per root; a single failure isn't fatal
 		}
 		for _, r := range resources {

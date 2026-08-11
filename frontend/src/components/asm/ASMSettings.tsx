@@ -141,16 +141,18 @@ export function ASMSettings() {
   return (
     <div className="space-y-6">
       <Tabs defaultValue="scoring">
-        <div className="flex items-center justify-between gap-4">
-          <TabsList className="inline-flex gap-1.5 bg-card/80 border border-border p-1.5 rounded-2xl whitespace-nowrap shadow-sm">
-            <TabsTrigger value="scoring">Exposure Scoring</TabsTrigger>
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="automation">Automation</TabsTrigger>
-            <TabsTrigger value="suppression">Suppression</TabsTrigger>
-            <TabsTrigger value="grouping">Asset Grouping</TabsTrigger>
-          </TabsList>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="overflow-x-auto">
+            <TabsList className="inline-flex gap-1.5 bg-card/80 border border-border p-1.5 rounded-2xl whitespace-nowrap shadow-sm">
+              <TabsTrigger value="scoring">Exposure Scoring</TabsTrigger>
+              <TabsTrigger value="notifications">Notifications</TabsTrigger>
+              <TabsTrigger value="automation">Automation</TabsTrigger>
+              <TabsTrigger value="suppression">Suppression</TabsTrigger>
+              <TabsTrigger value="grouping">Asset Grouping</TabsTrigger>
+            </TabsList>
+          </div>
           {isDirty && (
-            <Button variant="gradient" onClick={handleSave} disabled={saving}>
+            <Button variant="gradient" onClick={handleSave} disabled={saving} className="shrink-0 self-start sm:self-auto">
               <Save className="w-4 h-4 mr-2" />
               {saving ? "Saving..." : "Save Changes"}
             </Button>

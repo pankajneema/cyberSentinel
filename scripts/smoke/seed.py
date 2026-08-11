@@ -19,7 +19,7 @@ async def main():
         uid = "smoke-" + uuid.uuid4().hex[:8]
         org = Organization(name="SMOKE Org", owner_user_id=uid)
         db.add(org); await db.flush()
-        db.add(MemberProfile(org_id=org.id, supabase_user_id=uid, email="smoke@example.com"))
+        db.add(MemberProfile(org_id=org.id, user_id=uid, email="smoke@example.com"))
         asset = Asset(name="example.com", type="domain", org_id=org.id)
         db.add(asset); await db.flush()
         disc = AsmDiscovery(user_id=uid, name="SMOKE asm", asset_type="domain",

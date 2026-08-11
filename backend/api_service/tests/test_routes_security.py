@@ -1,5 +1,5 @@
 """Security: the dead legacy routes (incl. the users IDOR) must NOT be mounted,
-and the real Supabase/org routes MUST be present."""
+and the real identity/org routes MUST be present."""
 
 import importlib
 
@@ -15,11 +15,13 @@ def test_idor_and_legacy_routes_removed():
     assert not any(p.startswith("/api/v1/users") for p in paths), "users router still mounted (IDOR!)"
     assert not any(p.startswith("/api/v1/team") for p in paths), "legacy team router still mounted"
     assert not any(p.startswith("/api/v1/accounts") for p in paths), "legacy accounts router still mounted"
-    assert "/api/v1/auth/login" not in paths, "legacy auth login still mounted"
 
 
 def test_real_identity_routes_present():
     paths = _paths()
+    # Login is intentionally real now — we are the identity provider.
+    assert "/api/v1/auth/login" in paths
+    assert "/api/v1/auth/signup" in paths
     assert "/api/v1/auth/me" in paths
     assert "/api/v1/orgs/me/members" in paths
     assert "/api/v1/orgs/invites" in paths

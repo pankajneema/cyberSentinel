@@ -66,7 +66,7 @@ export function VSAssetView() {
       setLoading(true);
       setError(null);
       const [findingPage, assetPage] = await Promise.all([
-        fetchFindings({ page: 1, page_size: 500 }),
+        fetchFindings({ page: 1, page_size: 200 }),
         fetchAssets({ page: 1, page_size: 500 }),
       ]);
       setFindings(findingPage.items);

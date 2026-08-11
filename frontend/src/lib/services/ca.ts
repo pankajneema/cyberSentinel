@@ -1,5 +1,5 @@
 import { apiFetch, apiFetchBlob, triggerBrowserDownload, API_BASE, Paginated } from "../api";
-import { getAccessToken } from "../supabase";
+import { getTokens } from "../token-storage";
 
 // ===================== Types =====================
 export type ControlStatus = "satisfied" | "partial" | "gap" | "not_applicable" | "unknown";
@@ -218,7 +218,7 @@ export function fetchEvidence(params: {
 export async function uploadManualEvidence(payload: {
   summary: string; check_id?: string; control_id?: string; valid_days?: number; file?: File | null;
 }): Promise<CaEvidence> {
-  const token = await getAccessToken();
+  const token = getTokens()?.accessToken;
   const form = new FormData();
   form.set("summary", payload.summary);
   if (payload.check_id) form.set("check_id", payload.check_id);
@@ -348,7 +348,7 @@ export function fetchAuditFindings(auditId: string) {
   );
 }
 
-// ===================== Auditor portal (token auth, NOT Supabase) =====================
+// ===================== Auditor portal (separate opaque-token auth) =====================
 async function auditorFetch<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}/ca/auditor${path}`, {
     ...init,

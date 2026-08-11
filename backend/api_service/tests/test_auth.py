@@ -1,15 +1,15 @@
-"""Phase 1 — Supabase auth + RBAC unit tests."""
+"""Auth + RBAC unit tests."""
 
 import pytest
 from fastapi import HTTPException
 
-from utils.supabase_auth import verify_supabase_jwt, require_role, CurrentUser
+from utils.auth import verify_access_token, require_role, CurrentUser
 
 
 @pytest.mark.asyncio
 async def test_garbage_token_rejected():
     with pytest.raises(HTTPException) as exc:
-        await verify_supabase_jwt("not-a-real-jwt")
+        await verify_access_token("not-a-real-jwt")
     assert exc.value.status_code == 401
 
 

@@ -18,6 +18,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.asm_models import (
+    AsmAdminEndpoint as AsmAdminEndpointModel,
+    AsmAPIEndpoint as AsmAPIEndpointModel,
+    AsmBackupFile as AsmBackupFileModel,
     AsmDiscovery as AsmDiscoveryModel,
     AsmIP as AsmIPModel,
     AsmPort as AsmPortModel,
@@ -27,17 +30,21 @@ from scoring import AssetSignals
 
 
 async def _load_org_scan_data(db: AsyncSession, org_id: str) -> dict:
-    """Load an org's discovery ids + all IPs/certs/open-ports once. Used to
-    memoize per-org scan data across a batch of assets (kills the auto-score
-    N+1: the scheduler passes a shared cache so this runs once per org per tick
-    instead of 3-4 full scans per asset)."""
+    """Load an org's discovery ids + all IPs/certs/open-ports/admin-endpoints/
+    backup-files/API-endpoints once. Used to memoize per-org scan data across a
+    batch of assets (kills the auto-score N+1: the scheduler passes a shared
+    cache so this runs once per org per tick instead of 3-4 full scans per
+    asset)."""
     disc_ids = (
         await db.execute(
             select(AsmDiscoveryModel.id).filter(AsmDiscoveryModel.org_id == org_id)
         )
     ).scalars().all()
     if not disc_ids:
-        return {"disc_ids": [], "ips": [], "certs": [], "ports": []}
+        return {
+            "disc_ids": [], "ips": [], "certs": [], "ports": [],
+            "admin_endpoints": [], "backup_files": [], "api_endpoints": [],
+        }
     ips = (await db.execute(
         select(AsmIPModel).filter(AsmIPModel.asm_discovery_id.in_(disc_ids)))).scalars().all()
     certs = (await db.execute(
@@ -46,7 +53,20 @@ async def _load_org_scan_data(db: AsyncSession, org_id: str) -> dict:
         select(AsmPortModel).filter(
             AsmPortModel.asm_discovery_id.in_(disc_ids),
             AsmPortModel.status == "open"))).scalars().all()
-    return {"disc_ids": disc_ids, "ips": ips, "certs": certs, "ports": ports}
+    admin_endpoints = (await db.execute(
+        select(AsmAdminEndpointModel).filter(
+            AsmAdminEndpointModel.asm_discovery_id.in_(disc_ids)))).scalars().all()
+    backup_files = (await db.execute(
+        select(AsmBackupFileModel).filter(
+            AsmBackupFileModel.asm_discovery_id.in_(disc_ids)))).scalars().all()
+    api_endpoints = (await db.execute(
+        select(AsmAPIEndpointModel).filter(
+            AsmAPIEndpointModel.asm_discovery_id.in_(disc_ids)))).scalars().all()
+    return {
+        "disc_ids": disc_ids, "ips": ips, "certs": certs, "ports": ports,
+        "admin_endpoints": admin_endpoints, "backup_files": backup_files,
+        "api_endpoints": api_endpoints,
+    }
 
 
 async def _gather_asset_signals(
@@ -106,7 +126,13 @@ async def _gather_asset_signals(
             if belongs and c.valid_until and c.valid_until < now:
                 tls_issues.append("expired")
 
-    if not matched_ips and not tls_issues:
+    # Exposed admin panels / backup files / API endpoints — stored with the
+    # scanned asset's own id, so match directly rather than via IP/name.
+    admin_count = sum(1 for e in data["admin_endpoints"] if e.asset_id == asset.id)
+    backup_count = sum(1 for b in data["backup_files"] if b.asset_id == asset.id)
+    api_count = sum(1 for a in data["api_endpoints"] if a.asset_id == asset.id)
+
+    if not matched_ips and not tls_issues and not admin_count and not backup_count and not api_count:
         return None, []
 
     # Open ports across all matched IPs.
@@ -126,6 +152,9 @@ async def _gather_asset_signals(
         services=services,
         is_public=(asset.exposure == "public"),
         tls_issues=tls_issues,
+        admin_endpoints=admin_count,
+        backup_files=backup_count,
+        exposed_api_endpoints=api_count,
         asset_criticality=(asset.criticality or "normal"),
     )
     return signals, sorted(matched_ips)

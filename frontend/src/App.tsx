@@ -8,6 +8,7 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import AuthCallback from "./pages/AuthCallback";
 import Pricing from "./pages/Pricing";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
@@ -48,6 +49,7 @@ const App = () => (
           <Route path="/signup" element={<Signup />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/about" element={<About />} />
           <Route path="/contact" element={<Contact />} />
@@ -55,7 +57,7 @@ const App = () => (
           <Route path="/invite/:token" element={<Invite />} />
           <Route path="/modules/:moduleId" element={<ModuleDetail />} />
 
-          {/* App routes — guarded behind a valid Supabase session (audit S-1) */}
+          {/* App routes — guarded behind a valid session (audit S-1) */}
           <Route
             path="/app"
             element={
@@ -79,7 +81,7 @@ const App = () => (
             <Route path="settings" element={<Settings />} />
           </Route>
 
-          {/* Auditor portal — token-gated, outside the app shell (no Supabase session) */}
+          {/* Auditor portal — token-gated, outside the app shell (no login session) */}
           <Route path="/auditor" element={<AuditorPortal />} />
 
           {/* Catch-all */}

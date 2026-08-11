@@ -1,14 +1,9 @@
-// Invite acceptance — Supabase-backed credential creation.
+// Invite acceptance — self-hosted credential creation.
 //
-// The invited user creates their identity in Supabase (or signs in if they
-// already have one). Their email must match the invited email. The actual
-// org-join (attaching this user to the inviting organization with the invited
-// role) is finalized server-side via the invite token.
-//
-// NOTE (Phase 2): the org-join endpoint depends on the unified memberships
-// model (organizations + member_profiles). Until that lands, acceptance
-// establishes the Supabase identity and records the pending join; an admin
-// confirms membership. The old localStorage-token flow has been removed.
+// The invited user creates their account (or signs in if they already have
+// one). Their email must match the invited email. The actual org-join
+// (attaching this user to the inviting organization with the invited role)
+// is finalized server-side via the invite token.
 
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";

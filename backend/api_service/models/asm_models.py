@@ -251,7 +251,7 @@ class AsmSettings(Base):
     __tablename__ = "asm_settings"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    # Supabase user id (JWT sub) — not an FK to the legacy users table.
+    # user id (JWT sub) — not an FK to the legacy users table.
     user_id = Column(String, unique=True, nullable=False, index=True)
 
     # Store ASM settings as JSON for flexibility

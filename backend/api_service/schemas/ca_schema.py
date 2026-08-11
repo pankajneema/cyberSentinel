@@ -71,7 +71,7 @@ class GapTransitionRequest(BaseModel):
 
 
 class GapAssignRequest(BaseModel):
-    assigned_to: Optional[str] = None     # Supabase sub; None = unassign
+    assigned_to: Optional[str] = None     # user id; None = unassign
 
 
 # --------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 #
 # Compliance & Audit (CA) module API.
 #
-# Auth: canonical Supabase stack (utils/supabase_auth) + org tenancy
+# Auth: canonical self-hosted stack (utils/auth) + org tenancy
 # (utils/tenancy). Auditor portal endpoints use a SEPARATE opaque-token
 # dependency (get_current_auditor) — auditor tokens never enter org RBAC and
 # are accepted only by /ca/auditor/* routes (read-only + raise-finding).
@@ -42,7 +42,7 @@ from utils.crypto import decrypt_secret, encrypt_secret
 from utils.database import get_db
 from utils.lifecycle import validate_transition
 from utils.pagination import page_params as _page_params
-from utils.supabase_auth import CurrentUser, get_current_user, require_role
+from utils.auth import CurrentUser, get_current_user, require_role
 from utils.tenancy import require_org
 
 router = APIRouter(prefix="/api/v1/ca", tags=["Compliance & Audit"])
@@ -1240,7 +1240,7 @@ async def get_current_auditor(
     creds: HTTPAuthorizationCredentials | None = Depends(_auditor_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> CaAuditorGrant:
-    """Opaque-token dependency for /ca/auditor/*. Never accepts Supabase JWTs;
+    """Opaque-token dependency for /ca/auditor/*. Never accepts regular access JWTs;
     org endpoints never accept auditor tokens. Every request re-checks expiry
     and revocation."""
     if creds is None or not creds.credentials:

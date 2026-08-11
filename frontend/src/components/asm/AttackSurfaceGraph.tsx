@@ -92,6 +92,17 @@ const getNodeIcon = (type: string) => {
 };
 
 // Hierarchical layout: Domain -> Subdomain -> IP -> Port -> Service
+//
+// A level's width used to grow linearly with its node count (maxCount *
+// nodeSpacing, uncapped). Real orgs routinely have 100s+ subdomains in one
+// level, which stretched the SVG viewBox to many thousands of units wide
+// while the container stayed a fixed height — every node got squeezed into a
+// near-invisible sliver. Wrapping each level onto multiple rows once it
+// exceeds maxPerRow keeps the canvas a sane, legible aspect ratio regardless
+// of how many nodes a level has.
+const MAX_NODES_PER_ROW = 18;
+const ROW_HEIGHT = 70;
+
 const calculateHierarchicalLayout = (nodes: GraphNode[]) => {
   const domainNodes = nodes.filter(n => n.type === "domain");
   const subdomainNodes = nodes.filter(n => n.type === "subdomain");
@@ -102,18 +113,23 @@ const calculateHierarchicalLayout = (nodes: GraphNode[]) => {
   const levelSpacing = 180;
   const nodeSpacing = 140;
   const levels = [domainNodes, subdomainNodes, ipNodes, portNodes, serviceNodes];
-  const maxCount = Math.max(1, ...levels.map(l => l.length));
-  const canvasWidth = Math.max(1200, maxCount * nodeSpacing);
+  const widestRow = Math.max(1, ...levels.map(l => Math.min(l.length, MAX_NODES_PER_ROW)));
+  const canvasWidth = Math.max(1200, widestRow * nodeSpacing);
   const startY = 80;
 
-  levels.forEach((levelNodes, levelIndex) => {
-    const y = startY + levelIndex * levelSpacing;
-    const count = levelNodes.length;
-    levelNodes.forEach((node, index) => {
-      const x = ((index + 1) / (count + 1)) * canvasWidth;
-      node.x = x;
-      node.y = y;
-    });
+  let y = startY;
+  levels.forEach((levelNodes) => {
+    const rowCount = Math.max(1, Math.ceil(levelNodes.length / MAX_NODES_PER_ROW));
+    for (let row = 0; row < rowCount; row++) {
+      const rowNodes = levelNodes.slice(row * MAX_NODES_PER_ROW, (row + 1) * MAX_NODES_PER_ROW);
+      const rowY = y + row * ROW_HEIGHT;
+      rowNodes.forEach((node, index) => {
+        const x = ((index + 1) / (rowNodes.length + 1)) * canvasWidth;
+        node.x = x;
+        node.y = rowY;
+      });
+    }
+    y += levelSpacing + (rowCount - 1) * ROW_HEIGHT;
   });
 
   return nodes;
@@ -235,31 +251,48 @@ export function AttackSurfaceGraph() {
       }
     });
 
-    // Level 3: Create IP nodes and connect to subdomains
+    // Level 3: Create IP nodes and connect to subdomains.
+    //
+    // A single physical IP (e.g. a shared hosting/CDN address) can back
+    // hundreds or thousands of subdomains, and the backend stores one AsmIP
+    // row per (subdomain, ip) pairing — so filteredIPs routinely contains the
+    // same ip_address many times over. Dedupe by address: reuse the existing
+    // node and just add the extra subdomain as another connection, rather
+    // than creating a near-duplicate node per row (which is what blew the
+    // graph up to thousands of overlapping same-label nodes).
+    const ipAddrToNodeId = new Map<string, string>();
     filteredIPs.forEach((ip) => {
-      if (ip.subdomain_id) {
-        const parentNodeId = nodeIdMap.get(ip.subdomain_id);
-        if (parentNodeId) {
-          const ipNodeId = `ip-${ip.id}`;
-          graphNodes.push({
-            id: ipNodeId,
-            label: ip.ip_address,
-            type: "ip",
-            x: 0,
-            y: 0,
-            connections: [parentNodeId],
-            reachable: ip.reachable ?? null,
-            status: ip.status || "active",
-            metadata: { ip_address: ip.ip_address },
-          });
-          
-          const subdomainNode = graphNodes.find(n => n.id === parentNodeId);
-          if (subdomainNode) {
-            subdomainNode.connections.push(ipNodeId);
-          }
-          nodeIdMap.set(ip.id, ipNodeId);
+      if (!ip.subdomain_id) return;
+      const parentNodeId = nodeIdMap.get(ip.subdomain_id);
+      if (!parentNodeId) return;
+
+      let ipNodeId = ipAddrToNodeId.get(ip.ip_address);
+      if (!ipNodeId) {
+        ipNodeId = `ip-${ip.id}`;
+        ipAddrToNodeId.set(ip.ip_address, ipNodeId);
+        graphNodes.push({
+          id: ipNodeId,
+          label: ip.ip_address,
+          type: "ip",
+          x: 0,
+          y: 0,
+          connections: [parentNodeId],
+          reachable: ip.reachable ?? null,
+          status: ip.status || "active",
+          metadata: { ip_address: ip.ip_address },
+        });
+      } else {
+        const ipNode = graphNodes.find(n => n.id === ipNodeId);
+        if (ipNode && !ipNode.connections.includes(parentNodeId)) {
+          ipNode.connections.push(parentNodeId);
         }
       }
+
+      const subdomainNode = graphNodes.find(n => n.id === parentNodeId);
+      if (subdomainNode && !subdomainNode.connections.includes(ipNodeId)) {
+        subdomainNode.connections.push(ipNodeId);
+      }
+      nodeIdMap.set(ip.id, ipNodeId);
     });
 
     // Calculate hierarchical layout

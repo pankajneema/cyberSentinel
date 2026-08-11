@@ -12,7 +12,7 @@ from config.settings import settings
 from utils.database import Base
 
 # Import all model modules so their tables register on Base.metadata.
-import models.auth_models         # noqa: F401
+import models.user_models         # noqa: F401
 import models.asm_models          # noqa: F401
 import models.asset_models        # noqa: F401
 import models.billing_model       # noqa: F401

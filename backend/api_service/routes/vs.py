@@ -19,7 +19,7 @@ from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from utils.database import get_db
-from utils.supabase_auth import CurrentUser, get_current_user, require_role
+from utils.auth import CurrentUser, get_current_user, require_role
 from utils.tenancy import require_org
 from utils.ownership import get_owned_or_404
 from utils.lifecycle import validate_transition

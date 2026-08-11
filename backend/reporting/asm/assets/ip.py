@@ -8,10 +8,11 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api_service.models.asm_models import AsmIP
+from backend.api_service.models.asset_models import Asset
 from backend.reporting.asm.assets.common import ensure_discovery_run
 from backend.reporting.asm.assets.domain import get_user_id_from_discovery, store_step_data
 
@@ -255,6 +256,16 @@ async def process_ip_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
 
     run.status = status
     run.completed_at = datetime.utcnow()
+
+    # See domain.py's process_domain_asm for why this is here: Asset.last_seen
+    # had no writer anywhere in the codebase.
+    if status == "COMPLETED":
+        touched_asset_ids = {aid for aid in ip_asset_map.values() if aid}
+        if touched_asset_ids:
+            await db.execute(
+                update(Asset).where(Asset.id.in_(touched_asset_ids)).values(last_seen=run.completed_at.isoformat())
+            )
+
     run.summary = {
         "intensity": intensity,
         "ips": {

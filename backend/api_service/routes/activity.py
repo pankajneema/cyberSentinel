@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from utils.database import get_db
-from utils.supabase_auth import CurrentUser, get_current_user
+from utils.auth import CurrentUser, get_current_user
 from utils.tenancy import require_org
 from models.tenancy_models import AuditLog, MemberProfile
 
@@ -23,19 +23,19 @@ def _resource_type(action: str) -> str:
 
 
 async def _name_map(db: AsyncSession, org_id: str, actor_ids: set[str]) -> dict[str, str]:
-    """Map actor Supabase ids -> a human name (full_name or email). Single query."""
+    """Map actor user ids -> a human name (full_name or email). Single query."""
     actor_ids = {a for a in actor_ids if a}
     if not actor_ids:
         return {}
     rows = (
         await db.execute(
             select(
-                MemberProfile.supabase_user_id,
+                MemberProfile.user_id,
                 MemberProfile.full_name,
                 MemberProfile.email,
             ).where(
                 MemberProfile.org_id == org_id,
-                MemberProfile.supabase_user_id.in_(actor_ids),
+                MemberProfile.user_id.in_(actor_ids),
             )
         )
     ).all()

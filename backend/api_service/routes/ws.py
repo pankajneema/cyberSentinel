@@ -1,15 +1,16 @@
 """
 Realtime WebSocket endpoint.
 
-    ws(s)://<host>/ws/realtime?token=<supabase-access-token>
+    ws(s)://<host>/ws/realtime?token=<access-token>
 
 Delivers realtime notifications (ASM scan lifecycle, findings, panel/team
 messages) to the authenticated user's org, and accepts inbound team messages
 which are broadcast to the org and persisted as notifications.
 
-Auth: browsers can't set Authorization headers on a WebSocket, so the Supabase
-access token is passed as the `token` query param and verified the same way as
-the REST auth dependency (signature + audience + expiry).
+Auth: browsers can't set Authorization headers on a WebSocket, so the access
+token is passed as the `token` query param (or, preferably, the WS subprotocol
+below) and verified the same way as the REST auth dependency (signature +
+expiry).
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from sqlalchemy import select
 
 from utils.database import AsyncSessionLocal
-from utils.supabase_auth import verify_supabase_jwt
+from utils.auth import verify_access_token
 from models.tenancy_models import MemberProfile
 from notificationservice import realtime, dispatcher
 from notificationservice import events as ev
@@ -31,7 +32,7 @@ router = APIRouter(tags=["realtime"])
 async def _resolve_identity(token: str) -> tuple[str, str] | None:
     """Verify the token and resolve (user_id, org_id). None if unauthenticated."""
     try:
-        claims = await verify_supabase_jwt(token)
+        claims = await verify_access_token(token)
         sub = claims.get("sub")
         if not sub:
             return None
@@ -42,7 +43,7 @@ async def _resolve_identity(token: str) -> tuple[str, str] | None:
             member = (
                 await db.execute(
                     select(MemberProfile).where(
-                        MemberProfile.supabase_user_id == sub,
+                        MemberProfile.user_id == sub,
                         MemberProfile.deleted_at.is_(None),
                     ).order_by(MemberProfile.created_at.asc()).limit(1)
                 )

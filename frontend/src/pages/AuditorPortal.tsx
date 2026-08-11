@@ -1,6 +1,7 @@
 // Auditor portal — token-based, read-only, deliberately outside the app shell.
-// Auditor tokens are NOT Supabase sessions: they are opaque grants scoped to a
-// single audit, verified server-side on every request. No sidebar, no app nav.
+// Auditor tokens are NOT regular login sessions: they are opaque grants
+// scoped to a single audit, verified server-side on every request. No
+// sidebar, no app nav.
 import { useEffect, useState } from "react";
 import { KeyRound, LogOut, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";

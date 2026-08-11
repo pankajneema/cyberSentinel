@@ -7,14 +7,14 @@ import {
   useCallback,
   ReactNode,
 } from "react";
-import { getAccessToken } from "@/lib/supabase";
+import { getTokens } from "@/lib/token-storage";
 import { toast } from "@/hooks/use-toast";
 
 /**
  * Realtime notification channel (WebSocket).
  *
- * Connects to the API's /ws/realtime endpoint (authenticated via the Supabase
- * access token as a query param, since browsers can't set WS headers), receives
+ * Connects to the API's /ws/realtime endpoint (authenticated via the access
+ * token as a query param, since browsers can't set WS headers), receives
  * live events (ASM scan lifecycle, findings, team messages), surfaces toasts for
  * important ones, and lets components send team messages. Auto-reconnects with
  * capped backoff.
@@ -68,9 +68,9 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const closedRef = useRef(false);
   const pingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(() => {
     if (closedRef.current) return;
-    const token = await getAccessToken();
+    const token = getTokens()?.accessToken;
     if (!token) {
       // Not authenticated yet — retry shortly.
       setTimeout(connect, 2000);

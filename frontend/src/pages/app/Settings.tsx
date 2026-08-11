@@ -1,5 +1,6 @@
-// Settings — notifications, UI preferences, and a security tab (MFA / sessions).
-// MFA enrollment + active-session listing use Supabase; wired minimally here.
+// Settings — notifications, UI preferences, and a security tab (sessions).
+// MFA is not implemented in the self-hosted auth system (was Supabase-TOTP;
+// a separate, larger piece of work) — this tab only offers session revocation.
 
 import { useEffect, useState } from "react";
 import { getMemberSettings, putMemberSettings } from "@/lib/services/auth";
@@ -8,12 +9,13 @@ import {
   updateNotificationPreferences,
   type NotificationPreferences,
 } from "@/lib/services/notifications";
-import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 
 type Tab = "notifications" | "preferences" | "security";
 
 export default function Settings() {
+  const { signOut } = useAuth();
   const [tab, setTab] = useState<Tab>("notifications");
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [weeklyDigest, setWeeklyDigest] = useState(false);
@@ -69,23 +71,12 @@ export default function Settings() {
     }
   }
 
-  async function enrollMfa() {
-    try {
-      const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp" });
-      if (error) throw error;
-      const uri = data?.totp?.uri;
-      toast({
-        title: "MFA enrollment started",
-        description: uri ? "Scan the TOTP QR in your authenticator app." : "Follow the prompts.",
-      });
-    } catch (err) {
-      toast({ title: "MFA error", description: err instanceof Error ? err.message : "" });
-    }
-  }
-
   async function signOutEverywhere() {
-    await supabase.auth.signOut({ scope: "global" });
-    window.location.href = "/login";
+    try {
+      await signOut({ all: true });
+    } finally {
+      window.location.href = "/login";
+    }
   }
 
   if (loading) return <div className="p-6 text-sm text-muted-foreground">Loading settings…</div>;
@@ -178,13 +169,6 @@ export default function Settings() {
 
       {tab === "security" && (
         <div className="space-y-4">
-          <div className="rounded-lg border p-4">
-            <h3 className="text-sm font-semibold">Multi-factor authentication</h3>
-            <p className="mb-3 text-sm text-muted-foreground">Add a TOTP authenticator for extra security.</p>
-            <button onClick={enrollMfa} className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent">
-              Enroll authenticator app
-            </button>
-          </div>
           <div className="rounded-lg border p-4">
             <h3 className="text-sm font-semibold">Sessions</h3>
             <p className="mb-3 text-sm text-muted-foreground">Sign out of all devices.</p>

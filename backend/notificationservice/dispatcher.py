@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 async def _org_member_ids(db: AsyncSession, org_id: str) -> list[str]:
     rows = (
         await db.execute(
-            select(MemberProfile.supabase_user_id).where(
+            select(MemberProfile.user_id).where(
                 MemberProfile.org_id == org_id,
                 MemberProfile.deleted_at.is_(None),
             )

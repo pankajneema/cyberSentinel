@@ -1,5 +1,5 @@
 """
-Reports route (org-scoped, Supabase identity + RBAC).
+Reports route (org-scoped, identity + RBAC).
 
 Reports are generated from REAL tenant data: the `content` payload is computed
 from the org's `assets` (and any available ASM/VS signals) at generation time.
@@ -31,7 +31,7 @@ from reports_service import (
     generate_scheduled_report,  # noqa: F401 — re-exported for the scheduler
 )
 from utils.database import get_db
-from utils.supabase_auth import CurrentUser, get_current_user, require_role
+from utils.auth import CurrentUser, get_current_user, require_role
 from utils.tenancy import require_org
 from utils.ownership import get_owned_or_404
 from models.report_models import Report as ReportModel, ScheduledReport as ScheduledReportModel

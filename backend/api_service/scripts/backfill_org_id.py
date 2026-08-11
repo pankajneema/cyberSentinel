@@ -19,9 +19,9 @@ from models.asm_models import AsmDiscovery
 
 
 async def _user_to_org(db) -> dict[str, str]:
-    """Map supabase_user_id -> org_id from member_profiles."""
+    """Map user_id -> org_id from member_profiles."""
     rows = (await db.execute(select(MemberProfile))).scalars().all()
-    return {m.supabase_user_id: m.org_id for m in rows}
+    return {m.user_id: m.org_id for m in rows}
 
 
 async def backfill() -> None:

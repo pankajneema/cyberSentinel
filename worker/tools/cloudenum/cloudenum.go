@@ -36,7 +36,13 @@ func RunCloudOSINT(ctx context.Context, domain string) ([]CloudResource, error) 
 	cmd := exec.CommandContext(ctx, toolPath, "-k", domain)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		utils.Logger.Warnf("cloud_enum failed for %s: %v", domain, err)
+		// A non-zero exit means the tool never produced real output (e.g. a
+		// Python traceback from a broken install) — propagate the failure
+		// instead of parsing that output as if it were valid results, which
+		// previously made a crashed tool indistinguishable from "ran cleanly,
+		// found nothing."
+		return nil, fmt.Errorf("cloud_enum/cloud_osint (%s) failed for %q: %w — output: %s",
+			toolPath, domain, err, strings.TrimSpace(string(output)))
 	}
 
 	var results []CloudResource

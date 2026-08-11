@@ -414,6 +414,10 @@ async def auto_score_assets(db, limit: int = 200) -> int:
             continue  # no scan data yet -> stays Unscanned (no fake number)
         result = score_exposure(signals)
         asset.risk_score = result.score
+        asset.risk_factors = [
+            {"name": f.name, "points": round(f.points, 1), "detail": f.detail}
+            for f in result.factors
+        ]
         asset.last_scored_at = datetime.utcnow()
         scored += 1
 

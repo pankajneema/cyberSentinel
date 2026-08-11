@@ -1,12 +1,12 @@
 """
 Just-in-time identity provisioning.
 
-On the first authenticated request from a Supabase user we ensure they have:
+On the first authenticated request from a user we ensure they have:
   - a MemberProfile (their app-side role + profile fields), and
   - an Organization (created automatically for a brand-new owner).
 
-This keeps PostgreSQL as the source of truth for tenancy while Supabase owns
-identity. It is idempotent: repeated calls only update mutable fields.
+This keeps PostgreSQL as the sole source of truth for both identity and
+tenancy. It is idempotent: repeated calls only update mutable fields.
 """
 
 from __future__ import annotations
@@ -22,17 +22,22 @@ from models.tenancy_models import Organization, MemberProfile
 async def sync_profile_and_org(
     db: AsyncSession,
     *,
-    supabase_user_id: str,
+    user_id: str,
     email: str,
-    full_name: str,
-    role: str,
+    full_name: Optional[str] = None,
     org_name_hint: Optional[str] = None,
 ) -> MemberProfile:
-    """Return the user's MemberProfile, creating org + profile on first sight."""
+    """Return the user's MemberProfile, creating org + profile on first sight.
+
+    `full_name=None` means "caller doesn't have a real display name to assert"
+    (e.g. get_current_user, called on every request, has no name in the access
+    token) -- it must NOT overwrite an already-set profile.full_name. Only
+    pass a real value when you actually have fresher truth (signup/login/OAuth
+    reading straight from the users table, or an explicit profile update)."""
 
     result = await db.execute(
         select(MemberProfile).where(
-            MemberProfile.supabase_user_id == supabase_user_id,
+            MemberProfile.user_id == user_id,
             MemberProfile.deleted_at.is_(None),
         )
     )
@@ -55,14 +60,14 @@ async def sync_profile_and_org(
     # First time we have seen this user: create their organization + owner profile.
     org = Organization(
         name=org_name_hint or (email.split("@")[0] + "'s Organization"),
-        owner_user_id=supabase_user_id,
+        owner_user_id=user_id,
     )
     db.add(org)
     await db.flush()  # get org.id
 
     profile = MemberProfile(
         org_id=org.id,
-        supabase_user_id=supabase_user_id,
+        user_id=user_id,
         email=email,
         full_name=full_name,
         # A brand-new self-signup becomes the owner of their own org.

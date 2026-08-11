@@ -33,7 +33,11 @@ from models.vs_models import VsCveMetadata
 logger = logging.getLogger("cybersentinel.cve_feeds")
 
 KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
-EPSS_URL = "https://epss.cyentia.com/epss_scores-current.csv.gz"
+# FIRST.org's EPSS feed moved host from cyentia.com to empiricalsecurity.com —
+# confirmed on a real sync (2026-08-11): the old host now 301s here. Point at
+# the real destination directly rather than depending on the redirect staying
+# up forever; follow_redirects=True below is still kept as a defensive catch-all.
+EPSS_URL = "https://epss.empiricalsecurity.com/epss_scores-current.csv.gz"
 NVD_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
 _TIMEOUT = httpx.Timeout(60.0, connect=15.0)
@@ -85,7 +89,7 @@ async def _upsert(db, rows: list[dict]) -> int:
 # ---------------------------------------------------------------------------
 async def sync_kev(db) -> int:
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(KEV_URL)
             resp.raise_for_status()
             data = resp.json()
@@ -113,7 +117,7 @@ async def sync_kev(db) -> int:
 # ---------------------------------------------------------------------------
 async def sync_epss(db, batch_size: int = 5000) -> int:
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
             resp = await client.get(EPSS_URL)
             resp.raise_for_status()
             raw = gzip.decompress(resp.content).decode("utf-8", "replace")
@@ -210,7 +214,7 @@ async def sync_nvd_recent(db, days: int = 2) -> int:
     }
     total, start_index = 0, 0
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, headers=headers) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, headers=headers, follow_redirects=True) as client:
             while True:
                 params = {**params_base, "startIndex": start_index}
                 resp = await client.get(NVD_URL, params=params)

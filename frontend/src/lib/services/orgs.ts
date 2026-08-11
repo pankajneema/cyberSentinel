@@ -1,5 +1,5 @@
 // Organizations & memberships service (Phase 2). Calls the RBAC-enforced
-// /orgs/* backend on top of the Supabase identity.
+// /orgs/* backend on top of our own self-hosted identity.
 
 import { apiFetch } from "../api";
 
@@ -51,7 +51,7 @@ export function revokeInvite(inviteId: string) {
   return apiFetch<{ ok: boolean }>(`/orgs/invites/${inviteId}`, { method: "DELETE" });
 }
 
-/** Finalize an org-join after the invited user has a Supabase session. */
+/** Finalize an org-join after the invited user has a live session. */
 export function acceptInvite(token: string) {
   return apiFetch<OrgMember>("/orgs/invites/accept", {
     method: "POST",

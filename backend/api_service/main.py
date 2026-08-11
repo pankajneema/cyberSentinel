@@ -18,9 +18,10 @@ from utils.clickhouse_client import close_clickhouse
 # Import all routes
 from routes import billing, services, asm, vs, activity, assets, tasks, marketing, reports, notifications
 from routes import ca as ca_routes  # Compliance & Audit module
-from routes import auth_supabase  # Supabase-era identity router (Phase 1)
-from routes import auth_webhook    # Supabase provisioning webhook
-from routes import orgs            # Phase 2: organizations & memberships
+from routes import auth              # Identity: signup/login/refresh/logout/me/profile/settings
+from routes import oauth             # Google/GitHub OAuth
+from routes import orgs              # Phase 2: organizations & memberships
+from models import user_models      # ensure users/oauth_identities/refresh_tokens tables are registered
 from models import marketing_models  # ensure marketing tables are registered
 from models import tenancy_models   # ensure organizations/member_profiles tables are registered
 from models import notification_models  # ensure notifications tables are registered
@@ -145,10 +146,10 @@ async def readyz():
 
 # ==================== REGISTER ALL ROUTES ====================
 
-# --- Identity (Supabase era) ---
-app.include_router(auth_supabase.router)  # /auth/me, /auth/profile, /auth/settings
-app.include_router(auth_webhook.router)   # /auth/webhook/supabase (provisioning)
-app.include_router(orgs.router)           # /orgs/* (members, invites, roles)
+# --- Identity ---
+app.include_router(auth.router)    # /auth/signup, /login, /refresh, /logout, /me, /profile, /settings, ...
+app.include_router(oauth.router)   # /auth/oauth/{google,github}[/callback]
+app.include_router(orgs.router)    # /orgs/* (members, invites, roles)
 
 # --- Product modules ---
 app.include_router(billing.router)
@@ -173,8 +174,8 @@ app.include_router(marketing.router)
 
 # NOTE: the legacy auth/users/profile/accounts/settings_route/team route modules
 # were DELETED (dead + insecure — users carried a cross-tenant IDOR, audit C-2).
-# Identity is Supabase (auth_supabase) and membership is /orgs. test_routes_security
-# guards that none of these paths ever come back.
+# Identity is self-hosted (routes/auth.py, routes/oauth.py) and membership is
+# /orgs. test_routes_security guards that none of the deleted paths come back.
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,9 +1,9 @@
 """
-Assets route — migrated to Supabase identity + direct org_id tenancy (Phase 3).
+Assets route — migrated to identity + direct org_id tenancy (Phase 3).
 
 This is the reference pattern for migrating the remaining routes off the legacy
 `_company_user_ids` rebuild:
-  - authenticate via `get_current_user` (verified Supabase claims -> CurrentUser
+  - authenticate via `get_current_user` (verified claims -> CurrentUser
     with org_id + role)
   - filter every query by `org_id` directly (real tenant isolation)
   - gate writes with `require_role(...)` (server-side RBAC)
@@ -17,7 +17,7 @@ from sqlalchemy import select, func
 from datetime import datetime
 
 from utils.database import get_db
-from utils.supabase_auth import CurrentUser, get_current_user, require_role
+from utils.auth import CurrentUser, get_current_user, require_role
 from utils.tenancy import require_org
 from models.asset_models import Asset as AssetModel
 from scoring import score_exposure
@@ -197,7 +197,12 @@ async def rescore_asset(
         )
 
     result = score_exposure(signals)
+    factors = [
+        {"name": f.name, "points": round(f.points, 1), "detail": f.detail}
+        for f in result.factors
+    ]
     asset.risk_score = result.score
+    asset.risk_factors = factors
     asset.last_scored_at = datetime.utcnow()
     await db.commit()
     await db.refresh(asset)
@@ -206,10 +211,7 @@ async def rescore_asset(
         scored=True,
         risk_score=result.score,
         severity=result.severity,
-        factors=[
-            {"name": f.name, "points": round(f.points, 1), "detail": f.detail}
-            for f in result.factors
-        ],
+        factors=factors,
         matched_ips=matched_ips,
     )
 

@@ -15,6 +15,7 @@ import (
 	"worker/tools/nmap"
 	"worker/tools/nuclei"
 	"worker/tools/sslscan"
+	"worker/utils"
 )
 
 // VS (Vulnerability Scanning) engine adapters, ported from the old
@@ -193,6 +194,8 @@ func (vsNucleiTool) Run(ctx context.Context, in Input) (Output, error) {
 		}
 		results, err := nuclei.RunWithOptions(ctx, []string{target}, headers, excludeTags, nil, prof.MaxRPS)
 		if err != nil {
+			utils.Logger.Warnf("vs_nuclei: scan of %q failed: %v", target, err)
+			appendRawError(out.Raw, target, err)
 			continue
 		}
 		for _, r := range results {
@@ -204,6 +207,16 @@ func (vsNucleiTool) Run(ctx context.Context, in Input) (Output, error) {
 	}
 	out.Raw["count"] = len(out.Findings)
 	return out, nil
+}
+
+// appendRawError records a per-target tool failure in Output.Raw so a broken
+// scan (bad binary path, bad flags, target unreachable) is visible in the run
+// instead of looking identical to "scanned cleanly, found nothing" — the
+// previous silent `continue` made every failure indistinguishable from a
+// clean scan.
+func appendRawError(raw map[string]any, target string, err error) {
+	errs, _ := raw["errors"].([]string)
+	raw["errors"] = append(errs, fmt.Sprintf("%s: %v", target, err))
 }
 
 // ---- vs_default_login ----
@@ -228,6 +241,8 @@ func (vsDefaultLoginTool) Run(ctx context.Context, in Input) (Output, error) {
 		}
 		results, err := nuclei.RunWithOptions(ctx, []string{target}, headers, excludeTags, []string{"default-login"}, prof.MaxRPS)
 		if err != nil {
+			utils.Logger.Warnf("vs_default_login: scan of %q failed: %v", target, err)
+			appendRawError(out.Raw, target, err)
 			continue
 		}
 		for _, r := range results {
@@ -256,6 +271,8 @@ func (vsNmapNSETool) Run(ctx context.Context, in Input) (Output, error) {
 		}
 		results, err := nmap.RunServiceDetection(ctx, []string{t.Host}, t.Ports)
 		if err != nil {
+			utils.Logger.Warnf("vs_nmap_nse: scan of %q failed: %v", t.Host, err)
+			appendRawError(out.Raw, t.Host, err)
 			continue
 		}
 		for _, r := range results {
@@ -311,6 +328,8 @@ func (vsSslyzeTool) Run(ctx context.Context, in Input) (Output, error) {
 		}
 		results, err := sslscan.RunSSLAnalysis(ctx, hosts)
 		if err != nil {
+			utils.Logger.Warnf("vs_sslyze: scan of %q failed: %v", t.Host, err)
+			appendRawError(out.Raw, t.Host, err)
 			continue
 		}
 		for _, r := range results {

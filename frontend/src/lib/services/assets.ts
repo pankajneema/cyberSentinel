@@ -1,6 +1,12 @@
 import { apiFetch, Paginated } from "../api";
 
 // Types
+export interface RescoreFactor {
+  name: string;
+  points: number;
+  detail: string;
+}
+
 export interface ApiAsset {
   id: string;
   name: string;
@@ -8,6 +14,7 @@ export interface ApiAsset {
   exposure: "public" | "internal";
   criticality?: "low" | "normal" | "high" | "critical";  // business criticality (default "normal")
   risk_score: number | null;        // null = never scored ("Unscanned")
+  risk_factors?: RescoreFactor[] | null;  // explainable breakdown, persisted alongside risk_score
   last_scored_at?: string | null;
   tags: string[];
   last_seen?: string;
@@ -96,12 +103,6 @@ export function importAssets(assets: ImportAssetRow[]) {
     method: "POST",
     body: JSON.stringify({ assets }),
   });
-}
-
-export interface RescoreFactor {
-  name: string;
-  points: number;
-  detail: string;
 }
 
 export interface RescoreResult {

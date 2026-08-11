@@ -88,9 +88,9 @@ export default function Dashboard() {
       setError(null);
 
       // Route is already guarded by <RequireAuth>; apiFetch attaches the
-      // Supabase session token and redirects on 401. Everything below is
-      // real, org-scoped data from /asm/dashboard/overview, /vs/dashboard
-      // and /assets — no hardcoded values.
+      // access token and redirects on 401. Everything below is real,
+      // org-scoped data from /asm/dashboard/overview, /vs/dashboard and
+      // /assets — no hardcoded values.
 
       const [ovRes, vsRes, assetsRes] = await Promise.all([
         fetchAsmOverview().catch(err => {
@@ -117,6 +117,7 @@ export default function Dashboard() {
             total_ips: ovRes.asset_counts?.ips ?? 0,
             total_services: ovRes.asset_counts?.services ?? 0,
             public_assets: ovRes.exposure_summary?.public_assets ?? 0,
+            unscanned_count: ovRes.exposure_breakdown?.find(b => b.label?.toLowerCase() === "unscanned")?.count ?? 0,
             risk_trend: ovRes.exposure_trend ?? 0,
             risk_breakdown: mapExposureBreakdown(ovRes.exposure_breakdown),
           }
@@ -189,8 +190,11 @@ export default function Dashboard() {
 
   const riskBreakdown = asm?.risk_breakdown || mapExposureBreakdown(undefined);
 
-  // Scan coverage: discovered (domains + IPs) vs total inventory.
-  const scannedAssets = (asm?.total_domains ?? 0) + (asm?.total_ips ?? 0);
+  // Scan coverage: inventory assets that have been scored at least once
+  // (i.e. not sitting in the "unscanned" exposure bucket) vs total inventory.
+  // total_domains/total_ips count discovery *artifacts* (subdomains/resolved
+  // IPs), not inventory assets, so they can't be compared against totalAssets.
+  const scannedAssets = Math.max(totalAssets - (asm?.unscanned_count ?? 0), 0);
   const scanCoverage = totalAssets > 0 ? Math.min(Math.round((scannedAssets / totalAssets) * 100), 100) : 0;
 
   const criticalCount = riskBreakdown.find(r => r.level === "Critical")?.count ?? 0;

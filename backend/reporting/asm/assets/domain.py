@@ -20,6 +20,7 @@ from backend.api_service.models.asm_models import (
     AsmPort, AsmService, AsmSSLCert, AsmAPIEndpoint,
     AsmCloudResource, AsmAdminEndpoint, AsmBackupFile, AsmChange
 )
+from backend.api_service.models.asset_models import Asset
 from backend.api_service.utils.sanitize import (
     clean_str, clean_deep, clean_str_stripped, clean_deep_stripped, strip_ansi,
 )
@@ -933,6 +934,15 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         # -------------------------
         run.status = status  # Use status from payload (COMPLETED or FAILED)
         run.completed_at = datetime.utcnow()
+
+        # Asset.last_seen had no writer anywhere in the codebase — every asset
+        # showed "-" in the inventory table forever, regardless of how many
+        # scans ran. A successful discovery is exactly "we just observed this
+        # asset is still there", so stamp it here.
+        if status == "COMPLETED" and asset_id:
+            await db.execute(
+                update(Asset).where(Asset.id == asset_id).values(last_seen=run.completed_at.isoformat())
+            )
         # Extract additional data from pipeline steps (ports, services, SSL, APIs, etc.)
         ports_found = 0
         services_found = 0

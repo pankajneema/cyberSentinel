@@ -8,24 +8,16 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import List, Optional
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from utils.database import get_db
-from models.auth_models import User
 
 router = APIRouter(prefix="/api/v1/services", tags=["Services"])
 
-from utils.supabase_auth import CurrentUser, get_current_user
+from utils.auth import CurrentUser, get_current_user
 
 
-async def _require_admin(db: AsyncSession, current_user: dict):
-    user_res = await db.execute(select(User).where(User.id == current_user.user_id))
-    user = user_res.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    if user.role != "admin":
+def _require_admin(current_user: CurrentUser) -> CurrentUser:
+    if current_user.role not in ("owner", "admin"):
         raise HTTPException(status_code=403, detail="Admin access required")
-    return user
+    return current_user
 
 
 class ServiceInfo(BaseModel):
@@ -87,20 +79,18 @@ _CATALOG_BY_ID = {s.id: s for s in _SERVICE_CATALOG}
 
 @router.get("", response_model=List[ServiceInfo])
 async def list_services(
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    await _require_admin(db, current_user)
+    _require_admin(current_user)
     return list(_SERVICE_CATALOG)
 
 
 @router.get("/{service_id}", response_model=ServiceInfo)
 async def get_service(
     service_id: str,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    await _require_admin(db, current_user)
+    _require_admin(current_user)
     service = _CATALOG_BY_ID.get(service_id)
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
@@ -125,28 +115,25 @@ def _lifecycle_unavailable(service_id: str):
 @router.post("/{service_id}/purchase")
 async def purchase_service(
     service_id: str,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    await _require_admin(db, current_user)
+    _require_admin(current_user)
     _lifecycle_unavailable(service_id)
 
 
 @router.post("/{service_id}/activate")
 async def activate_service(
     service_id: str,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    await _require_admin(db, current_user)
+    _require_admin(current_user)
     _lifecycle_unavailable(service_id)
 
 
 @router.post("/{service_id}/deactivate")
 async def deactivate_service(
     service_id: str,
-    db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    await _require_admin(db, current_user)
+    _require_admin(current_user)
     _lifecycle_unavailable(service_id)

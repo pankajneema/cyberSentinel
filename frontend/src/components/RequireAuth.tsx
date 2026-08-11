@@ -1,4 +1,4 @@
-// Route guard — blocks the entire /app/* tree behind a valid Supabase session.
+// Route guard — blocks the entire /app/* tree behind a valid session.
 // Without this, authenticated routes render to anonymous users (audit finding S-1).
 
 import { Navigate, useLocation } from "react-router-dom";

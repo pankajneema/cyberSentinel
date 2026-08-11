@@ -29,7 +29,7 @@ class Report(Base):
         nullable=True,
         index=True,
     )
-    # Supabase user id of the creator (the JWT `sub`), not a FK.
+    # user id of the creator (the JWT `sub`), not a FK.
     user_id = Column(String, nullable=True, index=True)
 
     name = Column(String(255), nullable=False)

@@ -9,7 +9,7 @@ from datetime import datetime
 from utils.database import get_db
 import os
 from notificationservice import events as _NOTIF
-from utils.supabase_auth import CurrentUser, get_current_user, require_role
+from utils.auth import CurrentUser, get_current_user, require_role
 from asm.service import enqueue_discovery, list_child_rows, org_filter as _org_filter, user_discovery_ids as _user_discovery_ids
 from models.asm_models import (
     AsmDiscovery as AsmDiscoveryModel,
@@ -302,11 +302,24 @@ async def asm_exposure(
         select(func.count()).select_from(AsmIPModel).where(
             AsmIPModel.asm_discovery_id.in_(discovery_ids))
     )).scalar() or 0
-    ips = (await db.execute(
+    raw_ips = (await db.execute(
         select(AsmIPModel).where(AsmIPModel.asm_discovery_id.in_(discovery_ids))
         .limit(MAX_EXPOSURE_IPS)
     )).scalars().all()
-    truncated = total_ips > len(ips)
+    truncated = total_ips > len(raw_ips)
+
+    # The same physical IP gets one AsmIP row per resolving subdomain (a shared
+    # hosting/CDN IP can back hundreds of subdomains), so raw_ips routinely has
+    # far more rows than distinct addresses — dedupe before scoring, or the
+    # response repeats the same IP (and the frontend's per-IP React key) once
+    # per subdomain that happened to resolve to it.
+    seen_addrs: set[str] = set()
+    ips = []
+    for ip in raw_ips:
+        if ip.ip_address not in seen_addrs:
+            seen_addrs.add(ip.ip_address)
+            ips.append(ip)
+
     if not ips:
         return {"items": [], "total": 0, "truncated": False, "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}}
 
@@ -316,31 +329,38 @@ async def asm_exposure(
             AsmPortModel.status == "open",
         )
     )).scalars().all()
-    ports_by_ip: dict[str, list[int]] = {}
-    services_by_ip: dict[str, list[str]] = {}
+    # AsmPort rows are unique per discovery (not globally), so the same
+    # ip:port scanned across multiple historical discovery runs against this
+    # org produces one row each time. Dedupe into sets before display, or a
+    # port re-confirmed by N scans shows up repeated N times.
+    ports_by_ip: dict[str, set[int]] = {}
+    services_by_ip: dict[str, set[str]] = {}
     for p in open_ports:
-        ports_by_ip.setdefault(p.ip_address, []).append(p.port)
+        ports_by_ip.setdefault(p.ip_address, set()).add(p.port)
         if p.service:
-            services_by_ip.setdefault(p.ip_address, []).append(p.service)
+            services_by_ip.setdefault(p.ip_address, set()).add(p.service)
 
     certs = (await db.execute(
         select(AsmSSLCertModel).where(AsmSSLCertModel.asm_discovery_id.in_(discovery_ids))
     )).scalars().all()
-    tls_by_host: dict[str, list[str]] = {}
+    # Same cross-discovery duplication as ports/services above: dedupe with a
+    # set, or an "expired" cert re-confirmed by N historical scans would add
+    # N * TLS_ISSUE_POINTS["expired"] to the score instead of counting once.
+    tls_by_host: dict[str, set[str]] = {}
     now = datetime.utcnow()
     for c in certs:
         if c.valid_until and c.valid_until < now:
-            tls_by_host.setdefault(c.host, []).append("expired")
+            tls_by_host.setdefault(c.host, set()).add("expired")
 
     summary = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
     items = []
     for ip in ips:
         addr = ip.ip_address
         sc = score_exposure(AssetSignals(
-            open_ports=ports_by_ip.get(addr, []),
-            services=services_by_ip.get(addr, []),
+            open_ports=sorted(ports_by_ip.get(addr, set())),
+            services=sorted(services_by_ip.get(addr, set())),
             is_public=True,                 # externally-discovered = internet-facing
-            tls_issues=tls_by_host.get(addr, []),
+            tls_issues=list(tls_by_host.get(addr, set())),
             asset_criticality="normal",
         ))
         summary[sc.severity] = summary.get(sc.severity, 0) + 1
@@ -350,7 +370,7 @@ async def asm_exposure(
             "country_code": ip.country_code,
             "asn": ip.asn,
             "asn_org": ip.asn_org,
-            "open_ports": sorted(ports_by_ip.get(addr, [])),
+            "open_ports": sorted(ports_by_ip.get(addr, set())),
             "score": sc.score,
             "severity": sc.severity,
             "factors": sc.to_dict()["factors"],
@@ -1270,7 +1290,18 @@ async def list_ip_geo_map(
         .order_by(AsmIPModel.created_at.desc())
     )
 
-    rows = (await db.execute(base.limit(max_points))).scalars().all()
+    raw_rows = (await db.execute(base.limit(max_points))).scalars().all()
+
+    # Same cross-subdomain duplication as /exposure: one AsmIP row per
+    # resolving subdomain means the same geocoded address can appear many
+    # times over. Dedupe by address, or a single IP renders as a stack of
+    # identical overlapping markers on the map.
+    seen_addrs: set[str] = set()
+    rows = []
+    for row in raw_rows:
+        if row.ip_address not in seen_addrs:
+            seen_addrs.add(row.ip_address)
+            rows.append(row)
 
     items = []
     country_counts: dict[str, int] = {}

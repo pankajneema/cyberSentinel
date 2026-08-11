@@ -1,6 +1,5 @@
-// Team service — proxies the legacy team UI onto the new /orgs/* endpoints
-// (Supabase-era org membership). Keeps the same exported types so the existing
-// Team page UI works unchanged.
+// Team service — proxies the legacy team UI onto the /orgs/* endpoints.
+// Keeps the same exported types so the existing Team page UI works unchanged.
 
 import {
   listMembers as orgListMembers,

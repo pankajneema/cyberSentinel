@@ -19,8 +19,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.asset_models import Asset as AssetModel
 from models.report_models import Report as ReportModel
+from models.vs_models import VsFinding
 from notificationservice.email import send_email
 from schemas.report_schema import GenerateReportRequest
+
+_ACTIVE_VS_STATES = ("open", "confirmed", "in_progress")
 
 logger = logging.getLogger("cybersentinel.reports")
 PRODUCT_NAME_FOR_REPORTS = os.getenv("PRODUCT_NAME", "CyberSentinel")
@@ -163,13 +166,38 @@ async def _build_report_content(
         ),
     ]
 
-    # Vulnerabilities: the VS module is in-memory and currently has no persisted
-    # store reachable here. Report honestly rather than fabricate.
+    # Vulnerabilities: real, active (open/confirmed/in_progress) VS findings for
+    # this org. Resolved findings (remediated/verified/closed/accepted_risk/
+    # false_positive) are excluded — a report should reflect current exposure.
+    vs_rows = (
+        await db.execute(
+            select(VsFinding).filter(
+                VsFinding.org_id == org_id,
+                VsFinding.status.in_(_ACTIVE_VS_STATES),
+            )
+        )
+    ).scalars().all()
+    vs_by_severity = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for f in vs_rows:
+        sev = (f.severity or "").lower()
+        if sev in vs_by_severity:
+            vs_by_severity[sev] += 1
     vulnerabilities = {
-        "total": 0,
-        "by_severity": {"critical": 0, "high": 0, "medium": 0, "low": 0},
-        "note": "No persisted vulnerability scan data is available for this organization yet.",
+        "total": len(vs_rows),
+        "by_severity": vs_by_severity,
+        "note": None if vs_rows else "No open vulnerability findings for this organization.",
     }
+    vs_crit_high = vs_by_severity["critical"] + vs_by_severity["high"]
+    if vs_crit_high:
+        key_findings.append({
+            "severity": "high",
+            "title": f"{vs_crit_high} open critical/high vulnerability finding(s) from VS scans",
+            "count": vs_crit_high,
+        })
+        recommendations.append(
+            f"Remediate the {vs_crit_high} open critical/high vulnerability finding(s) "
+            "surfaced by Vulnerability Scanning, prioritized by CVSS/EPSS/KEV composite risk."
+        )
 
     report_type = (payload.report_type or "executive").lower()
 
@@ -233,6 +261,34 @@ async def _build_report_content(
             ],
             "summary": summary,
             "compliance_controls": compliance_controls,
+            "key_findings": key_findings,
+            "recommendations": recommendations,
+        }
+    elif report_type == "assets":
+        # Pure inventory export: every asset row, type/exposure breakdown, no
+        # vulnerability or compliance content (that's what the other types are for).
+        content = {
+            "meta": meta,
+            "sections_included": ["summary", "assets"],
+            "summary": summary,
+            "assets_detail": assets_detail,
+        }
+    elif report_type == "vulnerability":
+        # Full per-finding detail from real VS scan data — the whole point of
+        # this report type, so unlike top_exposed_assets it is not capped.
+        vulnerabilities_detail = [f.to_dict() for f in vs_rows]
+        content = {
+            "meta": meta,
+            "sections_included": [
+                "summary", "vulnerabilities", "key_findings", "recommendations",
+            ],
+            "summary": {
+                "total_assets": total_assets,
+                "public_assets": public_assets,
+                "internal_assets": internal_assets,
+            },
+            "vulnerabilities": vulnerabilities,
+            "vulnerabilities_detail": vulnerabilities_detail,
             "key_findings": key_findings,
             "recommendations": recommendations,
         }
@@ -368,6 +424,21 @@ def _content_to_csv(content: dict) -> str:
     w.writerow(["Top exposed asset", "Type", "Exposure", "Risk score"])
     for a in content.get("top_exposed_assets", []) or []:
         w.writerow([_csv_safe(a.get("name")), _csv_safe(a.get("type")), _csv_safe(a.get("exposure")), a.get("risk_score")])
+    vulns = content.get("vulnerabilities") or {}
+    if vulns:
+        w.writerow([])
+        w.writerow(["Vulnerabilities by severity", "Count"])
+        for sev, n in (vulns.get("by_severity", {}) or {}).items():
+            w.writerow([_csv_safe(sev), n])
+    detail = content.get("vulnerabilities_detail") or []
+    if detail:
+        w.writerow([])
+        w.writerow(["Finding", "Severity", "CVE", "Composite risk", "Status", "Asset ID"])
+        for f in detail:
+            w.writerow([
+                _csv_safe(f.get("title")), _csv_safe(f.get("severity")), _csv_safe(f.get("cve_id")),
+                f.get("composite_risk"), _csv_safe(f.get("status")), _csv_safe(f.get("asset_id")),
+            ])
     w.writerow([])
     w.writerow(["Key finding", "Severity", "Count"])
     for f in content.get("key_findings", []) or []:
@@ -496,6 +567,24 @@ def _content_to_pdf(report: ReportModel) -> bytes:
             ["Name", "Type", "Exposure", "Risk", "Status"],
             [[a.get("name"), a.get("type"), a.get("exposure"), a.get("risk_score"), a.get("status")] for a in detail],
             col_widths=[58 * mm, 28 * mm, 28 * mm, 24 * mm, 36 * mm],
+        ))
+
+    # Vulnerabilities by severity (executive / technical / vulnerability)
+    vulns = c.get("vulnerabilities") or {}
+    by_sev = vulns.get("by_severity") or {}
+    if any(by_sev.values()):
+        story.append(Paragraph("Vulnerabilities by severity", h2))
+        story.append(_table(["Severity", "Count"], list(by_sev.items()), col_widths=[90 * mm, 80 * mm]))
+
+    # Full vulnerability finding detail (vulnerability report only)
+    vuln_detail = c.get("vulnerabilities_detail")
+    if vuln_detail:
+        story.append(Paragraph("Vulnerability findings (full)", h2))
+        story.append(_table(
+            ["Title", "Severity", "CVE", "Risk", "Status"],
+            [[f.get("title"), f.get("severity"), f.get("cve_id") or "—", f.get("composite_risk"), f.get("status")]
+             for f in vuln_detail],
+            col_widths=[64 * mm, 24 * mm, 28 * mm, 18 * mm, 40 * mm],
         ))
 
     # Key findings

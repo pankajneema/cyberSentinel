@@ -26,9 +26,8 @@ def test_asset_model_has_org_id_and_non_destructive_fk():
     org_fk = next(iter(cols["org_id"].foreign_keys))
     assert org_fk.ondelete == "CASCADE"
 
-    # user_id is the Supabase `sub` (identity lives in Supabase, not a local users
-    # table), so it is intentionally NOT a foreign key and must be nullable — this
-    # guarantees removing a user can never cascade-delete the org's assets.
+    # Asset.user_id is intentionally NOT a foreign key (and must be nullable) —
+    # this guarantees removing a user can never cascade-delete the org's assets.
     assert "user_id" in cols
     assert len(cols["user_id"].foreign_keys) == 0
     assert cols["user_id"].nullable is True

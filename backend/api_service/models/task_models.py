@@ -29,7 +29,7 @@ class Task(Base):
         nullable=True,
         index=True,
     )
-    # Supabase user id of the creator (the JWT `sub`), not a FK.
+    # user id of the creator (the JWT `sub`), not a FK.
     user_id = Column(String, nullable=True, index=True)
 
     title = Column(String(255), nullable=False)

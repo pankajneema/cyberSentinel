@@ -3,7 +3,7 @@ Tenancy helpers (Phase 3).
 
 The goal is to make every data query scope by `org_id` directly, replacing the
 per-request `_company_user_ids` rebuild in the ASM routes. As each route is
-migrated to Supabase auth, swap its ownership filter to `scope_to_org(...)`.
+migrated to self-hosted auth, swap its ownership filter to `scope_to_org(...)`.
 """
 
 from __future__ import annotations

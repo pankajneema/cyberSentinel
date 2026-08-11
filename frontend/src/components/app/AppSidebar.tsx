@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSidebar } from "@/contexts/SidebarContext";
-import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
 import { LogoMark } from "@/components/Logo";
 import { toast } from "@/hooks/use-toast";
 import { useEffect, useMemo, useState } from "react";
@@ -48,9 +48,10 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const { collapsed, toggleCollapsed } = useSidebar();
   const { me } = useMe();
+  const { signOut } = useAuth();
   const [plan, setPlan] = useState<string>("Starter");
 
-  // Real identity from the verified Supabase session.
+  // Real identity from the verified session.
   const profile = useMemo(
     () =>
       me
@@ -178,7 +179,7 @@ export function AppSidebar() {
           type="button"
           onClick={async () => {
             try {
-              await supabase.auth.signOut();
+              await signOut();
             } catch (error) {
               toast({ title: "Sign out failed", description: "Please try again." });
             } finally {

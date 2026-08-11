@@ -1,12 +1,44 @@
 // API Configuration
-import { supabase, getAccessToken } from "./supabase";
+import { getTokens, setTokens, clearTokens } from "./token-storage";
 
 const API_HOST = import.meta.env.VITE_API_URL || "http://localhost:8000";
 export const API_BASE = `${API_HOST}/api/v1`;
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  // Identity comes from the Supabase session, not localStorage (audit S-2).
-  const token = await getAccessToken();
+// Concurrent 401s share a single in-flight refresh instead of each firing
+// their own — the second caller just awaits the first's result.
+let refreshPromise: Promise<boolean> | null = null;
+
+async function tryRefresh(): Promise<boolean> {
+  const tokens = getTokens();
+  if (!tokens?.refreshToken) return false;
+
+  if (!refreshPromise) {
+    refreshPromise = fetch(`${API_BASE}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: tokens.refreshToken }),
+    })
+      .then(async (res) => {
+        if (!res.ok) return false;
+        const data = await res.json();
+        setTokens(data.access_token, data.refresh_token);
+        return true;
+      })
+      .catch(() => false)
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
+function bounceToLogin(): void {
+  clearTokens();
+  window.location.href = "/login";
+}
+
+async function apiFetch<T>(path: string, init?: RequestInit, _retried = false): Promise<T> {
+  const token = getTokens()?.accessToken;
 
   const headers: HeadersInit = {
     "Content-Type": "application/json",
@@ -22,10 +54,13 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers,
   });
 
-  // 401 = session invalid/expired -> sign out and bounce to login.
+  // 401 = access token invalid/expired -> refresh once and retry; if that
+  // fails too, the session is genuinely over.
   if (res.status === 401) {
-    await supabase.auth.signOut();
-    window.location.href = "/login";
+    if (!_retried && (await tryRefresh())) {
+      return apiFetch<T>(path, init, true);
+    }
+    bounceToLogin();
     throw new Error("Unauthorized");
   }
 
@@ -38,7 +73,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     const errorText = await res.text().catch(() => `HTTP ${res.status}`);
     throw new Error(errorText);
   }
-  
+
   return res.json() as Promise<T>;
 }
 
@@ -64,9 +99,10 @@ export function buildQuery(
  */
 export async function apiFetchBlob(
   path: string,
-  init?: RequestInit
+  init?: RequestInit,
+  _retried = false
 ): Promise<{ blob: Blob; filename: string | null }> {
-  const token = await getAccessToken();
+  const token = getTokens()?.accessToken;
   const headers: HeadersInit = { ...(init?.headers || {}) };
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
@@ -75,8 +111,10 @@ export async function apiFetchBlob(
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
 
   if (res.status === 401) {
-    await supabase.auth.signOut();
-    window.location.href = "/login";
+    if (!_retried && (await tryRefresh())) {
+      return apiFetchBlob(path, init, true);
+    }
+    bounceToLogin();
     throw new Error("Unauthorized");
   }
   if (res.status === 403) {

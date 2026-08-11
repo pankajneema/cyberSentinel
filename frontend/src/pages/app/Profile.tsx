@@ -1,5 +1,5 @@
 // Profile — edit synced profile fields (name, country, phone, avatar URL).
-// Avatar upload to Supabase Storage is a follow-up; this stores an avatar URL.
+// Real file upload (object storage) is a follow-up; this stores an avatar URL.
 
 import { useEffect, useState } from "react";
 import { updateProfile } from "@/lib/services/auth";

@@ -1322,22 +1322,32 @@ export function AssetInventory() {
                   </div>
                 </div>
 
-                {scoreBreakdown[selectedAsset.id]?.scored && (
-                  <div className="space-y-3">
-                    <h4 className="font-medium text-foreground">Why this score</h4>
-                    <p className="text-xs text-muted-foreground">
-                      Computed from {scoreBreakdown[selectedAsset.id].matched_ips.length} discovered IP(s) using CVSS/EPSS/KEV-aware exposure scoring.
-                    </p>
-                    <div className="space-y-2">
-                      {scoreBreakdown[selectedAsset.id].factors.map((f, i) => (
-                        <div key={i} className="flex items-center justify-between text-xs p-2.5 bg-muted/30 rounded-lg">
-                          <span className="text-foreground">{f.detail}</span>
-                          <span className="font-medium text-muted-foreground tabular-nums">+{f.points}</span>
-                        </div>
-                      ))}
+                {(() => {
+                  // Prefer this session's fresh rescore (has matched-IP count);
+                  // fall back to the persisted breakdown so the panel works for
+                  // every scored asset, not just ones rescored just now.
+                  const live = scoreBreakdown[selectedAsset.id];
+                  const factors = live?.scored ? live.factors : (selectedAsset.risk_factors ?? []);
+                  if (!factors.length) return null;
+                  return (
+                    <div className="space-y-3">
+                      <h4 className="font-medium text-foreground">Why this score</h4>
+                      <p className="text-xs text-muted-foreground">
+                        {live?.scored
+                          ? `Computed from ${live.matched_ips.length} discovered IP(s) using CVSS/EPSS/KEV-aware exposure scoring.`
+                          : "Computed using CVSS/EPSS/KEV-aware exposure scoring."}
+                      </p>
+                      <div className="space-y-2">
+                        {factors.map((f, i) => (
+                          <div key={i} className="flex items-center justify-between text-xs p-2.5 bg-muted/30 rounded-lg">
+                            <span className="text-foreground">{f.detail}</span>
+                            <span className="font-medium text-muted-foreground tabular-nums">+{f.points}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             </>
           )}
