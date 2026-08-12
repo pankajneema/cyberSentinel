@@ -35,7 +35,7 @@ async def contact_us(payload: ContactRequest):
             "company": payload.company or "",
             "subject": payload.subject,
             "message": payload.message,
-            "submitted_at": datetime.utcnow().isoformat(),
+            "submitted_at": datetime.utcnow().isoformat() + "Z",
         }
     )
     return {"message": "Contact request received", "sent": bool(ok)}
@@ -54,7 +54,7 @@ async def early_access(payload: EarlyAccessRequest, db: AsyncSession = Depends(g
         {
             "email": payload.email,
             "service": payload.service.strip(),
-            "submitted_at": datetime.utcnow().isoformat(),
+            "submitted_at": datetime.utcnow().isoformat() + "Z",
         }
     )
 

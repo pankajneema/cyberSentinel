@@ -57,6 +57,10 @@ class AsmDiscoveryListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    # Status -> count across the FULL filtered set (not just this page), so the
+    # UI's summary cards and status tabs don't have to derive counts from a
+    # single page of `items` and silently undercount once total > page_size.
+    status_counts: dict = {}
 
 
 # ---------------------------------------------------
@@ -113,6 +117,9 @@ class AsmDiscoveryRunListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    # Status -> count across the FULL filtered set, not just this page — see
+    # AsmDiscoveryListResponse.status_counts for why.
+    status_counts: dict = {}
 
 
 # ---------------------------------------------------
@@ -147,6 +154,10 @@ class AsmSubdomainListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    # Org-wide count of status="active" subdomains — computed server-side so
+    # the UI doesn't have to fetch up to page_size=100 rows and count client-side,
+    # which silently undercounts once total subdomains exceeds that cap.
+    active_count: int = 0
 
 
 # ---------------------------------------------------

@@ -73,7 +73,7 @@ async def get_activity(
             "resource_type": _resource_type(l.action),
             "resource_id": l.target,
             "details": l.meta or {},
-            "created_at": l.created_at.isoformat() if l.created_at else None,
+            "created_at": (l.created_at.isoformat() + "Z") if l.created_at else None,
         }
         for l in logs
     ]
@@ -97,7 +97,7 @@ async def get_audit_logs(
             "resource_type": _resource_type(l.action),
             "resource_id": l.target,
             "changes": l.meta or {},
-            "created_at": l.created_at.isoformat() if l.created_at else None,
+            "created_at": (l.created_at.isoformat() + "Z") if l.created_at else None,
         }
         for l in logs
     ]

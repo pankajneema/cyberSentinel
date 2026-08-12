@@ -371,7 +371,7 @@ async def create_credential(payload: VsCredentialCreate, db: AsyncSession = Depe
     await db.refresh(c)
     return VsCredentialResponse(id=c.id, name=c.name, cred_type=c.cred_type,
                                 username=c.username,
-                                created_at=c.created_at.isoformat() if c.created_at else None)
+                                created_at=(c.created_at.isoformat() + "Z") if c.created_at else None)
 
 
 @vs_router.get("/credentials", response_model=list[VsCredentialResponse])
@@ -381,7 +381,7 @@ async def list_credentials(db: AsyncSession = Depends(get_db),
     rows = (await db.execute(select(VsCredential).where(
         VsCredential.org_id == org_id).order_by(VsCredential.created_at.desc()))).scalars().all()
     return [VsCredentialResponse(id=c.id, name=c.name, cred_type=c.cred_type, username=c.username,
-                                 created_at=c.created_at.isoformat() if c.created_at else None)
+                                 created_at=(c.created_at.isoformat() + "Z") if c.created_at else None)
             for c in rows]
 
 

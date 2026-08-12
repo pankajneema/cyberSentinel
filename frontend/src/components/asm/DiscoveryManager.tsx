@@ -142,11 +142,27 @@ const scheduleOptions = [
   { value: "CRON", label: "Custom (CRON)", intervalValue: null },
 ];
 
+// Maps a tab value to the backend `status` filter it should fetch. "all" and
+// "pending"/"paused"/"completed"/"failed" map 1:1 to the enum; "active" and
+// "running" are both existing tabs for the same RUNNING state (pre-existing
+// naming overlap, not something introduced here).
+const TAB_STATUS: Record<string, string | undefined> = {
+  all: undefined,
+  active: "RUNNING",
+  running: "RUNNING",
+  paused: "PAUSED",
+  pending: "PENDING",
+  completed: "COMPLETED",
+  failed: "FAILED",
+};
+
 export function DiscoveryManager() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [totalDiscoveries, setTotalDiscoveries] = useState(0);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [sortBy, setSortBy] = useState("created_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [discoveries, setDiscoveries] = useState<AsmDiscovery[]>([]);
@@ -181,7 +197,14 @@ export function DiscoveryManager() {
   useEffect(() => {
     loadDiscoveries();
     loadInventoryAssets();
-  }, [page, pageSize, debouncedSearch, sortBy, sortDir]);
+  }, [page, pageSize, debouncedSearch, sortBy, sortDir, activeTab]);
+
+  // Switching tabs changes which status is being queried, so the current
+  // page (scoped to the PREVIOUS tab's result set) is no longer meaningful.
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    setPage(1);
+  };
 
   const loadDiscoveries = async () => {
     try {
@@ -190,11 +213,13 @@ export function DiscoveryManager() {
         page,
         page_size: pageSize,
         q: debouncedSearch || undefined,
+        status: TAB_STATUS[activeTab],
         sort_by: sortBy,
         sort_dir: sortDir,
       });
       setDiscoveries(data.items);
       setTotalDiscoveries(data.total);
+      setStatusCounts(data.status_counts || {});
     } catch (err: any) {
       console.error("Failed to load discoveries:", err);
       toast({
@@ -224,10 +249,13 @@ export function DiscoveryManager() {
     discovery.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // Sourced from the backend's org-wide status_counts (not `discoveries`,
+  // which is only the current page) — otherwise these silently undercount
+  // once an org has more discoveries than fit on one page.
   const totalCount = totalDiscoveries;
-  const activeCount = discoveries.filter(d => d.status === "RUNNING").length;
-  const completedCount = discoveries.filter(d => d.status === "COMPLETED").length;
-  const failedCount = discoveries.filter(d => d.status === "FAILED").length;
+  const activeCount = statusCounts["RUNNING"] || 0;
+  const completedCount = statusCounts["COMPLETED"] || 0;
+  const failedCount = statusCounts["FAILED"] || 0;
 
   const getFilteredAssetsByType = () => {
     if (!newDiscovery.asset_type) return inventoryAssets;
@@ -931,7 +959,7 @@ export function DiscoveryManager() {
 
   return (
     <div className="">
-      <Tabs defaultValue="all">
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <TabsList className="inline-flex gap-1.5 bg-card/80 border border-border p-1.5 rounded-2xl whitespace-nowrap shadow-sm">
             <TabsTrigger value="all">All Discoveries</TabsTrigger>
@@ -1028,7 +1056,7 @@ export function DiscoveryManager() {
           )}
         </TabsContent>
 
-        <TabsContent value="active" forceMount className="mt-4 data-[state=inactive]:hidden">
+        <TabsContent value="active" className="mt-4">
           <div className="flex items-center gap-2 mb-4">
             <div className="relative flex-1 min-w-[220px]">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -1054,7 +1082,7 @@ export function DiscoveryManager() {
             </Button>
           </div>
           <div className="space-y-3">
-            {filteredDiscoveries.filter(d => d.status === "RUNNING").map((discovery, index) => (
+            {filteredDiscoveries.map((discovery, index) => (
               <motion.div
                 key={discovery.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -1131,7 +1159,7 @@ export function DiscoveryManager() {
           </div>
         </TabsContent>
 
-        <TabsContent value="running" forceMount className="mt-4 data-[state=inactive]:hidden">
+        <TabsContent value="running" className="mt-4">
           <div className="flex items-center gap-2 mb-4">
             <div className="relative flex-1 min-w-[220px]">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -1157,7 +1185,7 @@ export function DiscoveryManager() {
             </Button>
           </div>
           <div className="space-y-3">
-            {filteredDiscoveries.filter(d => d.status === "RUNNING").map((discovery, index) => (
+            {filteredDiscoveries.map((discovery, index) => (
               <motion.div
                 key={discovery.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -1207,7 +1235,7 @@ export function DiscoveryManager() {
           </div>
         </TabsContent>
 
-        <TabsContent value="paused" forceMount className="mt-4 data-[state=inactive]:hidden">
+        <TabsContent value="paused" className="mt-4">
           <div className="flex items-center gap-2 mb-4">
             <div className="relative flex-1 min-w-[220px]">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -1233,7 +1261,7 @@ export function DiscoveryManager() {
             </Button>
           </div>
           <div className="space-y-3">
-            {filteredDiscoveries.filter(d => d.status === "PAUSED").map((discovery, index) => (
+            {filteredDiscoveries.map((discovery, index) => (
               <motion.div
                 key={discovery.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -1288,7 +1316,7 @@ export function DiscoveryManager() {
           </div>
         </TabsContent>
 
-        <TabsContent value="pending" forceMount className="mt-4 data-[state=inactive]:hidden">
+        <TabsContent value="pending" className="mt-4">
           <div className="flex items-center gap-2 mb-4">
             <div className="relative flex-1 min-w-[220px]">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -1314,7 +1342,7 @@ export function DiscoveryManager() {
             </Button>
           </div>
           <div className="space-y-3">
-            {filteredDiscoveries.filter(d => d.status === "PENDING").map((discovery, index) => (
+            {filteredDiscoveries.map((discovery, index) => (
               <motion.div
                 key={discovery.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -1367,7 +1395,7 @@ export function DiscoveryManager() {
           </div>
         </TabsContent>
 
-        <TabsContent value="completed" forceMount className="mt-4 data-[state=inactive]:hidden">
+        <TabsContent value="completed" className="mt-4">
           <div className="flex items-center gap-2 mb-4">
             <div className="relative flex-1 min-w-[220px]">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -1393,7 +1421,7 @@ export function DiscoveryManager() {
             </Button>
           </div>
           <div className="space-y-3">
-            {filteredDiscoveries.filter(d => d.status === "COMPLETED").map((discovery, index) => (
+            {filteredDiscoveries.map((discovery, index) => (
               <motion.div
                 key={discovery.id}
                 initial={{ opacity: 0, y: 10 }}
@@ -1449,7 +1477,7 @@ export function DiscoveryManager() {
           </div>
         </TabsContent>
 
-        <TabsContent value="failed" forceMount className="mt-4 data-[state=inactive]:hidden">
+        <TabsContent value="failed" className="mt-4">
           <div className="flex items-center gap-2 mb-4">
             <div className="relative flex-1 min-w-[220px]">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -1475,7 +1503,7 @@ export function DiscoveryManager() {
             </Button>
           </div>
           <div className="space-y-3">
-            {filteredDiscoveries.filter(d => d.status === "FAILED").map((discovery, index) => (
+            {filteredDiscoveries.map((discovery, index) => (
               <motion.div
                 key={discovery.id}
                 initial={{ opacity: 0, y: 10 }}

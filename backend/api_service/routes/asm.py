@@ -2,8 +2,9 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from typing import Optional
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, desc
 from datetime import datetime
 
 from utils.database import get_db
@@ -259,7 +260,9 @@ async def create_discovery(
 
     discovery_data = discovery.to_dict()
 
-    if not await enqueue_discovery(discovery):
+    ok = await enqueue_discovery(discovery, db=db)
+    await db.commit()
+    if not ok:
         raise HTTPException(
             status_code=500,
             detail="Not able to schedule this discovery",
@@ -388,6 +391,7 @@ async def list_discoveries(
     page: int = 1,
     page_size: int = 20,
     q: Optional[str] = None,
+    status: Optional[str] = None,
     sort_by: Optional[str] = None,
     sort_dir: Optional[str] = "desc",
     db: AsyncSession = Depends(get_db),
@@ -396,6 +400,8 @@ async def list_discoveries(
     base_query = select(AsmDiscoveryModel).where(
         _org_filter(AsmDiscoveryModel, current_user)
     )
+    if status:
+        base_query = base_query.where(AsmDiscoveryModel.status == status)
     if q:
         like = f"%{q}%"
         base_query = base_query.where(
@@ -412,6 +418,28 @@ async def list_discoveries(
     )
     total_result = await db.execute(total_query)
     total = total_result.scalar() or 0
+
+    # Status breakdown across the whole filtered set — the UI's summary cards
+    # (Active/Completed/Failed) and status tabs need org-wide counts, not just
+    # whatever fell on this page. Re-applies the same filters as `base_query`
+    # (can't GROUP BY off its subquery directly — the ORM class's columns
+    # don't bind to a derived subquery's columns).
+    status_counts_query = select(AsmDiscoveryModel.status, func.count()).where(
+        _org_filter(AsmDiscoveryModel, current_user)
+    )
+    if q:
+        like = f"%{q}%"
+        status_counts_query = status_counts_query.where(
+            or_(
+                AsmDiscoveryModel.name.ilike(like),
+                AsmDiscoveryModel.status.ilike(like),
+                AsmDiscoveryModel.asset_type.ilike(like),
+            )
+        )
+    status_counts_result = await db.execute(
+        status_counts_query.group_by(AsmDiscoveryModel.status)
+    )
+    status_counts = {row[0]: row[1] for row in status_counts_result.all()}
 
     # Paginated results
     sort_col = AsmDiscoveryModel.created_at
@@ -438,6 +466,7 @@ async def list_discoveries(
         total=total,
         page=page,
         page_size=page_size,
+        status_counts=status_counts,
     )
 
 
@@ -529,7 +558,9 @@ async def run_discovery(
     await db.commit()
     await db.refresh(discovery)
 
-    if not await enqueue_discovery(discovery):
+    ok = await enqueue_discovery(discovery, db=db)
+    await db.commit()
+    if not ok:
         raise HTTPException(status_code=500, detail="Not able to schedule this discovery")
 
     await _emit_scan_event(
@@ -698,7 +729,7 @@ async def asm_dashboard(
         attack_surface_score=attack_surface_score,
         total_discoveries=total,
         active_discoveries=active,
-        last_discovery_run=last_run.started_at.isoformat() if last_run and last_run.started_at else None,
+        last_discovery_run=(last_run.started_at.isoformat() + "Z") if last_run and last_run.started_at else None,
     )
 
 
@@ -732,12 +763,15 @@ async def asm_overview(
     )
     total_subdomains = (await db.execute(subdomain_query)).scalar() or 0
 
-    # total IPs (join with discoveries to ensure user scoping)
-    ip_query = select(func.count()).select_from(
-        select(AsmIPModel)
+    # Distinct IPs discovered (join with discoveries to ensure user scoping).
+    # The same physical IP gets one AsmIP row per resolving subdomain (and
+    # again per re-scan), so a plain row count wildly overstates real hosts —
+    # count distinct addresses instead.
+    ip_query = (
+        select(func.count(func.distinct(AsmIPModel.ip_address)))
+        .select_from(AsmIPModel)
         .join(AsmDiscoveryModel, AsmIPModel.asm_discovery_id == AsmDiscoveryModel.id)
         .where(_org_filter(AsmDiscoveryModel, current_user))
-        .subquery()
     )
     total_ips_discovered = (await db.execute(ip_query)).scalar() or 0
 
@@ -908,7 +942,7 @@ async def asm_overview(
                 "id": log.id,
                 "action": log.action,
                 "asset": log.target,
-                "time": log.created_at.isoformat() if log.created_at else None,
+                "time": (log.created_at.isoformat() + "Z") if log.created_at else None,
                 "type": (log.action or "").split(".")[0] or log.action,
             }
             for log in recent_logs
@@ -918,7 +952,7 @@ async def asm_overview(
         attack_surface_index=attack_surface_index,
         total_discoveries=total,
         active_discoveries=active,
-        last_discovery_run=last_run.started_at.isoformat() if last_run and last_run.started_at else None,
+        last_discovery_run=(last_run.started_at.isoformat() + "Z") if last_run and last_run.started_at else None,
         asset_counts={
             "domains": total_domains,
             "subdomains": total_subdomains,
@@ -984,6 +1018,11 @@ async def list_subdomains(
     total_q = select(func.count()).select_from(total_base.subquery())
     total = (await db.execute(total_q)).scalar() or 0
 
+    active_q = select(func.count()).select_from(
+        total_base.where(AsmSubdomainModel.status == "active").subquery()
+    )
+    active_count = (await db.execute(active_q)).scalar() or 0
+
     # Paginated query with limit
     paginated = base.order_by(AsmSubdomainModel.created_at.desc()).offset((page-1)*page_size).limit(page_size)
     result = await db.execute(paginated)
@@ -1016,6 +1055,7 @@ async def list_subdomains(
         total=total,
         page=page,
         page_size=page_size,
+        active_count=active_count,
     )
 
 
@@ -1181,16 +1221,16 @@ async def list_all_ips(
 ):
     """
     List all IPs discovered by the user.
-    
-    Shows all IPs across all discoveries, with pagination.
+
+    Shows all distinct IPs across all discoveries, with pagination.
     """
-    
+
     # Enforce max page_size
     if page_size > 100:
         page_size = 100
-    
+
     discovery_ids = await _user_discovery_ids(db, current_user)
-    
+
     if not discovery_ids:
         return AsmIPListResponse(
             items=[],
@@ -1198,23 +1238,34 @@ async def list_all_ips(
             page=page,
             page_size=page_size,
         )
-    
-    # Get IPs for these discoveries
-    base_query = select(AsmIPModel).where(AsmIPModel.asm_discovery_id.in_(discovery_ids))
-    
-    # Total count
-    total_query = select(func.count()).select_from(base_query.subquery())
+
+    # The same physical IP gets one AsmIP row per resolving subdomain (and
+    # again per re-scan, since AsmIP is unique per discovery, not globally) —
+    # a shared hosting/CDN address can rack up hundreds of near-identical
+    # rows. DISTINCT ON collapses that to one row per address (the most
+    # recently created) before pagination, so "Total IPs" and the listing
+    # reflect real distinct hosts instead of raw resolution-history rows.
+    dedup_subq = (
+        select(AsmIPModel)
+        .where(AsmIPModel.asm_discovery_id.in_(discovery_ids))
+        .distinct(AsmIPModel.ip_address)
+        .order_by(AsmIPModel.ip_address, AsmIPModel.created_at.desc())
+    ).subquery()
+    DedupIP = aliased(AsmIPModel, dedup_subq)
+
+    # Total count (of distinct IPs)
+    total_query = select(func.count()).select_from(dedup_subq)
     total_result = await db.execute(total_query)
     total = total_result.scalar() or 0
-    
+
     # Paginated results
     paginated_query = (
-        base_query
-        .order_by(AsmIPModel.created_at.desc())
+        select(DedupIP)
+        .order_by(desc(dedup_subq.c.created_at))
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    
+
     result = await db.execute(paginated_query)
     ips = result.scalars().all()
 
@@ -1692,12 +1743,12 @@ async def list_discovery_runs(
             triggered_by=run.triggered_by,
             run_mode=run.run_mode,
             status=run.status,
-            started_at=run.started_at.isoformat() if run.started_at else None,
-            completed_at=run.completed_at.isoformat() if run.completed_at else None,
+            started_at=(run.started_at.isoformat() + "Z") if run.started_at else None,
+            completed_at=(run.completed_at.isoformat() + "Z") if run.completed_at else None,
             duration_seconds=_calc_duration_seconds(run),
             error_message=run.error_message,
             summary=run.summary,
-            created_at=run.created_at.isoformat() if run.created_at else None,
+            created_at=(run.created_at.isoformat() + "Z") if run.created_at else None,
         ) for run in runs],
         total=total,
         page=page,
@@ -1752,6 +1803,26 @@ async def list_all_discovery_runs(
     total_result = await db.execute(total_query)
     total = total_result.scalar() or 0
 
+    # Status breakdown across the whole filtered set (org-wide, not just this
+    # page) — the Reports tab's "Completed" / "Success Rate" cards need this,
+    # same reasoning as AsmDiscoveryListResponse.status_counts.
+    status_counts_query = select(AsmDiscoveryRunModel.status, func.count()).where(
+        AsmDiscoveryRunModel.asm_discovery_id.in_(discovery_ids)
+    )
+    if q:
+        like = f"%{q}%"
+        status_counts_query = status_counts_query.where(
+            or_(
+                AsmDiscoveryRunModel.status.ilike(like),
+                AsmDiscoveryRunModel.run_mode.ilike(like),
+                AsmDiscoveryRunModel.triggered_by.ilike(like),
+            )
+        )
+    status_counts_result = await db.execute(
+        status_counts_query.group_by(AsmDiscoveryRunModel.status)
+    )
+    status_counts = {row[0]: row[1] for row in status_counts_result.all()}
+
     # Paginated results
     sort_col = AsmDiscoveryRunModel.started_at
     if sort_by == "completed_at":
@@ -1780,16 +1851,17 @@ async def list_all_discovery_runs(
             triggered_by=run.triggered_by,
             run_mode=run.run_mode,
             status=run.status,
-            started_at=run.started_at.isoformat() if run.started_at else None,
-            completed_at=run.completed_at.isoformat() if run.completed_at else None,
+            started_at=(run.started_at.isoformat() + "Z") if run.started_at else None,
+            completed_at=(run.completed_at.isoformat() + "Z") if run.completed_at else None,
             duration_seconds=_calc_duration_seconds(run),
             error_message=run.error_message,
             summary=run.summary,
-            created_at=run.created_at.isoformat() if run.created_at else None,
+            created_at=(run.created_at.isoformat() + "Z") if run.created_at else None,
         ) for run in runs],
         total=total,
         page=page,
         page_size=page_size,
+        status_counts=status_counts,
     )
 
 
@@ -1826,12 +1898,12 @@ async def get_run_detail(
         triggered_by=run.triggered_by,
         run_mode=run.run_mode,
         status=run.status,
-        started_at=run.started_at.isoformat() if run.started_at else None,
-        completed_at=run.completed_at.isoformat() if run.completed_at else None,
+        started_at=(run.started_at.isoformat() + "Z") if run.started_at else None,
+        completed_at=(run.completed_at.isoformat() + "Z") if run.completed_at else None,
         duration_seconds=_calc_duration_seconds(run),
         error_message=run.error_message,
         summary=run.summary,
-        created_at=run.created_at.isoformat() if run.created_at else None,
+        created_at=(run.created_at.isoformat() + "Z") if run.created_at else None,
     )
 
 

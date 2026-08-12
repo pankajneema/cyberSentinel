@@ -110,6 +110,7 @@ export function DiscoveryRunsList() {
   const [sortBy, setSortBy] = useState("started_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [discoveryCache, setDiscoveryCache] = useState<Record<string, string>>({});
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
 
   const pageSize = 50;
 
@@ -125,6 +126,7 @@ export function DiscoveryRunsList() {
       const data = await fetchAllRuns(page, pageSize, debouncedSearch, sortBy, sortDir);
       setRuns(data.items);
       setTotalRuns(data.total);
+      setStatusCounts(data.status_counts || {});
 
       // Fetch discovery names for all runs
       const discoveryIds = [...new Set(data.items.map(r => r.asm_discovery_id))];
@@ -194,7 +196,9 @@ export function DiscoveryRunsList() {
   };
 
   const filteredRuns = runs;
-  const completedRuns = runs.filter(r => r.status === "COMPLETED").length;
+  // Org-wide, from the backend — not `runs`, which is only the current page
+  // and would silently undercount once total > pageSize.
+  const completedRuns = statusCounts["COMPLETED"] || 0;
   const successRate = totalRuns > 0 ? Math.round((completedRuns / totalRuns) * 100) : 0;
 
   return (

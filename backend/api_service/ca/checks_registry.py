@@ -87,7 +87,7 @@ async def vs_scan_recency(db, org_id: str, params: dict) -> CheckOutcome:
             f"{len(ids)} completed vulnerability scan(s) in the last {max_age} days "
             f"(latest {latest:%Y-%m-%d}).",
             {"table": "vs_scan_runs", "ids": ids, "query_window_days": max_age},
-            {"completed_runs": len(ids), "latest_completed_at": latest.isoformat()},
+            {"completed_runs": len(ids), "latest_completed_at": latest.isoformat() + "Z"},
         )
     return CheckOutcome(
         "fail",
@@ -336,13 +336,13 @@ async def asm_inventory_maintained(db, org_id: str, params: dict) -> CheckOutcom
             "pass",
             f"{count} active asset(s); inventory last updated {latest:%Y-%m-%d}.",
             {"table": "assets", "count": count},
-            {"active_assets": count, "last_updated": latest.isoformat()},
+            {"active_assets": count, "last_updated": latest.isoformat() + "Z"},
         )
     return CheckOutcome(
         "fail",
         f"Inventory has {count} asset(s) but none updated in the last {max_age} days.",
         {"table": "assets", "count": count},
-        {"active_assets": count, "last_updated": latest.isoformat() if latest else None},
+        {"active_assets": count, "last_updated": (latest.isoformat() + "Z") if latest else None},
     )
 
 
@@ -396,7 +396,7 @@ async def asm_discovery_recency(db, org_id: str, params: dict) -> CheckOutcome:
             f"{len(rows)} ASM discovery run(s) in the last {max_age} days "
             f"(latest {rows[0].last_run_at:%Y-%m-%d}).",
             {"table": "asm_discoveries", "ids": [r.id for r in rows]},
-            {"recent_discoveries": len(rows), "latest_run_at": rows[0].last_run_at.isoformat()},
+            {"recent_discoveries": len(rows), "latest_run_at": rows[0].last_run_at.isoformat() + "Z"},
         )
     return CheckOutcome(
         "fail",

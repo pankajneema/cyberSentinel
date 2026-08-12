@@ -277,7 +277,9 @@ export function UserExposureTab() {
                   </Badge>
                 </td>
                 <td className="p-4">{r.breach_count ?? 0}</td>
-                <td className="p-4 text-xs">{r.exposed_data || "—"}</td>
+                <td className="p-4 text-xs">
+                  {Array.isArray(r.exposed_data) && r.exposed_data.length ? r.exposed_data.join(", ") : "—"}
+                </td>
                 <td className="p-4">
                   <SeverityBadge severity={sev} />
                 </td>

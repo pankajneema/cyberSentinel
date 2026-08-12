@@ -27,6 +27,7 @@ import {
   RefreshCw,
   Shield,
   MapPin,
+  Loader2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "@/hooks/use-toast";
@@ -278,36 +279,39 @@ export function SubdomainDiscovery() {
   const [totalSubdomainsStat, setTotalSubdomainsStat] = useState<string>("0");
   const [totalIPsStat, setTotalIPsStat] = useState<string>("0");
   const [activeSubdomainsStat, setActiveSubdomainsStat] = useState<string>("0");
+  const [subdomainPage, setSubdomainPage] = useState(1);
+  const [subdomainTotal, setSubdomainTotal] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const SUBDOMAIN_PAGE_SIZE = 100;
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
-        // Load subdomains with pagination (max 100 per page for performance)
-        const res = await fetchSubdomains(undefined, 1, 100);
+        // Tree view loads incrementally (see loadMoreSubdomains) — the backend
+        // caps page_size at 100, and this org alone has 20K+ subdomains, so
+        // there is no single fetch that shows "everything" at once.
+        const res = await fetchSubdomains(undefined, 1, SUBDOMAIN_PAGE_SIZE);
         if (!cancelled) {
           setSubdomains(res.items || []);
+          setSubdomainTotal(res.total || 0);
+          setSubdomainPage(1);
+          // Org-wide, computed server-side — NOT a count over the fetched
+          // page, which would silently undercount past page_size.
+          setActiveSubdomainsStat(String(res.active_count ?? 0));
         }
-        
+
         // Load assets (domains) to use as parents
         const assetsRes = await fetchAssets({ type: "domain", page: 1, page_size: 100 });
         if (!cancelled) {
           setAssets(assetsRes.items || []);
         }
-        
+
         // Get accurate counts from overview API
         const overview = await fetchAsmOverview();
         if (!cancelled) {
           setTotalSubdomainsStat(String(overview.asset_counts?.subdomains || 0));
           setTotalIPsStat(String(overview.asset_counts?.ips || 0));
-          
-          // For active subdomains, we need to count from all subdomains
-          // Fetch all subdomains to get accurate active count
-          const allSubdomainsRes = await fetchSubdomains(undefined, 1, 1000);
-          if (!cancelled) {
-            const activeCount = (allSubdomainsRes.items || []).filter(sd => sd.status === "active").length;
-            setActiveSubdomainsStat(String(activeCount));
-          }
         }
       } catch (e) {
         console.error("Failed to load subdomains", e);
@@ -316,6 +320,21 @@ export function SubdomainDiscovery() {
     load();
     return () => { cancelled = true };
   }, []);
+
+  const loadMoreSubdomains = async () => {
+    setIsLoadingMore(true);
+    try {
+      const nextPage = subdomainPage + 1;
+      const res = await fetchSubdomains(undefined, nextPage, SUBDOMAIN_PAGE_SIZE);
+      setSubdomains(prev => [...prev, ...(res.items || [])]);
+      setSubdomainPage(nextPage);
+      setSubdomainTotal(res.total || 0);
+    } catch (e) {
+      console.error("Failed to load more subdomains", e);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   // Build hierarchical structure: assets (domains) as parents, subdomains as children
   const hierarchicalStructure = useMemo(() => {
@@ -517,6 +536,23 @@ export function SubdomainDiscovery() {
             </div>
           )}
         </div>
+        {!searchQuery && subdomains.length < subdomainTotal && (
+          <div className="flex items-center justify-between p-4 border-t border-border">
+            <div className="text-sm text-muted-foreground">
+              Showing {subdomains.length} of {subdomainTotal} subdomains
+            </div>
+            <Button variant="outline" size="sm" onClick={loadMoreSubdomains} disabled={isLoadingMore}>
+              {isLoadingMore ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Loading...
+                </>
+              ) : (
+                "Load More"
+              )}
+            </Button>
+          </div>
+        )}
       </div>
 
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>

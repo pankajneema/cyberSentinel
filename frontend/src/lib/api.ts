@@ -37,6 +37,23 @@ function bounceToLogin(): void {
   window.location.href = "/login";
 }
 
+/**
+ * Pulls a human-readable message out of an error response: prefers the
+ * backend's JSON `detail` field, falls back to raw text, then a generic
+ * "HTTP <status>" if the body is empty or unparseable.
+ */
+async function extractErrorDetail(res: Response): Promise<string | null> {
+  const body = await res
+    .clone()
+    .json()
+    .catch(() => null);
+  if (body?.detail) {
+    return typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+  }
+  const text = await res.text().catch(() => "");
+  return text || null;
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit, _retried = false): Promise<T> {
   const token = getTokens()?.accessToken;
 
@@ -64,14 +81,17 @@ async function apiFetch<T>(path: string, init?: RequestInit, _retried = false): 
     throw new Error("Unauthorized");
   }
 
-  // 403 = authenticated but not allowed (RBAC). Do NOT log out — just surface it.
+  // 403 = authenticated but not allowed (RBAC or a business-rule gate like
+  // ownership verification). Do NOT log out — just surface the backend's
+  // actual reason instead of a generic message that hides it.
   if (res.status === 403) {
-    throw new Error("You don't have permission to perform this action.");
+    const detail = await extractErrorDetail(res);
+    throw new Error(detail || "You don't have permission to perform this action.");
   }
 
   if (!res.ok) {
-    const errorText = await res.text().catch(() => `HTTP ${res.status}`);
-    throw new Error(errorText);
+    const detail = await extractErrorDetail(res);
+    throw new Error(detail || `HTTP ${res.status}`);
   }
 
   return res.json() as Promise<T>;
@@ -118,11 +138,12 @@ export async function apiFetchBlob(
     throw new Error("Unauthorized");
   }
   if (res.status === 403) {
-    throw new Error("You don't have permission to perform this action.");
+    const detail = await extractErrorDetail(res);
+    throw new Error(detail || "You don't have permission to perform this action.");
   }
   if (!res.ok) {
-    const text = await res.text().catch(() => `HTTP ${res.status}`);
-    throw new Error(text || "Download failed");
+    const detail = await extractErrorDetail(res);
+    throw new Error(detail || "Download failed");
   }
 
   const blob = await res.blob();

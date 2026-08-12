@@ -2,10 +2,11 @@
 
 Consumes ``reporting.asm`` (published by the Go worker). Message kinds:
   * stage_findings — upsert subdomain/ip/http/port/service/tls/endpoint
-    (admin + backup_file)/cloud findings into their tables, and update
-    existing AsmIP rows with ip_enrichment (geo/ASN) data. Finding
-    type->target/data shapes come straight from the Go tool adapters
-    (worker/tools/adapt_*.go) — check there before adding a new type.
+    (admin + backup_file)/cloud/saas/repo_secret/email_leak findings into
+    their tables, and update existing AsmIP rows with ip_enrichment
+    (geo/ASN) data. Finding type->target/data shapes come straight from
+    the Go tool adapters (worker/tools/adapt_*.go) — check there before
+    adding a new type.
   * task_terminal  — set asm_discoveries.status + last_run_at, stamp
     Asset.last_seen for every targeted asset, notify, refresh CA.
 
@@ -18,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from backend.api_service.models.asm_models import (
@@ -27,11 +28,15 @@ from backend.api_service.models.asm_models import (
     AsmBackupFile,
     AsmCloudResource,
     AsmDiscovery,
+    AsmDiscoveryRun,
     AsmIP,
     AsmPort,
+    AsmRepoFinding,
+    AsmSaasApp,
     AsmService,
     AsmSSLCert,
     AsmSubdomain,
+    AsmUserAccount,
 )
 from backend.api_service.models.asset_models import Asset
 from backend.reporting.asm.assets.domain import _parse_cert_datetime
@@ -179,6 +184,41 @@ async def _persist_stage(payload: dict[str, Any]) -> None:
                         "resource_type": data.get("type") or f.get("name") or "unknown",
                         "access_status": data.get("exposure"), "extra_info": data,
                     }, "uq_cloud_resource")
+                elif ftype == "saas":
+                    # target = detected app's URL or name (worker/tools/adapt_saasdetect.go)
+                    await _upsert(db, AsmSaasApp, {
+                        "asm_discovery_id": discovery_id, "org_id": org_id,
+                        "asset_id": asset_id,
+                        "app_name": data.get("app_name") or f.get("name") or target,
+                        "vendor": data.get("vendor"), "category": data.get("category"),
+                        "url": data.get("url"), "status": data.get("status"),
+                        "discovery_method": data.get("discovery_method"),
+                        "extra_info": data,
+                    }, "uq_saas_app")
+                elif ftype == "repo_secret":
+                    # target = "<repo_url>[:<file_path>]" (worker/tools/adapt_reposcan.go).
+                    # The Go adapter never sends the "secret" key at all (stripped for
+                    # privacy before it leaves the worker), so that column stays NULL.
+                    await _upsert(db, AsmRepoFinding, {
+                        "asm_discovery_id": discovery_id, "org_id": org_id,
+                        "asset_id": asset_id, "repo_url": data.get("repo_url") or target,
+                        "finding_type": data.get("finding_type"), "rule": f.get("name"),
+                        "severity": f.get("severity"), "file_path": data.get("file_path"),
+                        "line": data.get("line"), "commit": data.get("commit"),
+                        "extra_info": data,
+                    }, "uq_repo_finding")
+                elif ftype == "email_leak":
+                    # target = email address (worker/tools/adapt_emailleak.go)
+                    await _upsert(db, AsmUserAccount, {
+                        "asm_discovery_id": discovery_id, "org_id": org_id,
+                        "asset_id": asset_id, "email": data.get("email") or target,
+                        "source": data.get("source") or f.get("name"),
+                        "breached": bool(data.get("breached", True)),
+                        "breach_count": data.get("breach_count"),
+                        "exposed_data": data.get("exposed_data"),
+                        "severity": data.get("severity") or f.get("severity"),
+                        "extra_info": data,
+                    }, "uq_user_account")
                 else:
                     logger.debug("asm finding type %r not persisted (target=%s)", ftype, target)
             except Exception:  # noqa: BLE001 - one bad finding must not sink the batch
@@ -204,10 +244,36 @@ async def _finalize(payload: dict[str, Any]) -> None:
                 # observed this asset is still there", so stamp it here.
                 if _STATUS.get(status) == "COMPLETED" and disc.asset_ids:
                     await db.execute(
-                        update(Asset).where(Asset.id.in_(disc.asset_ids)).values(last_seen=disc.last_run_at.isoformat())
+                        update(Asset).where(Asset.id.in_(disc.asset_ids)).values(last_seen=disc.last_run_at.isoformat() + "Z")
                     )
 
-                await db.commit()
+            # Close out the in-flight run row created when the job was enqueued
+            # (asm/service.py's enqueue_discovery) — without this, "Discovery
+            # Runs" and the /asm/runs endpoints stayed permanently empty, and a
+            # failed run had nowhere to surface *why* it failed.
+            run = (await db.execute(
+                select(AsmDiscoveryRun)
+                .where(AsmDiscoveryRun.asm_discovery_id == discovery_id, AsmDiscoveryRun.status == "RUNNING")
+                .order_by(AsmDiscoveryRun.started_at.desc())
+                .limit(1)
+            )).scalar_one_or_none()
+            if run is not None:
+                run.status = _STATUS.get(status, "FAILED")
+                run.completed_at = datetime.utcnow()
+                stages = payload.get("stages") or []
+                errors = [s.get("error") for s in stages if isinstance(s, dict) and s.get("error")]
+                if errors:
+                    run.error_message = "; ".join(errors)
+                # Real, not fabricated — intensity comes straight off the
+                # discovery config, pipeline_steps off the worker's own stage
+                # list. Per-type found/inserted/skipped isn't tracked anywhere
+                # yet, so those fields stay absent rather than guessed.
+                run.summary = {
+                    "intensity": disc.intensity if disc is not None else None,
+                    "pipeline_steps": len(stages),
+                }
+
+            await db.commit()
 
     await notify_scan(org_id, service=SERVICE_ASM, task_id=discovery_id, status=status)
 

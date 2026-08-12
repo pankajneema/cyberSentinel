@@ -645,7 +645,7 @@ async def gap_history(
         "items": [
             {"from_status": h.from_status, "to_status": h.to_status,
              "actor_user_id": h.actor_user_id, "justification": h.justification,
-             "at": h.at.isoformat() if h.at else None}
+             "at": (h.at.isoformat() + "Z") if h.at else None}
             for h in rows
         ]
     }
@@ -783,7 +783,7 @@ async def get_policy(
     return {
         **p.to_dict(),
         "versions": [v.to_dict() for v in versions],
-        "acks": [{"member_user_id": m, "acked_at": a.isoformat() if a else None} for m, a in acked_by],
+        "acks": [{"member_user_id": m, "acked_at": (a.isoformat() + "Z") if a else None} for m, a in acked_by],
     }
 
 
@@ -1075,7 +1075,7 @@ async def create_grant(
     await db.flush()
     await ca_trail(db, org_id, user.user_id, "auditor.grant_created", f"grant:{grant.id}",
                    {"audit_id": audit_id, "auditor_email": grant.auditor_email,
-                    "expires_at": grant.expires_at.isoformat()})
+                    "expires_at": grant.expires_at.isoformat() + "Z"})
     await db.commit()
     return {"grant": grant.to_dict(), "token": token}
 
@@ -1281,7 +1281,7 @@ async def auditor_me(
     await db.commit()  # persist last_access_at set by the dependency
     return {
         "auditor_email": grant.auditor_email,
-        "expires_at": grant.expires_at.isoformat(),
+        "expires_at": grant.expires_at.isoformat() + "Z",
         "audit": audit.to_dict(),
         "framework": fw.to_dict(),
     }

@@ -941,7 +941,7 @@ async def process_domain_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         # asset is still there", so stamp it here.
         if status == "COMPLETED" and asset_id:
             await db.execute(
-                update(Asset).where(Asset.id == asset_id).values(last_seen=run.completed_at.isoformat())
+                update(Asset).where(Asset.id == asset_id).values(last_seen=run.completed_at.isoformat() + "Z")
             )
         # Extract additional data from pipeline steps (ports, services, SSL, APIs, etc.)
         ports_found = 0

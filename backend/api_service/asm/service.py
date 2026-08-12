@@ -15,7 +15,7 @@ from sqlalchemy import false as sql_false
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.asm_models import AsmDiscovery
+from models.asm_models import AsmDiscovery, AsmDiscoveryRun
 from models.asset_models import Asset
 from utils.database import AsyncSessionLocal
 from utils.queue import publish_message  # noqa: F401 (legacy; retained for reference)
@@ -90,16 +90,36 @@ async def _resolve_targets(discovery: AsmDiscovery) -> list[str]:
     return [r[0] for r in rows if r[0]]
 
 
-async def enqueue_discovery(discovery: AsmDiscovery) -> bool:
+async def enqueue_discovery(discovery: AsmDiscovery, *, db: AsyncSession, triggered_by: str = "UI") -> bool:
     """Publish an ASM scan to the redesigned per-priority queue (asm.<priority>).
 
     task_id IS the discovery id, so the reporting consumer writes findings with
     asm_discovery_id = task_id. NOTE: a multi-asset discovery runs as ONE pipeline;
     findings attribute to the first asset_id (single-asset is the common case).
+
+    Also creates the AsmDiscoveryRun row for this invocation — this is the ONLY
+    place a run row is created, so "Discovery Runs" history (and the /asm/runs
+    endpoints behind it) has something to show. The reporting consumer's
+    _finalize() closes it out on task_terminal; _reap_stale() below closes it
+    out if the worker crashes without ever reporting back. Before this, nothing
+    in the codebase ever inserted into asm_discovery_runs — every run, success
+    or failure, was invisible.
     """
     targets = await _resolve_targets(discovery)
     ids = discovery.asset_ids if isinstance(discovery.asset_ids, list) else []
-    return await publish_scan_job(
+
+    run = AsmDiscoveryRun(
+        asm_discovery_id=discovery.id,
+        org_id=discovery.org_id,
+        user_id=discovery.user_id,
+        triggered_by=triggered_by,
+        run_mode="QUICK" if discovery.schedule_type == "QUICK" else "SCHEDULED",
+        status="RUNNING",
+        started_at=datetime.utcnow(),
+    )
+    db.add(run)
+
+    ok = await publish_scan_job(
         type="asm",
         priority="medium",
         task_id=discovery.id,
@@ -113,6 +133,11 @@ async def enqueue_discovery(discovery: AsmDiscovery) -> bool:
             "user_id": discovery.user_id,
         },
     )
+    if not ok:
+        run.status = "FAILED"
+        run.completed_at = datetime.utcnow()
+        run.error_message = "Failed to publish scan job to the worker queue."
+    return ok
 
 
 # ---------------------------------------------------------------------------
@@ -214,10 +239,19 @@ async def _reap_stale(db, now: datetime, stale_minutes: int) -> list[dict]:
     ).all()
     if not stale:
         return []
+    stale_ids = [r[0] for r in stale]
     await db.execute(
         update(AsmDiscovery)
         .where(AsmDiscovery.status == "RUNNING", AsmDiscovery.updated_at < cutoff)
         .values(status="FAILED", updated_at=now)
+    )
+    # Close out the matching run row too, or it's left stuck at RUNNING forever
+    # (the worker crashed/vanished without ever publishing task_terminal, so
+    # _finalize() never runs for it).
+    await db.execute(
+        update(AsmDiscoveryRun)
+        .where(AsmDiscoveryRun.asm_discovery_id.in_(stale_ids), AsmDiscoveryRun.status == "RUNNING")
+        .values(status="FAILED", completed_at=now, error_message="Run exceeded the stale-timeout and was reaped.")
     )
     logger.warning("reaped %d stale RUNNING discovery(ies) older than %dm", len(stale), stale_minutes)
     return [
@@ -261,7 +295,7 @@ async def tick_due_discoveries(db, now: datetime, stale_minutes: int) -> int:
             )
             continue
 
-        if await enqueue_discovery(d):
+        if await enqueue_discovery(d, db=db, triggered_by="CRON"):
             d.status = "PENDING"
             d.last_run_at = now
             d.next_run_at = nxt

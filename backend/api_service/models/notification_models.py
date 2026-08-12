@@ -41,7 +41,7 @@ class Notification(Base):
             "type": self.type,
             "link": self.link,
             "is_read": self.is_read,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -67,5 +67,5 @@ class NotificationPreference(Base):
             "email": self.email,
             "push": self.push,
             "in_app": self.in_app,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "updated_at": (self.updated_at.isoformat() + "Z") if self.updated_at else None,
         }

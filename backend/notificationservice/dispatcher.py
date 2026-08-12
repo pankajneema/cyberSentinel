@@ -145,7 +145,10 @@ async def dispatch(
         "severity": severity,
         "link": link,
         "meta": meta,
-        "created_at": now.isoformat(),
+        # Naive UTC datetime -> append "Z" so a browser's `new Date(...)`
+        # parses it as UTC instead of silently treating it as local time
+        # (which shifts every displayed timestamp by the viewer's UTC offset).
+        "created_at": now.isoformat() + "Z",
     }
     if to_user:
         payload["to_user"] = to_user

@@ -59,7 +59,7 @@ async def process_cloud_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
     # had no writer anywhere in the codebase.
     if status == "COMPLETED" and touched_asset_ids:
         await db.execute(
-            update(Asset).where(Asset.id.in_(touched_asset_ids)).values(last_seen=run.completed_at.isoformat())
+            update(Asset).where(Asset.id.in_(touched_asset_ids)).values(last_seen=run.completed_at.isoformat() + "Z")
         )
 
     run.summary = {

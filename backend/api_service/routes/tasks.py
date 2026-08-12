@@ -190,7 +190,7 @@ async def update_task(
     data = payload.dict(exclude_unset=True)
     # Auto-set completed_at when marking complete.
     if data.get("status") == "completed" and not task.completed_at:
-        task.completed_at = datetime.utcnow().isoformat()
+        task.completed_at = datetime.utcnow().isoformat() + "Z"
     for key, value in data.items():
         setattr(task, key, value)
 

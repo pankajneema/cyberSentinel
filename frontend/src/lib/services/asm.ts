@@ -266,7 +266,7 @@ export interface UserAccount {
   source: string;
   breached: boolean;
   breach_count: number;
-  exposed_data: string;
+  exposed_data: string[] | null;
   severity: string;
   created_at: string;
 }
@@ -334,6 +334,7 @@ export interface DiscoveryListParams {
   page?: number;
   page_size?: number;
   q?: string;
+  status?: string;
   sort_by?: string;
   sort_dir?: string;
 }
@@ -372,10 +373,13 @@ export function fetchDiscoveries(params?: DiscoveryListParams) {
   if (params?.page) search.set("page", String(params.page));
   if (params?.page_size) search.set("page_size", String(params.page_size));
   if (params?.q) search.set("q", params.q);
+  if (params?.status) search.set("status", params.status);
   if (params?.sort_by) search.set("sort_by", params.sort_by);
   if (params?.sort_dir) search.set("sort_dir", params.sort_dir);
   const qs = search.toString();
-  return apiFetch<Paginated<AsmDiscovery>>(`/asm/discoveries${qs ? `?${qs}` : ""}`);
+  return apiFetch<Paginated<AsmDiscovery> & { status_counts?: Record<string, number> }>(
+    `/asm/discoveries${qs ? `?${qs}` : ""}`
+  );
 }
 
 export function createDiscovery(payload: CreateDiscoveryPayload) {
@@ -486,7 +490,7 @@ export function fetchSubdomains(discoveryId?: string, page = 1, page_size = 50) 
   qs.set("page", String(page));
   qs.set("page_size", String(page_size));
   if (discoveryId) qs.set("discovery_id", discoveryId);
-  return apiFetch<Paginated<AsmSubdomain>>(`/asm/subdomains?${qs.toString()}`);
+  return apiFetch<Paginated<AsmSubdomain> & { active_count?: number }>(`/asm/subdomains?${qs.toString()}`);
 }
 
 export function getRunDetail(runId: string) {
@@ -523,7 +527,9 @@ export function fetchAllRuns(
   if (q) qs.set("q", q);
   if (sort_by) qs.set("sort_by", sort_by);
   if (sort_dir) qs.set("sort_dir", sort_dir);
-  return apiFetch<Paginated<AsmDiscoveryRun>>(`/asm/runs?${qs.toString()}`);
+  return apiFetch<Paginated<AsmDiscoveryRun> & { status_counts?: Record<string, number> }>(
+    `/asm/runs?${qs.toString()}`
+  );
 }
 
 export function fetchSubdomainIPs(subdomainId: string, page = 1, page_size = 50) {

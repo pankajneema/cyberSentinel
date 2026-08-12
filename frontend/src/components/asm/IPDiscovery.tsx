@@ -15,7 +15,6 @@ import {
 import { motion } from "framer-motion";
 import { SeverityBadge } from "./SeverityBadge";
 import { Badge } from "@/components/ui/badge";
-import { fetchAsmOverview } from "@/lib/api";
 import { fetchAllIPs, type AsmIP } from "@/lib/services/asm";
 
 export function IPDiscovery() {
@@ -24,13 +23,10 @@ export function IPDiscovery() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalIPs, setTotalIPs] = useState(0);
-  const [totalActive, setTotalActive] = useState(0);
-  const [totalReachable, setTotalReachable] = useState(0);
   const pageSize = 50;
 
   useEffect(() => {
     fetchIPs();
-    fetchStats();
   }, [page]);
 
   const fetchIPs = async () => {
@@ -43,16 +39,6 @@ export function IPDiscovery() {
       console.error("Failed to fetch IPs:", error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchStats = async () => {
-    try {
-      const overview = await fetchAsmOverview();
-      setTotalIPs(overview.asset_counts?.ips || 0);
-      // Count active and reachable from current page (can be enhanced with separate endpoint)
-    } catch (error) {
-      console.error("Failed to fetch stats:", error);
     }
   };
 

@@ -34,7 +34,10 @@ def _uuid() -> str:
 
 
 def _iso(dt) -> str | None:
-    return dt.isoformat() if dt else None
+    # Every column here is naive-but-UTC (server_default=func.now(), session tz
+    # forced to UTC in utils/database.py) — append "Z" so a browser's
+    # `new Date(...)` parses it as UTC instead of local time.
+    return (dt.isoformat() + "Z") if dt else None
 
 
 # ---------------------------------------------------------------------------

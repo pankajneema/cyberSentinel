@@ -24,6 +24,15 @@ engine = create_async_engine(
     max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "20")),
     pool_recycle=int(os.getenv("DB_POOL_RECYCLE", "1800")),  # recycle conns < server/proxy idle timeout
     echo=settings.DEBUG,
+    # Every `DateTime` column here is TIMESTAMP WITHOUT TIME ZONE and every
+    # explicit timestamp in the app is Python's datetime.utcnow(). Without
+    # this, server_default=func.now() resolves in the SESSION's timezone —
+    # on a server whose local tz isn't UTC (e.g. a dev box set to
+    # Asia/Kolkata), that silently writes local wall-clock time into a column
+    # every other write path treats as UTC, corrupting created_at/updated_at
+    # by the server's UTC offset. Forcing the session to UTC makes func.now()
+    # agree with datetime.utcnow() everywhere, regardless of host tz.
+    connect_args={"server_settings": {"timezone": "UTC"}},
 )
 
 # -------------------------------------------------------------------

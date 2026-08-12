@@ -65,7 +65,7 @@ async def _seed_items(db: AsyncSession, org_id: str) -> list[dict]:
             "type": (log.action or "").split(".")[0] or "event",
             "link": None,
             "is_read": False,
-            "created_at": log.created_at.isoformat() if log.created_at else None,
+            "created_at": (log.created_at.isoformat() + "Z") if log.created_at else None,
         }
         for log in logs
     ]

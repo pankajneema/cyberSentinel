@@ -105,6 +105,13 @@ const assetTypes = [
   { value: "user", label: "User Account", icon: Users, description: "Employee or service accounts" },
 ];
 
+function formatLastSeen(value?: string | null): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 export function AssetInventory() {
   const [searchQuery, setSearchQuery] = useState("");
   const [assets, setAssets] = useState<ApiAsset[]>([]);
@@ -1105,7 +1112,7 @@ export function AssetInventory() {
                       </div>
                     </td>
                     <td className="p-4 text-sm text-muted-foreground">
-                      {asset.last_seen ?? "—"}
+                      {formatLastSeen(asset.last_seen)}
                     </td>
                     <td className="p-4" onClick={(e) => e.stopPropagation()}>
                       {asset.ownership_verified ? (
@@ -1296,7 +1303,7 @@ export function AssetInventory() {
                     </div>
                     <div className="p-4 bg-muted/30 rounded-xl">
                       <div className="text-xs text-muted-foreground mb-1">Last Seen</div>
-                      <div className="text-sm font-medium">{selectedAsset.last_seen ?? "—"}</div>
+                      <div className="text-sm font-medium">{formatLastSeen(selectedAsset.last_seen)}</div>
                     </div>
                     {selectedAsset.status && (
                       <div className="p-4 bg-muted/30 rounded-xl col-span-2">

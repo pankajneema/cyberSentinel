@@ -52,7 +52,7 @@ class VsScanProfile(Base):
             "authenticated": self.authenticated, "credential_id": self.credential_id,
             "safe_mode": self.safe_mode, "max_requests_per_sec": self.max_requests_per_sec,
             "scan_window": self.scan_window, "web_scan": self.web_scan,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -82,9 +82,9 @@ class VsScan(Base):
             "profile_id": self.profile_id, "asset_ids": self.asset_ids or [],
             "schedule_type": self.schedule_type, "schedule_value": self.schedule_value,
             "status": self.status,
-            "last_run_at": self.last_run_at.isoformat() if self.last_run_at else None,
-            "next_run_at": self.next_run_at.isoformat() if self.next_run_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "last_run_at": (self.last_run_at.isoformat() + "Z") if self.last_run_at else None,
+            "next_run_at": (self.next_run_at.isoformat() + "Z") if self.next_run_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -108,8 +108,8 @@ class VsScanRun(Base):
         return {
             "id": self.id, "scan_id": self.scan_id, "org_id": self.org_id,
             "status": self.status, "triggered_by": self.triggered_by,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "started_at": (self.started_at.isoformat() + "Z") if self.started_at else None,
+            "completed_at": (self.completed_at.isoformat() + "Z") if self.completed_at else None,
             "engine_versions": self.engine_versions, "stats": self.stats,
             "error_message": self.error_message,
         }
@@ -161,12 +161,12 @@ class VsCveMetadata(Base):
             "cvss_v40": {"score": self.cvss_v40_score, "vector": self.cvss_v40_vector},
             "epss": self.epss_score, "epss_percentile": self.epss_percentile,
             "kev": self.kev,
-            "kev_date_added": self.kev_date_added.isoformat() if self.kev_date_added else None,
-            "kev_due_date": self.kev_due_date.isoformat() if self.kev_due_date else None,
+            "kev_date_added": (self.kev_date_added.isoformat() + "Z") if self.kev_date_added else None,
+            "kev_due_date": (self.kev_due_date.isoformat() + "Z") if self.kev_due_date else None,
             "cwe_ids": self.cwe_ids, "affected_versions": self.affected_versions,
             "references": self.references,
-            "published_at": self.published_at.isoformat() if self.published_at else None,
-            "modified_at": self.modified_at.isoformat() if self.modified_at else None,
+            "published_at": (self.published_at.isoformat() + "Z") if self.published_at else None,
+            "modified_at": (self.modified_at.isoformat() + "Z") if self.modified_at else None,
         }
 
 
@@ -221,10 +221,10 @@ class VsFinding(Base):
             "severity": self.severity, "cvss_base": self.cvss_base, "epss": self.epss,
             "kev": self.kev, "composite_risk": self.composite_risk, "risk_factors": self.risk_factors,
             "status": self.status, "assigned_to": self.assigned_to,
-            "sla_due_at": self.sla_due_at.isoformat() if self.sla_due_at else None,
-            "first_detected_at": self.first_detected_at.isoformat() if self.first_detected_at else None,
-            "last_detected_at": self.last_detected_at.isoformat() if self.last_detected_at else None,
-            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+            "sla_due_at": (self.sla_due_at.isoformat() + "Z") if self.sla_due_at else None,
+            "first_detected_at": (self.first_detected_at.isoformat() + "Z") if self.first_detected_at else None,
+            "last_detected_at": (self.last_detected_at.isoformat() + "Z") if self.last_detected_at else None,
+            "resolved_at": (self.resolved_at.isoformat() + "Z") if self.resolved_at else None,
         }
 
 

@@ -46,8 +46,8 @@ async def _framework_report_data(db: AsyncSession, org_id: str, framework: CaFra
         ev_by_control.setdefault(cid, []).append({
             "id": ev.id, "collection": ev.collection, "source_type": ev.source_type,
             "summary": ev.summary, "result": ev.result, "content_hash": ev.content_hash,
-            "captured_at": ev.captured_at.isoformat() if ev.captured_at else None,
-            "valid_until": ev.valid_until.isoformat() if ev.valid_until else None,
+            "captured_at": (ev.captured_at.isoformat() + "Z") if ev.captured_at else None,
+            "valid_until": (ev.valid_until.isoformat() + "Z") if ev.valid_until else None,
         })
     open_gaps = (
         await db.execute(
@@ -60,14 +60,14 @@ async def _framework_report_data(db: AsyncSession, org_id: str, framework: CaFra
     ).scalar() or 0
     return {
         "framework": {"key": framework.key, "name": framework.name, "version": framework.version},
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.utcnow().isoformat() + "Z",
         "posture": counts,
         "open_gaps": open_gaps,
         "controls": [
             {
                 "control_ref": c.control_ref, "title": c.title, "category": c.category,
                 "criticality": c.criticality, "status": s.status,
-                "computed_at": s.computed_at.isoformat() if s.computed_at else None,
+                "computed_at": (s.computed_at.isoformat() + "Z") if s.computed_at else None,
                 "na_justification": s.na_justification,
                 "evidence": ev_by_control.get(c.id, []),
             }

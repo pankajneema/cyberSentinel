@@ -64,10 +64,10 @@ class AsmDiscovery(Base):
             "schedule_type": self.schedule_type,
             "schedule_value": self.schedule_value,
             "status": self.status,
-            "last_run_at": self.last_run_at.isoformat() if self.last_run_at else None,
-            "next_run_at": self.next_run_at.isoformat() if self.next_run_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "last_run_at": (self.last_run_at.isoformat() + "Z") if self.last_run_at else None,
+            "next_run_at": (self.next_run_at.isoformat() + "Z") if self.next_run_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
+            "updated_at": (self.updated_at.isoformat() + "Z") if self.updated_at else None,
         }
 
 
@@ -109,10 +109,10 @@ class AsmDiscoveryRun(Base):
             "triggered_by": self.triggered_by,
             "run_mode": self.run_mode,
             "status": self.status,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "started_at": (self.started_at.isoformat() + "Z") if self.started_at else None,
+            "completed_at": (self.completed_at.isoformat() + "Z") if self.completed_at else None,
             "summary": self.summary,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -146,7 +146,7 @@ class AsmSubdomain(Base):
             "subdomain": self.subdomain,
             "status": self.status,
             "resolved": self.resolved,  # DNS resolution status
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -239,11 +239,11 @@ class AsmIP(Base):
             "is_cloud": self.is_cloud,
             "is_cdn": self.is_cdn,
             "cdn_provider": self.cdn_provider,
-            "last_scanned_at": self.last_scanned_at.isoformat() if self.last_scanned_at else None,
+            "last_scanned_at": (self.last_scanned_at.isoformat() + "Z") if self.last_scanned_at else None,
             "last_scan_duration_ms": self.last_scan_duration_ms,
             "scan_metadata": self.scan_metadata,
             "score_explanation": self.score_explanation,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -269,8 +269,8 @@ class AsmSettings(Base):
             "id": self.id,
             "user_id": self.user_id,
             "settings": self.settings or {},
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
+            "updated_at": (self.updated_at.isoformat() + "Z") if self.updated_at else None,
         }
 
 
@@ -318,7 +318,7 @@ class AsmPort(Base):
             "status": self.status,
             "service": self.service,
             "banner": self.banner,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -362,7 +362,7 @@ class AsmService(Base):
             "version": self.version,
             "product": self.product,
             "extra_info": self.extra_info,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -408,10 +408,10 @@ class AsmSSLCert(Base):
             "cipher": self.cipher,
             "certificate_issuer": self.certificate_issuer,
             "certificate_subject": self.certificate_subject,
-            "valid_from": self.valid_from.isoformat() if self.valid_from else None,
-            "valid_until": self.valid_until.isoformat() if self.valid_until else None,
+            "valid_from": (self.valid_from.isoformat() + "Z") if self.valid_from else None,
+            "valid_until": (self.valid_until.isoformat() + "Z") if self.valid_until else None,
             "certificate_details": self.certificate_details,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -459,7 +459,7 @@ class AsmAPIEndpoint(Base):
             "title": self.title,
             "content_type": self.content_type,
             "extra_info": self.extra_info,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -503,7 +503,7 @@ class AsmCloudResource(Base):
             "permissions": self.permissions,
             "region": self.region,
             "extra_info": self.extra_info,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -549,7 +549,7 @@ class AsmAdminEndpoint(Base):
             "title": self.title,
             "content_type": self.content_type,
             "extra_info": self.extra_info,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -593,7 +593,7 @@ class AsmBackupFile(Base):
             "file_size": self.file_size,
             "content_type": self.content_type,
             "extra_info": self.extra_info,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -624,7 +624,7 @@ class AsmChange(Base):
             "asset_id": self.asset_id,
             "changes": self.changes,
             "message": self.message,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -667,7 +667,7 @@ class AsmRepoFinding(Base):
             "secret": self.secret,
             "commit": self.commit,
             "extra_info": self.extra_info,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -706,7 +706,7 @@ class AsmSaasApp(Base):
             "status": self.status,
             "discovery_method": self.discovery_method,
             "extra_info": self.extra_info,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }
 
 
@@ -745,5 +745,5 @@ class AsmUserAccount(Base):
             "exposed_data": self.exposed_data,
             "severity": self.severity,
             "extra_info": self.extra_info,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": (self.created_at.isoformat() + "Z") if self.created_at else None,
         }

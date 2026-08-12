@@ -263,7 +263,7 @@ async def process_ip_asm(db: AsyncSession, payload: dict[str, Any]) -> None:
         touched_asset_ids = {aid for aid in ip_asset_map.values() if aid}
         if touched_asset_ids:
             await db.execute(
-                update(Asset).where(Asset.id.in_(touched_asset_ids)).values(last_seen=run.completed_at.isoformat())
+                update(Asset).where(Asset.id.in_(touched_asset_ids)).values(last_seen=run.completed_at.isoformat() + "Z")
             )
 
     run.summary = {
