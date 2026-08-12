@@ -8,7 +8,6 @@ import {
   Brain,
   ShieldAlert,
   FileCheck,
-  CheckCircle2,
   Mail,
   ArrowRight,
 } from "lucide-react";
@@ -34,7 +33,7 @@ const services = [
     title: "Vulnerability Scanning",
     description: "High-fidelity vulnerability scanning with contextual prioritization and remediation guidance. Identify CVEs before attackers do.",
     features: ["Automated Scanning", "CVE Detection", "Prioritization", "Remediation Guides"],
-    status: "coming-soon",
+    status: "available",
     href: "/app/vs",
     color: "accent",
   },
@@ -67,7 +66,8 @@ const services = [
     title: "Compliance & Audit",
     description: "Continuous compliance monitoring for SOC2, GDPR, HIPAA, and more frameworks. Automate your audit preparation.",
     features: ["Multi-Framework", "Gap Analysis", "Evidence Collection", "Audit Reports"],
-    status: "coming-soon",
+    status: "available",
+    href: "/app/compliance",
     color: "success",
   },
 ];
@@ -135,14 +135,6 @@ export default function Services() {
                   </div>
                   <div>
                     <h3 className="font-heading font-semibold text-foreground">{service.title}</h3>
-                    {isAvailable ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-success">
-                        <CheckCircle2 className="w-3 h-3" />
-                        Available Now
-                      </span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">Coming Soon</span>
-                    )}
                   </div>
                 </div>
               </div>

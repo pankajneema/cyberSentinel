@@ -157,6 +157,14 @@ async def ingest_vs_result(db, payload: dict) -> dict:
                 first_detected_at=now, last_detected_at=now,
             )
             db.add(row)
+            # `existing` only reflected rows persisted BEFORE this batch — a second
+            # finding later in the same payload with an identical dedup_key (e.g. a
+            # nuclei template matching the same location via two request variants)
+            # would otherwise build a second brand-new row with the same dedup_key
+            # and crash the whole batch's commit on the unique constraint, silently
+            # dropping every finding in the run. Registering it here means a
+            # same-batch repeat takes the "already exists" branch below instead.
+            existing[key] = row
             new_count += 1
             if risk.severity == "critical":
                 new_criticals += 1

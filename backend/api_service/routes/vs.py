@@ -620,7 +620,11 @@ async def dashboard(db: AsyncSession = Depends(get_db),
     mttr_row = (await db.execute(
         select(func.avg(func.extract("epoch", VsFinding.resolved_at - VsFinding.first_detected_at)))
         .where(VsFinding.org_id == org_id, VsFinding.resolved_at.isnot(None)))).scalar()
-    avg_mttr_days = round((mttr_row or 0) / 86400.0, 1)
+    # Postgres AVG(EXTRACT(EPOCH FROM ...)) comes back as decimal.Decimal via
+    # asyncpg, which can't be divided by a Python float directly — only ever hit
+    # once a finding has actually been resolved, so this went uncaught until
+    # there was a real MTTR to compute.
+    avg_mttr_days = round(float(mttr_row or 0) / 86400.0, 1)
 
     # Coverage: scanned assets / total org assets.
     total_assets = (await db.execute(select(func.count()).select_from(AssetModel)

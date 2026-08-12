@@ -696,13 +696,13 @@ export function VSScanManager({ canWrite = true }: VSScanManagerProps) {
                     <div className="text-sm font-medium">{SCAN_STATUS_META[run.status]?.label ?? run.status}</div>
                     <div className="text-xs text-muted-foreground">
                       {fmtDate(run.started_at)}
-                      {run.finished_at ? ` → ${fmtDate(run.finished_at)}` : ""}
+                      {run.completed_at ? ` → ${fmtDate(run.completed_at)}` : ""}
                     </div>
-                    {run.error && <div className="text-xs text-destructive mt-0.5">{run.error}</div>}
+                    {run.error_message && <div className="text-xs text-destructive mt-0.5">{run.error_message}</div>}
                   </div>
-                  {typeof run.findings_count === "number" && (
+                  {typeof run.stats?.findings === "number" && (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-destructive/10 text-destructive">
-                      {run.findings_count} findings
+                      {run.stats.findings} findings
                     </span>
                   )}
                 </div>

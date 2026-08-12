@@ -104,6 +104,20 @@ function getStatusIcon(status: VsFindingStatus) {
   }
 }
 
+// `location` from the worker is an object ({host, port, service, version, url}),
+// never a plain string — format it into something readable instead of dumping
+// the raw object (which React can't render as a child at all).
+function formatLocation(location: VsFinding["location"]): string | null {
+  if (!location) return null;
+  if (typeof location === "string") return location;
+  const { url, host, port, service, version } = location;
+  if (url) return url;
+  let out = host ? String(host) : "";
+  if (port) out += out ? `:${port}` : String(port);
+  if (service) out += out ? ` (${service}${version ? ` ${version}` : ""})` : String(service);
+  return out || null;
+}
+
 export function VSFindings({ canWrite = true }: VSFindingsProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -659,10 +673,10 @@ export function VSFindings({ canWrite = true }: VSFindingsProps) {
                       <div className="text-sm">{selectedVuln.category}</div>
                     </div>
                   )}
-                  {selectedVuln.location && (
+                  {formatLocation(selectedVuln.location) && (
                     <div className="p-3 bg-muted/30 rounded-lg">
                       <div className="text-xs text-muted-foreground mb-1">Location</div>
-                      <div className="text-sm font-mono break-all">{selectedVuln.location}</div>
+                      <div className="text-sm font-mono break-all">{formatLocation(selectedVuln.location)}</div>
                     </div>
                   )}
                 </div>

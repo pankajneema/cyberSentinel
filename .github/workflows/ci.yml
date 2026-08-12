@@ -42,8 +42,7 @@ jobs:
       - name: Tests
         env:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
-          SUPABASE_URL: https://test.supabase.co
-          SUPABASE_JWT_SECRET: test-secret
+          JWT_SECRET: ci-test-secret-do-not-use-in-prod
           CORS_ORIGINS_URL: http://localhost:8080
           DEBUG: "true"
         run: pytest
@@ -53,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: backend/workers
+        working-directory: worker
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

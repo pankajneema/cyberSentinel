@@ -99,10 +99,14 @@ export interface VsScanRun {
   id: string;
   scan_id: string;
   status: VsScanStatus;
+  triggered_by?: string | null;
   started_at?: string | null;
-  finished_at?: string | null;
-  findings_count?: number;
-  error?: string | null;
+  // Real field names from VsScanRun.to_dict() (backend/api_service/models/vs_models.py) —
+  // there is no "finished_at"/"findings_count"/"error" on the wire.
+  completed_at?: string | null;
+  engine_versions?: Record<string, string> | null;
+  stats?: { targets: number; findings: number; new: number; reappeared: number; fixed: number } | null;
+  error_message?: string | null;
 }
 
 export function fetchScans(page?: number, page_size?: number) {
@@ -186,7 +190,17 @@ export interface VsFinding {
   title: string;
   description?: string | null;
   category?: string | null;
-  location?: string | null;
+  // Runtime shape from the worker adapters (worker/tools/vs_engines.go) is an
+  // object — {asset_id, host, port, service?, version?, url?} — never a plain
+  // string; kept as a union for defensiveness against older/other producers.
+  location?: {
+    asset_id?: string | null;
+    host?: string | null;
+    port?: number | string | null;
+    service?: string | null;
+    version?: string | null;
+    url?: string | null;
+  } | string | null;
   evidence?: string | null;
   confidence: VsConfidence;
   severity: VsSeverity;
@@ -327,8 +341,30 @@ export function fetchTrends(days = 30) {
   return apiFetch<{ points: VsTrendPoint[] }>(`/vs/trends?days=${days}`);
 }
 
+// Real shape from compliance_summary() (backend/api_service/scoring/vs_compliance.py) —
+// `frameworks` is the actual per-framework map; `severity_counts`/`total_findings`/
+// `open_findings` are org-wide summary fields, not additional "frameworks".
+export interface VsComplianceControl {
+  open_findings: number;
+  severity_counts: Record<string, number>;
+}
+
+export interface VsComplianceFramework {
+  controls: Record<string, VsComplianceControl>;
+  open_control_count: number;
+  severity_counts: Record<string, number>;
+}
+
+export interface VsComplianceSummary {
+  total_findings: number;
+  open_findings: number;
+  severity_counts: Record<string, number>;
+  frameworks: Record<string, VsComplianceFramework>;
+  coverage: string[];
+}
+
 export function fetchCompliance() {
-  return apiFetch<Record<string, unknown>>("/vs/compliance");
+  return apiFetch<VsComplianceSummary>("/vs/compliance");
 }
 
 // Verification pass: re-scan the finding's asset to confirm/close it.

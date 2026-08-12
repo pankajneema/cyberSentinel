@@ -14,6 +14,7 @@ import {
   Server,
   HelpCircle,
   Users,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,8 +31,8 @@ const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/app/dashboard" },
   { icon: Users, label: "Team Management", href: "/app/team" },
   { icon: Server, label: "Asset Inventory", href: "/app/assets" },
-  { icon: Radar, label: "ASM", href: "/app/asm", badge: "Live" },
-  { icon: Bug, label: "Vulnerability Scans", href: "/app/vs", badge: "Live" },
+  { icon: Radar, label: "ASM", href: "/app/asm" },
+  { icon: Bug, label: "Vulnerability Scans", href: "/app/vs" },
   { icon: ShieldCheck, label: "Compliance", href: "/app/compliance", badge: "New" },
   { icon: Grid3X3, label: "Services", href: "/app/services" },
   { icon: Store, label: "Marketplace", href: "/app/marketplace" },
@@ -46,7 +47,7 @@ const bottomNavItems = [
 export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { collapsed, toggleCollapsed } = useSidebar();
+  const { collapsed, toggleCollapsed, mobileOpen, setMobileOpen } = useSidebar();
   const { me } = useMe();
   const { signOut } = useAuth();
   const [plan, setPlan] = useState<string>("Starter");
@@ -68,11 +69,18 @@ export function AppSidebar() {
     return "U";
   }, [profile]);
 
+  // Route changes (including clicking a nav link) should always close the
+  // mobile drawer — otherwise it stays open covering the page you just navigated to.
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname, setMobileOpen]);
+
   const NavLink = ({ item, isActive }: { item: typeof navItems[0]; isActive: boolean }) => {
     const Icon = item.icon;
     const content = (
       <Link
         to={item.href}
+        onClick={() => setMobileOpen(false)}
         className={cn(
           "sidebar-nav-item group relative",
           isActive
@@ -123,18 +131,30 @@ export function AppSidebar() {
   });
 
   return (
-    <aside
-      className={cn(
-        "h-screen sidebar-dark flex flex-col transition-all duration-300 ease-out relative overflow-hidden",
-        collapsed ? "w-[72px]" : "w-[260px]"
+    <>
+      {/* Mobile backdrop — tapping it dismisses the drawer, same as any nav click */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-background/60 backdrop-blur-sm md:hidden"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+        />
       )}
-    >
+      <aside
+        className={cn(
+          "h-screen sidebar-dark flex flex-col transition-all duration-300 ease-out relative overflow-hidden",
+          "fixed inset-y-0 left-0 z-50 w-[260px]",
+          "md:z-10",
+          collapsed ? "md:w-[72px]" : "md:w-[260px]",
+          mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        )}
+      >
       {/* Decorative gradient overlay */}
       <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none" />
 
       {/* Header */}
       <div className="h-16 flex items-center justify-between px-4 relative z-10">
-        <Link to="/app/dashboard" className="flex items-center gap-3 group">
+        <Link to="/app/dashboard" className="flex items-center gap-3 group" onClick={() => setMobileOpen(false)}>
           <LogoMark className="w-9 h-9 shrink-0" />
           {!collapsed && (
             <span className="font-heading font-bold text-lg text-sidebar-foreground tracking-tight">
@@ -142,15 +162,23 @@ export function AppSidebar() {
             </span>
           )}
         </Link>
+        <button
+          type="button"
+          onClick={() => setMobileOpen(false)}
+          className="md:hidden p-1.5 rounded-lg text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+          aria-label="Close menu"
+        >
+          <X className="w-5 h-5" />
+        </button>
       </div>
 
-      {/* Toggle Button */}
+      {/* Toggle Button — desktop-only; collapsing doesn't apply to the mobile drawer */}
       <Button
         variant="ghost"
         size="icon"
         onClick={toggleCollapsed}
         className={cn(
-          "absolute top-4 -right-3 w-6 h-6 rounded-full bg-card border border-border shadow-md hover:bg-muted z-20 transition-transform",
+          "hidden md:inline-flex absolute top-4 -right-3 w-6 h-6 rounded-full bg-card border border-border shadow-md hover:bg-muted z-20 transition-transform",
           collapsed && "rotate-180"
         )}
       >
@@ -214,6 +242,7 @@ export function AppSidebar() {
           </div>
         </div>
       )}
-    </aside>
+      </aside>
+    </>
   );
 }
