@@ -1,7 +1,6 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 pydantic[email]>=2.9.0,<3
-python-jose[cryptography]>=3.4.0
 passlib[bcrypt]==1.7.4
 sqlalchemy==2.0.23
 psycopg2-binary==2.9.9
@@ -11,6 +10,8 @@ pika==1.3.2
 clickhouse-driver==0.2.6
 PyJWT>=2.13.0
 starlette>=1.3.1  # transitive via fastapi; pinned explicitly to force past CVE-2026-249 etc.
+cryptography  # used directly by utils/crypto.py (VS credential encryption) — was only ever
+              # present transitively via python-jose[cryptography], now removed
 httpx
 aio_pika
 dotenv
