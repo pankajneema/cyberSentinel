@@ -368,4 +368,4 @@ This is exactly the free-to-self-host / commercial-hosting-reserved split descri
 
 ---
 
-<p align="center">Built by <a href="https://github.com/pankajneema">CuriousDevs</a>.</p>
+<p align="center">Built by <a href="https://www.curiousdevs.com">CuriousDevs</a>.</p>
