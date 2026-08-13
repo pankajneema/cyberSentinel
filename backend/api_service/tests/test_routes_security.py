@@ -5,8 +5,25 @@ import importlib
 
 
 def _paths():
+    """Flatten app.routes into real leaf paths.
+
+    Newer Starlette wraps each app.include_router(...) call in an opaque
+    _IncludedRouter with no .path attribute — the original APIRouter (with its
+    real, already-prefixed APIRoute children) lives at .original_router. Without
+    this, every mounted sub-router path silently collapses to "" via getattr's
+    default, and route-presence assertions below would vacuously pass/fail no
+    matter what's actually registered.
+    """
     main = importlib.import_module("main")
-    return {getattr(r, "path", "") for r in main.app.routes}
+    paths: set[str] = set()
+    for r in main.app.routes:
+        original = getattr(r, "original_router", None)
+        sub_routes = getattr(original, "routes", None) if original is not None else None
+        if sub_routes is not None:
+            paths.update(getattr(sub, "path", "") for sub in sub_routes)
+        else:
+            paths.add(getattr(r, "path", ""))
+    return paths
 
 
 def test_idor_and_legacy_routes_removed():

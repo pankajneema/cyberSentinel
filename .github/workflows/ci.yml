@@ -12,13 +12,23 @@ jobs:
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
+    # gitleaks-action needs to comment on PRs when it finds a leak — the
+    # workflow-wide `contents: read` above isn't enough for that, so this job
+    # gets its own scoped grant instead of widening permissions everywhere.
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
+          # Auto-issued by GitHub for every workflow run — nothing to create
+          # or configure, just reference it. Required as of the gitleaks-action
+          # breaking change (PR scans now need it to call the GitHub API).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
 
   backend:

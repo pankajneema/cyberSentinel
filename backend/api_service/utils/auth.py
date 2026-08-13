@@ -25,7 +25,8 @@ from typing import Any, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import jwt, JWTError
+import jwt
+from jwt import PyJWTError
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,7 +69,7 @@ async def verify_access_token(token: str) -> dict[str, Any]:
     """Verify a self-issued access token and return its claims, or raise 401."""
     try:
         return jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
-    except JWTError as exc:
+    except PyJWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired authentication token",
@@ -101,7 +102,7 @@ def create_state_token(*, provider: str, minutes: int = 10) -> str:
 def verify_state_token(token: str, *, provider: str) -> bool:
     try:
         claims = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
-    except JWTError:
+    except PyJWTError:
         return False
     return claims.get("type") == "oauth_state" and claims.get("provider") == provider
 

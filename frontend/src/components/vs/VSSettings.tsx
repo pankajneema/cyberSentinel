@@ -48,12 +48,12 @@ interface VSSettingsProps {
   canWrite?: boolean;
 }
 
+// Must match the worker's actual engine set (worker/services/vs.go vsEngineTool) —
+// picking anything else silently produces zero scan stages, not an error.
 const ENGINE_OPTIONS: { value: string; label: string }[] = [
-  { value: "nuclei", label: "Nuclei" },
-  { value: "nmap", label: "Nmap" },
-  { value: "openvas", label: "OpenVAS" },
-  { value: "zap", label: "ZAP" },
-  { value: "trivy", label: "Trivy" },
+  { value: "nuclei", label: "Nuclei (CVE / misconfig templates)" },
+  { value: "sslyze", label: "SSL/TLS Analysis" },
+  { value: "nmap", label: "Port & Service Scan (Nmap NSE)" },
   { value: "default-login", label: "Default / Weak Credentials" },
 ];
 

@@ -120,10 +120,15 @@ async def create_scan(payload: VsScanCreate, db: AsyncSession = Depends(get_db),
         VsScanProfile.id == payload.profile_id, VsScanProfile.org_id == org_id))).scalar_one_or_none()
     if not prof:
         raise HTTPException(400, "Unknown profile_id for this org")
+    # INTERVAL/CRON scans must get an initial next_run_at here, or vs/service.py's
+    # tick_due_scans() (which only selects next_run_at IS NOT NULL) never picks them
+    # up — they'd sit as "scheduled" in the UI forever without ever firing.
+    from utils.schedule_math import compute_next_run
+    _next_run = compute_next_run(payload.schedule_type, payload.schedule_value, datetime.utcnow())
     scan = VsScan(
         org_id=org_id, user_id=user.user_id, name=payload.name, profile_id=payload.profile_id,
         asset_ids=payload.asset_ids, schedule_type=payload.schedule_type,
-        schedule_value=payload.schedule_value, status="PENDING",
+        schedule_value=payload.schedule_value, status="PENDING", next_run_at=_next_run,
     )
     db.add(scan)
     await db.commit()
@@ -158,6 +163,11 @@ async def update_scan(scan_id: str, payload: VsScanUpdate, db: AsyncSession = De
         val = getattr(payload, field)
         if val is not None:
             setattr(scan, field, val)
+    # Same reasoning as create_scan(): if the schedule itself changed, next_run_at
+    # must be recomputed or a switch to/edit of INTERVAL/CRON silently never fires.
+    if payload.schedule_type is not None or payload.schedule_value is not None:
+        from utils.schedule_math import compute_next_run
+        scan.next_run_at = compute_next_run(scan.schedule_type, scan.schedule_value, datetime.utcnow())
     scan.updated_at = datetime.utcnow()
     await db.commit()
     await db.refresh(scan)
